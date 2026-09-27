@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './common.mjs';
 
-export const LIMITS = { normal: 3000, high: 3000 };
+export const LIMITS = { normal: 10000, high: 10000 };
 export const COVERAGE = JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'coverage.json'), 'utf8')).countries;
 
 export function areaKm2([w, s, e, n]) {

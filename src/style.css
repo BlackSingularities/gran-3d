@@ -635,7 +635,7 @@ input[type='date'] {
   position: relative; width: min(880px, 94vw); max-height: 90vh; display: flex; flex-direction: column; border-radius: 22px; padding: 26px 28px 18px;
   background: var(--glass-2); border: 1px solid var(--hair-2); box-shadow: var(--shadow); animation: pop 0.2s ease-out;
 }
-.maps__box--picker { width: min(1120px, 96vw); max-height: 94vh; overflow-y: auto; scrollbar-width: thin; }
+.maps__box--picker { width: min(1380px, 98vw); max-height: 96vh; overflow-y: auto; scrollbar-width: thin; }
 .maps__close { position: absolute; right: 18px; top: 18px; }
 .maps__summary { display: flex; gap: 18px; font-family: var(--mono); font-size: 11px; color: var(--paper-3); margin: -4px 0 12px; }
 .maps__summary b { color: var(--teal); }
@@ -644,7 +644,7 @@ input[type='date'] {
 .maps__list { overflow-y: auto; margin: 0 -8px; padding: 0 8px; scrollbar-width: thin; }
 .maps__group { margin-bottom: 16px; }
 .maps__group > .kicker { margin: 6px 0 8px; }
-.maps__pickergrid { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 16px; min-height: 390px; }
+.maps__pickergrid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; min-height: 560px; }
 .areamap, .areaform { border: 1px solid var(--hair); border-radius: 16px; background: rgba(0,0,0,0.2); overflow: hidden; }
 .areamap { display: flex; flex-direction: column; min-width: 0; }
 .areamap__toolbar { min-height: 43px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--hair); }
@@ -652,7 +652,7 @@ input[type='date'] {
 .areamap__focus { display: flex; gap: 5px; flex-wrap: wrap; }
 .chip { padding: 5px 9px; border: 1px solid var(--hair); border-radius: 999px; color: var(--paper-2); font-size: 10.5px; background: rgba(255,255,255,0.025); }
 .chip:hover { border-color: var(--teal); color: var(--paper); }
-.areamap__canvas { position: relative; flex: 1; min-height: 330px; overflow: hidden; touch-action: none; cursor: crosshair; background:
+.areamap__canvas { position: relative; flex: 1; min-height: 500px; overflow: hidden; touch-action: none; cursor: crosshair; background:
   radial-gradient(circle at 52% 48%, rgba(63,214,198,.06), transparent 45%),
   linear-gradient(rgba(239,231,214,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(239,231,214,.035) 1px, transparent 1px), #091014;
   background-size: auto, 32px 32px, 32px 32px, auto;
@@ -723,10 +723,20 @@ input[type='date'] {
 .menu__more:hover { border-color: var(--teal); color: var(--paper); }
 .menu__more svg { width: 20px; height: 20px; color: var(--teal); }
 .menu__more small { display: block; font-size: 11px; color: var(--paper-4); margin-top: 1px; }
+@media (max-width: 1050px) {
+  .maps__box--picker { width: min(920px, 97vw); }
+  .maps__pickergrid { grid-template-columns: 1fr; min-height: 0; }
+  .areamap__canvas { min-height: 470px; }
+  .areaform { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(270px, 1.2fr); column-gap: 18px; align-content: start; }
+  .areaform > .kicker, .areaform > .areaform__label, .areaform > .qualitypick { grid-column: 1; }
+  .areaform > .areaform__stats, .areaform > .areaform__download, .areaform > .areaform__note { grid-column: 2; }
+  .areaform > .areaform__stats { grid-row: 1 / span 3; margin-top: 0; }
+}
 @media (max-width: 760px) {
   .maps__box--picker { padding: 22px 14px 14px; }
   .maps__pickergrid { grid-template-columns: 1fr; }
   .areamap__canvas { min-height: 300px; }
+  .areaform { display: block; }
   .areamap__toolbar > span { display: none; }
   .mcard { grid-template-columns: 1fr; }
   .mcard__actions { justify-content: flex-start; max-width: none; }

@@ -2,7 +2,7 @@
 export type Quality = 'normal' | 'high';
 export type BBox = [number, number, number, number];
 
-export const LIMITS: Record<Quality, number> = { normal: 3000, high: 3000 };
+export const LIMITS: Record<Quality, number> = { normal: 10000, high: 10000 };
 
 export interface CoverageCountry {
   code: string;

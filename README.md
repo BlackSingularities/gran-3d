@@ -2,7 +2,7 @@
 
 Trójwymiarowy atlas polskich gór działający w całości w przeglądarce. Łączy rzeczywisty numeryczny model terenu z siecią znakowanych szlaków z OpenStreetMap i dokłada do tego narzędzia analityczne: wysokość względną, wyznaczanie tras z wariantami, pole widoczności, linię wzroku, cienie o dowolnej porze dnia i przelot kamery nad trasą.
 
-Aplikacja jest przeznaczona do **samodzielnego hostowania**. Repozytorium nie zawiera żadnych danych gór. W aplikacji otwierasz **mapę pobierania** (przycisk „Mapy” na szynie narzędzi albo klawisz `D`) i zaznaczasz kwadrat do 3000 km² w dowolnym miejscu Europy — także w Alpach. Serwer pobiera dokładnie ten wycinek i przygotowuje go w tle. Zapamiętane są wyłącznie kwadraty wybrane przez użytkownika; nie ma katalogu gotowych pasm.
+Aplikacja jest przeznaczona do **samodzielnego hostowania**. Repozytorium nie zawiera żadnych danych gór. W aplikacji otwierasz **mapę pobierania** (przycisk „Mapy” na szynie narzędzi albo klawisz `D`) i zaznaczasz kwadrat do 10 000 km² w dowolnym miejscu Europy — także w Alpach. Serwer pobiera dokładnie ten wycinek i przygotowuje go w tle. Zapamiętane są wyłącznie kwadraty wybrane przez użytkownika; nie ma katalogu gotowych pasm.
 
 ## Uruchomienie
 
