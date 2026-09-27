@@ -672,3 +672,5 @@ input[type='date'] {
   .mcard { grid-template-columns: 1fr; }
   .mcard__actions { justify-content: flex-start; max-width: none; }
 }
+/* znaczniki informacyjne nie przechwytują kliknięć – klik trafia w teren */
+.marker--passive, .marker--passive * { pointer-events: none !important; }

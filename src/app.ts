@@ -627,7 +627,7 @@ export class App {
     this.selMarker = null;
     if (remove) return;
     const el = document.createElement('div');
-    el.className = 'marker';
+    el.className = 'marker marker--passive';
     el.innerHTML = '<div class="marker-foot"></div>';
     this.selMarker = this.overlay.add({ el, x, z, e, lift: 0 });
   }
@@ -993,13 +993,13 @@ export class App {
     };
     pts.forEach((p, i) => {
       const el = document.createElement('div');
-      el.className = 'marker';
+      el.className = 'marker marker--passive';
       el.innerHTML = `<div class="mpt" title="Punkt ${i + 1}"></div>`;
       this.mMarkers.push(this.overlay.add({ el, x: p.x, z: p.z, e: p.e, lift: 0 }));
     });
     if (preview.length >= 2) {
       const el = document.createElement('div');
-      el.className = 'marker';
+      el.className = 'marker marker--passive';
       el.innerHTML = `<div class="mlabel">${fmtDist(surf)} · ${fmtSigned(B.e - A.e)}</div>`;
       this.mMarkers.push(this.overlay.add({ el, x: B.x, z: B.z, e: B.e, lift: 0 }));
     }
@@ -1107,7 +1107,7 @@ export class App {
     const t = r.track;
     if (!this.hoverMarker) {
       const el = document.createElement('div');
-      el.className = 'marker';
+      el.className = 'marker marker--passive';
       el.innerHTML = '<div class="hovermark"></div>';
       this.hoverMarker = this.overlay.add({ el, x: t.x[i], z: t.z[i], e: t.e[i], lift: 6 });
     }
@@ -1150,7 +1150,7 @@ export class App {
       this.refMarker = null;
       if (refKey && s.ref) {
         const el = document.createElement('div');
-        el.className = 'marker';
+        el.className = 'marker marker--passive';
         el.innerHTML = `<div class="pin${s.lens === 'band' ? ' pin--band' : ''}"><div class="pin__label"><b>${fmtEle(s.ref.e)}</b> ${lensLabel[s.lens]}</div><div class="pin__stem"></div><div class="pin__dot"></div></div>`;
         this.refMarker = this.overlay.add({ el, x: s.ref.x, z: s.ref.z, e: s.ref.e, lift: 0 });
       }
@@ -1162,7 +1162,7 @@ export class App {
       this.vsMarker = null;
       if (vsKey && s.viewshed) {
         const el = document.createElement('div');
-        el.className = 'marker';
+        el.className = 'marker marker--passive';
         el.innerHTML = `<div class="pin pin--eye"><div class="pin__label"><b>${fmtEle(s.viewshed.point.e)}</b> + ${s.viewshed.eye.toLocaleString('pl-PL')} m</div><div class="pin__stem"></div><div class="pin__dot"></div></div>`;
         this.vsMarker = this.overlay.add({ el, x: s.viewshed.point.x, z: s.viewshed.point.z, e: s.viewshed.point.e, lift: 0 });
       }
