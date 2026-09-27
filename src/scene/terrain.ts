@@ -23,7 +23,7 @@ export class TerrainLayer {
   private satAbort: AbortController | null = null;
   satProgress = 0;
 
-  constructor(private renderer: THREE.WebGLRenderer, readonly dem: Dem, biome: Biome, buildMesh = true) {
+  constructor(private renderer: THREE.WebGLRenderer, readonly dem: Dem, biome: Biome, buildMesh = true, shared?: Record<string, THREE.IUniform>) {
     const { w, h } = dem;
     this.demTex = new THREE.DataTexture(dem.data, w, h, THREE.RedFormat, THREE.FloatType);
     this.demTex.minFilter = this.demTex.magFilter = THREE.NearestFilter;
@@ -96,8 +96,19 @@ export class TerrainLayer {
         uLand: { value: blank },
         uLandOn: { value: 0 },
         uNoiseAmt: { value: 1 },
+        uGridOrigin: { value: new THREE.Vector2(dem.gx0, dem.gy0) },
+        uGlobe: { value: shared ? 1 : 0 },
       },
     });
+    if (shared) {
+      // wspólne uniformy (kafle globalne trzymają referencje) – przepisujemy wartości tego regionu
+      const u = this.material.uniforms;
+      for (const k of Object.keys(u)) {
+        if (shared[k]) shared[k].value = u[k].value;
+        else shared[k] = u[k];
+      }
+      this.material.uniforms = shared;
+    }
 
     this.mesh = new THREE.Mesh(buildMesh ? this.buildGeometry() : new THREE.BufferGeometry(), this.material);
     this.mesh.visible = buildMesh;

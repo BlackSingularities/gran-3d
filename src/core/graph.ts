@@ -132,8 +132,8 @@ export class TrailGraph {
 
   constructor(raw: RawTrails, dem: Dem) {
     this.routes = raw.routes;
-    this.ox = -dem.widthM / 2 - 1000;
-    this.oz = -dem.heightM / 2 - 1000;
+    this.ox = dem.gxToX(0) - 1000;
+    this.oz = dem.gyToZ(0) - 1000;
     for (const [lon, lat] of raw.nodes) {
       const [x, z] = dem.lonLatToWorld(lon, lat);
       this.nodes.push({ lon, lat, e: dem.sampleLonLat(lon, lat), x, z, edges: [] });

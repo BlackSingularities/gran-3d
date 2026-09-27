@@ -1,4 +1,5 @@
 import { DEG, lat2px, lon2px, px2lat, px2lon, EARTH_R } from './geo';
+import { FRAME_Z, makeFrame, type WorldFrame } from './frame';
 
 export interface DemMeta {
   id: string;
@@ -31,8 +32,12 @@ export class Dem {
   readonly mpp: number;
   readonly centerLat: number;
   readonly centerLon: number;
+  /** ramka świata i położenie jej początku w siatce tego modelu */
+  readonly frame: WorldFrame;
+  readonly gx0: number;
+  readonly gy0: number;
 
-  constructor(meta: DemMeta, raw: Uint16Array) {
+  constructor(meta: DemMeta, raw: Uint16Array, frame?: WorldFrame) {
     this.w = meta.width;
     this.h = meta.height;
     this.zoom = meta.zoom;
@@ -44,7 +49,14 @@ export class Dem {
     for (let i = 0; i < raw.length; i++) this.data[i] = raw[i] * meta.scale;
     this.centerLon = px2lon(this.px0 + this.w / 2, this.zoom);
     this.centerLat = px2lat(this.py0 + this.h / 2, this.zoom);
-    this.mpp = (2 * Math.PI * EARTH_R * Math.cos(this.centerLat * DEG)) / (256 * 2 ** this.zoom);
+    // bez ramki: ramka wyśrodkowana na regionie (zachowanie „jednego obszaru”)
+    this.frame = frame ?? makeFrame(this.centerLon, this.centerLat);
+    const k = 2 ** (FRAME_Z - this.zoom);
+    this.mpp = this.frame.mpp20 * k;
+    this.gx0 = this.frame.ox / k - this.px0 - 0.5;
+    this.gy0 = this.frame.oy / k - this.py0 - 0.5;
+    void EARTH_R;
+    void DEG;
   }
 
   get widthM() { return this.w * this.mpp; }
@@ -55,10 +67,10 @@ export class Dem {
   lonToGx(lon: number) { return lon2px(lon, this.zoom) - this.px0 - 0.5; }
   latToGy(lat: number) { return lat2px(lat, this.zoom) - this.py0 - 0.5; }
 
-  gxToX(gx: number) { return (gx - (this.w - 1) / 2) * this.mpp; }
-  gyToZ(gy: number) { return (gy - (this.h - 1) / 2) * this.mpp; }
-  xToGx(x: number) { return x / this.mpp + (this.w - 1) / 2; }
-  zToGy(z: number) { return z / this.mpp + (this.h - 1) / 2; }
+  gxToX(gx: number) { return (gx - this.gx0) * this.mpp; }
+  gyToZ(gy: number) { return (gy - this.gy0) * this.mpp; }
+  xToGx(x: number) { return x / this.mpp + this.gx0; }
+  zToGy(z: number) { return z / this.mpp + this.gy0; }
 
   lonLatToWorld(lon: number, lat: number): [number, number] {
     return [this.gxToX(this.lonToGx(lon)), this.gyToZ(this.latToGy(lat))];

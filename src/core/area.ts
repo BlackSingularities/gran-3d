@@ -83,3 +83,44 @@ export function estimate(bbox: BBox, quality: Quality, res: LidarRes = 3) {
   const min = quality === 'high' ? 1.5 + km2 / 900 + km2 * lf * perKm2[1] : 1 + km2 / 800;
   return { km2, mb, min, lidar: cov.lidar, res };
 }
+
+// ------------------------------------------------------------------ kafle globalne
+const px2lonT = (px: number, z: number) => (px / (256 * 2 ** z)) * 360 - 180;
+const px2latT = (py: number, z: number) => (Math.atan(Math.sinh(Math.PI - (2 * Math.PI * py) / (256 * 2 ** z))) * 180) / Math.PI;
+const nearMemo = new Map<string, boolean>();
+
+/** Czy kafel (z zapasem km) leży przy kraju spełniającym warunek – test siatką 7×7 punktów. */
+function tileNear(z: number, x: number, y: number, bufM: number, pick: (c: CoverageCountry) => boolean) {
+  const lat = px2latT((y + 0.5) * 256, z);
+  const buf = bufM / ((40075016 / 2 ** z / 256) * Math.cos((lat * Math.PI) / 180));
+  const w = px2lonT(x * 256 - buf, z), e = px2lonT(x * 256 + 256 + buf, z);
+  const n = px2latT(y * 256 - buf, z), s = px2latT(y * 256 + 256 + buf, z);
+  const cs = coverage.filter(pick);
+  for (let j = 0; j <= 6; j++) for (let i = 0; i <= 6; i++) {
+    const lon = w + ((e - w) * i) / 6, la = s + ((n - s) * j) / 6;
+    if (cs.some((c) => inRing(lon, la, c.ring))) return true;
+  }
+  return false;
+}
+
+/** Kafel może mieć dane LiDAR (Polska, Czechy) – jak w scripts/lib/tileservice.mjs. */
+export function tileNearLidar(z: number, x: number, y: number) {
+  const k = `L${z}/${x}/${y}`;
+  let v = nearMemo.get(k);
+  if (v === undefined) {
+    v = tileNear(z, x, y, 3000, (c) => !!c.lidar);
+    nearMemo.set(k, v);
+  }
+  return v;
+}
+
+/** Krajowe ortofoto obejmujące kafel (w kolejności rysowania). */
+export function tileOrthoSources(z: number, x: number, y: number) {
+  const k = `O${z}/${x}/${y}`;
+  const cached = nearMemo.get(k);
+  const out: string[] = [];
+  if (cached === false || z < 10) return out;
+  for (const code of ['sk', 'cz', 'pl']) if (tileNear(z, x, y, 0, (c) => c.ortho === code)) out.push(code);
+  nearMemo.set(k, out.length > 0);
+  return out;
+}

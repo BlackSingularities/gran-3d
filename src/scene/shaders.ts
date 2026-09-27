@@ -70,6 +70,7 @@ uniform highp sampler2D uTile;
 uniform vec4 uTileInfo;      // początek x, początek z, metry na próbkę, głębokość fartucha
 uniform float uMpp;
 uniform vec2 uSize;
+uniform vec2 uGridOrigin;
 varying vec2 vGrid;
 varying vec3 vPos;
 varying vec3 vWorld;
@@ -80,7 +81,7 @@ void main() {
   vec3 p = vec3(uTileInfo.x + tpos.x * uTileInfo.z, h, uTileInfo.y + tpos.y * uTileInfo.z);
   vPos = p;
   vTexel = tpos + 1.0;
-  vGrid = vec2(p.x / uMpp + (uSize.x - 1.0) * 0.5, p.z / uMpp + (uSize.y - 1.0) * 0.5);
+  vGrid = vec2(p.x / uMpp + uGridOrigin.x, p.z / uMpp + uGridOrigin.y);
   vec4 wp = modelMatrix * vec4(p, 1.0);
   vWorld = wp.xyz;
   vec4 mv = viewMatrix * wp;
@@ -127,6 +128,7 @@ uniform float uAutumn;
 uniform vec3 uBiome;         // las, kosodrzewina, skały
 uniform sampler2D uLand;     // R woda, G las, B skały (255) / zarośla (~110)
 uniform float uLandOn;
+uniform float uGlobe;         // 1 = teren globalny (region tylko jako nakładka danych)
 uniform float uNoiseAmt;
 #ifdef TILE
 uniform highp sampler2D uTile;
@@ -188,7 +190,7 @@ void main() {
   #include <logdepthbuf_fragment>
 #ifdef TILE
   // kafle wystają poza obszar modelu – odcinamy je na krawędzi bryły
-  if (vGrid.x < -0.5 || vGrid.y < -0.5 || vGrid.x > uSize.x - 0.5 || vGrid.y > uSize.y - 0.5) discard;
+  if (uGlobe < 0.5 && (vGrid.x < -0.5 || vGrid.y < -0.5 || vGrid.x > uSize.x - 0.5 || vGrid.y > uSize.y - 0.5)) discard;
   vec2 P = vTexel;
   float stepM = uTileInfo.z;
 #else
@@ -212,6 +214,8 @@ void main() {
   float northness = cos(aspect);
   vec3 N = normalize(vec3(-grad.x * uExag, 1.0, -grad.y * uExag));
   vec2 uv = (vGrid + 0.5) / uSize;
+  // tekstury regionu (pokrycie, cienie, okluzja, widoczność) tylko wewnątrz aktywnego sektora
+  float inReg = step(-0.5, vGrid.x) * step(-0.5, vGrid.y) * step(vGrid.x, uSize.x - 0.5) * step(vGrid.y, uSize.y - 0.5);
   vec2 wp = vPos.xz;
   float near = 1.0 - smoothstep(1500.0, 14000.0, vDist);
 
@@ -228,8 +232,10 @@ void main() {
     N = normalize(N + dn * 1.3);
   }
 
-  vec3 landC = uLandOn > 0.5 ? texture(uLand, uv).rgb : vec3(0.0);
+  vec3 landC = uLandOn > 0.5 && inReg > 0.5 ? texture(uLand, uv).rgb : vec3(0.0);
   float water = smoothstep(0.4, 0.62, landC.r);
+  // morza i oceany: model globalny ma tam 0 m
+  water = max(water, 1.0 - smoothstep(0.15, 1.2, elev));
   vec3 base;
   float orthoA = 0.0;
   float lit = 1.0; // 1 = oświetlenie słoneczne, 0 = kartograficzne
@@ -254,7 +260,7 @@ void main() {
     float rockA = clamp(smoothstep(0.6, 0.8, slope) * smoothstep(treeline - 300.0, treeline, elev) + smoothstep(0.85, 1.05, slope), 0.0, 1.0);
     rockA = max(rockA, smoothstep(uBiome.z - 80.0, uBiome.z + 160.0, elev + (nMid - 0.5) * 260.0) * smoothstep(0.25, 0.45, slope + nMid * 0.2));
     float screeA = smoothstep(0.45, 0.6, slope) * (1.0 - smoothstep(0.7, 0.85, slope)) * smoothstep(uBiome.y, uBiome.z, elev) * vnoise(wp / 50.0);
-    if (uLandOn > 0.5) {
+    if (uLandOn > 0.5 && inReg > 0.5) {
       // rzeczywiste pokrycie terenu z OpenStreetMap
       float edge = (vnoise(wp / 22.0) - 0.5) * 0.35;
       float forestM = smoothstep(0.3, 0.7, landC.g + edge);
@@ -331,11 +337,11 @@ void main() {
   }
 
   // ---------- oświetlenie ----------
-  float ao = texture(uAoTex, uv).r;
+  float ao = inReg > 0.5 ? texture(uAoTex, uv).r : 0.85;
   vec3 col;
   if (lit > 0.5) {
     float ndl = max(dot(N, uSunDir), 0.0);
-    float sh = uShadowOn > 0.5 ? texture(uShadowTex, uv).r : 1.0;
+    float sh = uShadowOn > 0.5 && inReg > 0.5 ? texture(uShadowTex, uv).r : 1.0;
     float sky = 0.55 + 0.45 * N.y;
     vec3 direct = uSunColor * ndl * sh;
     vec3 ambient = uSkyColor * sky * (0.35 + 0.65 * ao);
@@ -378,7 +384,7 @@ void main() {
     vec3 body = mix(shallow, deep, depth);
     vec3 wc;
     if (lit > 0.5) {
-      float sh = uShadowOn > 0.5 ? texture(uShadowTex, uv).r : 1.0;
+      float sh = uShadowOn > 0.5 && inReg > 0.5 ? texture(uShadowTex, uv).r : 1.0;
       // odbicie nieba: błękit zenitu przechodzący w jasny horyzont przy patrzeniu pod kątem
       vec3 skyRefl = mix(uSkyColor * 1.25, uFogColor * 1.05, pow(1.0 - cosV, 2.0));
       vec3 lightIn = uSkyColor * 0.9 + uSunColor * 0.18 * sh;
@@ -436,7 +442,7 @@ void main() {
 
   // ---------- widoczność ----------
   if (uVsOn > 0.5) {
-    float v = texture(uVsTex, uv).r;
+    float v = inReg > 0.5 ? texture(uVsTex, uv).r : 0.0;
     float vis = smoothstep(0.0, 0.02, v);
     vec3 lum = vec3(dot(col, vec3(0.3, 0.59, 0.11)));
     vec3 hidden = mix(col, lum, 0.8) * 0.26;

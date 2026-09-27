@@ -68,18 +68,84 @@ export class Engine {
     this.controls.zoomToCursor = true;
     this.controls.maxPolarAngle = 86 * DEG;
     this.controls.minDistance = 120;
-    this.controls.maxDistance = 140000;
+    this.controls.maxDistance = 2_500_000;
     this.controls.rotateSpeed = 0.55;
     this.controls.zoomSpeed = 1.1;
     this.controls.keys = { LEFT: 'ArrowLeft', UP: 'ArrowUp', RIGHT: 'ArrowRight', BOTTOM: 'ArrowDown' };
     this.controls.listenToKeyEvents(window);
     this.controls.addEventListener('change', () => (this.dirty = true));
     this.controls.addEventListener('start', () => (this.anim = null));
+    // prawy przycisk: własny obrót wokół punktu terenu pod kursorem (zamiast wokół środka ekranu)
+    this.controls.mouseButtons.RIGHT = -1 as unknown as THREE.MOUSE;
+    this.bindPivotOrbit();
 
     const ro = new ResizeObserver(() => this.resize());
     ro.observe(canvas.parentElement!);
     this.resize();
     requestAnimationFrame(this.loop);
+  }
+
+  /** czy ostatnie przeciągnięcie prawym przyciskiem było obrotem (wtedy bez menu kontekstowego) */
+  rightDragged = false;
+  private orbit: { pivot: THREE.Vector3; x: number; y: number; moved: boolean } | null = null;
+
+  private bindPivotOrbit() {
+    const c = this.canvas;
+    c.addEventListener('pointerdown', (e) => {
+      if (e.button !== 2 || this.panorama) return;
+      const hit = this.pick(e.clientX, e.clientY);
+      const pivot = hit ? new THREE.Vector3(hit.x, hit.y * this.exag, hit.z) : this.controls.target.clone();
+      this.orbit = { pivot, x: e.clientX, y: e.clientY, moved: false };
+      this.rightDragged = false;
+      this.anim = null;
+      c.setPointerCapture(e.pointerId);
+    });
+    c.addEventListener('pointermove', (e) => {
+      const o = this.orbit;
+      if (!o) return;
+      const dx = e.clientX - o.x, dy = e.clientY - o.y;
+      if (!o.moved && Math.hypot(dx, dy) < 4) return;
+      o.moved = true;
+      this.rightDragged = true;
+      o.x = e.clientX;
+      o.y = e.clientY;
+      this.rotateAround(o.pivot, -dx * 0.0055, -dy * 0.0045);
+    });
+    const end = () => {
+      this.orbit = null;
+    };
+    c.addEventListener('pointerup', end);
+    c.addEventListener('pointercancel', end);
+  }
+
+  private tmpA = new THREE.Vector3();
+  private tmpB = new THREE.Vector3();
+  /** Obrót kamery i celu wokół punktu: odchylenie (wokół pionu) i nachylenie (wokół osi poziomej kamery). */
+  private rotateAround(pivot: THREE.Vector3, yaw: number, pitch: number) {
+    const cam = this.camera.position, t = this.controls.target;
+    const up = new THREE.Vector3(0, 1, 0);
+    const qYaw = new THREE.Quaternion().setFromAxisAngle(up, yaw);
+    // oś pozioma: prawy wektor kamery rzutowany na płaszczyznę
+    const fwd = this.tmpA.copy(t).sub(cam);
+    const right = new THREE.Vector3().crossVectors(fwd, up).normalize();
+    const qPitch = new THREE.Quaternion().setFromAxisAngle(right, pitch);
+    const q = qYaw.clone().multiply(qPitch);
+    const nc = this.tmpB.copy(cam).sub(pivot).applyQuaternion(q).add(pivot);
+    const nt = t.clone().sub(pivot).applyQuaternion(q).add(pivot);
+    // ograniczenie nachylenia: kamera nad celem, nie „przez zenit”
+    const d = nc.clone().sub(nt);
+    const elev = Math.asin(clamp(d.y / d.length(), -1, 1)) / DEG;
+    if (elev < 3 || elev > 89) {
+      // tylko odchylenie
+      nc.copy(cam).sub(pivot).applyQuaternion(qYaw).add(pivot);
+      nt.copy(t).sub(pivot).applyQuaternion(qYaw).add(pivot);
+    }
+    const g = this.groundY(nc.x, nc.z) + 30 * this.exag;
+    if (nc.y < g) return;
+    cam.copy(nc);
+    t.copy(nt);
+    this.camera.lookAt(t);
+    this.dirty = true;
   }
 
   resize() {
@@ -94,7 +160,7 @@ export class Engine {
   setDem(dem: Dem) {
     this.dem = dem;
     const r = Math.max(dem.widthM, dem.heightM);
-    this.controls.maxDistance = r * 1.6;
+    this.controls.maxDistance = Math.max(r * 1.6, 2_500_000);
     this.dirty = true;
   }
 
@@ -180,14 +246,7 @@ export class Engine {
     const t = this.controls.target;
     const dem = this.dem!;
     // cel kamery przyklejony do terenu (płynnie)
-    const tx = clamp(t.x, -dem.widthM / 2, dem.widthM / 2);
-    const tz = clamp(t.z, -dem.heightM / 2, dem.heightM / 2);
-    if (tx !== t.x || tz !== t.z) {
-      this.camera.position.x += tx - t.x;
-      this.camera.position.z += tz - t.z;
-      t.x = tx;
-      t.z = tz;
-    }
+    void dem;
     const gy = this.groundY(t.x, t.z);
     if (!this.anim) {
       const dy = (gy - t.y) * 0.15;
@@ -205,7 +264,7 @@ export class Engine {
     const cam = this.camera;
     const above = Math.max(10, cam.position.y - this.groundY(cam.position.x, cam.position.z));
     cam.near = this.panorama ? 0.5 : clamp(above * 0.05, 2, 400);
-    cam.far = 500000;
+    cam.far = 20_000_000;
     cam.updateProjectionMatrix();
   }
 
@@ -314,7 +373,7 @@ export class Engine {
     if (!this.panorama) return;
     this.panorama = false;
     this.controls.minDistance = 120;
-    this.controls.maxDistance = this.dem ? Math.max(this.dem.widthM, this.dem.heightM) * 1.6 : 140000;
+    this.controls.maxDistance = 2_500_000;
     this.controls.enablePan = true;
     this.controls.enableZoom = true;
     this.controls.maxPolarAngle = 86 * DEG;

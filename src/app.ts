@@ -4,7 +4,8 @@ import { bearing, clamp, curvatureDrop, DEG, fmtDist, fmtEle, fmtSigned, haversi
 import { download, parseGpx, routeToGpx } from './core/gpx';
 import { timeModel } from './core/metrics';
 import { loadGfx, saveGfx } from './core/gfx';
-import { loadRegion, REGIONS, regionForPoint, type LoadedRegion, type Poi } from './core/region';
+import { loadRegion, placeholderRegion, PLACEHOLDER_ID, REGIONS, regionForPoint, sectorBBox, withDefaults, type LoadedRegion, type Poi, type RegionDef } from './core/region';
+import { frameLonLatToWorld, frameWorldToLonLat, makeFrame, type WorldFrame } from './core/frame';
 import { Store, todayWarsaw, type Lens, type MeasurePoint, type State, type Tool, type Waypoint } from './core/store';
 import { seasonalSnowline, sunPosition, sunVector, warsawDate } from './core/sun';
 import { Engine } from './scene/engine';
@@ -158,25 +159,42 @@ export class App {
   }
 
   // ---------------------------------------------------------------- region
+  // ---------------------------------------------------------------- świat i sektory (model „Google Earth”)
+  /** ramka świata – ustalana raz na sesję */
+  wf: WorldFrame | null = null;
+  /** wspólne uniformy terenu (kafle globalne trzymają do nich referencje) */
+  private shared: Record<string, THREE.IUniform> = {};
+  private sectorBusy = false;
+  private sectorCheck = 0;
+  /** sektor, na którego dane czekamy (przygotowywany na serwerze) */
+  pendingSector: string | null = null;
+
+  /** Start: ramka w punkcie widoku, teren globalny, zastępczy sektor; dane okolicy dociągną się same. */
+  async start(view: { lon: number; lat: number; distance: number; heading: number; pitch: number }, onProgress: (f: number, label: string) => void) {
+    this.wf = makeFrame(view.lon, view.lat);
+    onProgress(0.2, 'Ramka świata');
+    this.activate(placeholderRegion(sectorBBox(view.lon, view.lat), this.wf));
+    const [x, z] = frameLonLatToWorld(this.wf, view.lon, view.lat);
+    this.engine.setView({ x, z, distance: view.distance, heading: view.heading, pitch: view.pitch });
+    onProgress(0.5, 'Teren globalny');
+    await this.tiles!.whenReady();
+    onProgress(1, 'Gotowe');
+    void this.checkSector(true);
+  }
+
+  /** Zgodność wstecz: otwarcie regionu po id (np. z menu ostatnich miejsc). */
   async loadRegion(id: string, onProgress: (f: number, label: string) => void) {
-    const def = REGIONS.find((r) => r.id === id) ?? REGIONS[0];
-    this.loading = true;
+    const def = REGIONS.find((r) => r.id === id);
+    if (!def) return;
+    const data = await loadRegion(def, onProgress, this.wf ?? undefined);
+    this.activate(data);
+  }
+
+  /** Podmiana danych okolicy (sektora) bez ruszania kamery i terenu globalnego. */
+  private activate(data: LoadedRegion) {
     this.stopFly();
-    this.engine.exitPanorama();
-    const data = await loadRegion(def, onProgress);
-    onProgress(0.86, 'Budowa bryły terenu');
-    await new Promise((r) => setTimeout(r, 20));
-    // sprzątanie poprzedniego regionu
-    if (this.terrain) {
-      this.engine.world.remove(this.terrain.mesh, this.terrain.walls);
-      this.terrain.dispose();
-    }
-    if (this.tiles) {
-      this.engine.world.remove(this.tiles.group);
-      this.tiles.dispose();
-      this.tiles = null;
-      this.engine.fineHeight = null;
-    }
+    if (!this.wf) this.wf = data.dem.frame;
+    const old = this.terrain;
     if (this.trails) {
       this.engine.world.remove(this.trails.group);
       this.trails.dispose();
@@ -191,68 +209,112 @@ export class App {
 
     this.region = data;
     this.engine.setDem(data.dem);
-    this.terrain = new TerrainLayer(this.engine.renderer, data.dem, data.biome, !data.tiles);
-    if (data.tiles) {
-      // teren LiDAR: kafle z poziomami szczegółowości
-      const tiles = new TileTerrain(
-        data.dem,
-        data.tiles,
-        `${import.meta.env.BASE_URL}data/${def.id}/tiles/`,
-        this.terrain.material.uniforms,
-        def.hd?.ortho ?? [],
-        Math.min(8, this.engine.renderer.capabilities.getMaxAnisotropy())
-      );
+    this.terrain = new TerrainLayer(this.engine.renderer, data.dem, data.biome, false, this.shared);
+    this.terrain.material.uniforms.uExag.value = this.store.state.exag;
+    if (old) old.dispose();
+    this.terrain.onChange = () => (this.engine.dirty = true);
+    if (data.def.id !== PLACEHOLDER_ID) this.terrain.loadLandcover(`${import.meta.env.BASE_URL}data/${data.def.id}/landcover.png`);
+    if (!this.tiles) {
+      const tiles = new TileTerrain(this.wf, null, `${import.meta.env.BASE_URL}tiles/dem/`, this.shared, null, Math.min(8, this.engine.renderer.capabilities.getMaxAnisotropy()));
       tiles.onChange = () => (this.engine.dirty = true);
       this.tiles = tiles;
       this.engine.world.add(tiles.group);
       this.engine.fineHeight = (x, z) => tiles.heightAt(x, z);
-      onProgress(0.9, 'Kafle LiDAR');
-      await tiles.whenReady();
     }
-    this.engine.world.add(this.terrain.mesh, this.terrain.walls);
-    this.terrain.onChange = () => (this.engine.dirty = true);
-    this.terrain.loadLandcover(`${import.meta.env.BASE_URL}data/${def.id}/landcover.png`);
-    onProgress(0.93, 'Sieć szlaków i punkty');
     this.graph = new TrailGraph(data.trails, data.dem);
     this.trails = new TrailsLayer(this.graph);
     this.engine.world.add(this.trails.group);
     this.overlay.setPois(data.pois);
     this.worker.postMessage({ type: 'init', w: data.dem.w, h: data.dem.h, mpp: data.dem.mpp, data: data.dem.data });
     this.routesLayer.setRoutes([], 0);
-    this.routesLayer.setGpx(null);
-    this.routesLayer.setMeasure(null, null, false);
-
-    this.store.set({ regionId: def.id, waypoints: [], routes: [], ref: null, viewshed: null, measure: [], gpx: null, panorama: false });
-    this.satProgress = 0;
+    this.store.set({ regionId: data.def.id, waypoints: [], routes: [], viewshed: null });
     this.applyStyle();
     this.applyLayers();
     this.applyGfx(null);
     this.updateSun();
-
-    const h = def.home;
-    const [x, z] = data.dem.lonLatToWorld(h.lon, h.lat);
-    const ph = this.pendingHash;
-    if (ph?.view && ph.region === def.id) {
-      const [vx, vz] = data.dem.lonLatToWorld(ph.view.lon, ph.view.lat);
-      this.engine.setView({ x: vx, z: vz, distance: ph.view.distance, heading: ph.view.heading, pitch: ph.view.pitch });
-    } else {
-      this.engine.setView({ x, z, distance: h.distance * 1.9, heading: h.heading - 25, pitch: 30 });
-      this.engine.flyTo({ x, z, distance: h.distance, heading: h.heading, pitch: h.pitch }, 3200);
-    }
-    if (ph?.region === def.id) {
-      if (ph.mode) this.store.set({ routeMode: ph.mode });
-      if (ph.wps?.length) {
+    this.applyLens();
+    if (data.def.id !== PLACEHOLDER_ID) {
+      this.rememberPlace(data.def);
+      const ph = this.pendingHash;
+      if (ph?.wps?.length) {
+        if (ph.mode) this.store.set({ routeMode: ph.mode });
         for (const [lon, lat] of ph.wps) {
           const [wx, wz] = data.dem.lonLatToWorld(lon, lat);
-          this.addWaypoint(wx, wz, undefined, true);
+          if (data.dem.inside(wx, wz)) this.addWaypoint(wx, wz, undefined, true);
         }
         this.store.set({ tool: 'route' });
       }
+      this.pendingHash = null;
     }
-    this.pendingHash = null;
-    this.loading = false;
-    onProgress(1, 'Gotowe');
+    this.engine.dirty = true;
     this.changed();
+  }
+
+  get sectorReady() {
+    return !!this.region && this.region.def.id !== PLACEHOLDER_ID;
+  }
+
+  /** Sprawdza, czy pod kamerą jest inny sektor, i dociąga jego dane (przygotowane na serwerze). */
+  async checkSector(force = false) {
+    if (!this.wf || this.sectorBusy) return;
+    const now = performance.now();
+    if (!force && now - this.sectorCheck < 1500) return;
+    this.sectorCheck = now;
+    const v = this.engine.view;
+    if (v.distance > 160000 || this.engine.panorama) return;
+    const [lon, lat] = frameWorldToLonLat(this.wf, v.x, v.z);
+    const cur = this.region?.def;
+    const inside = cur && lon >= cur.bbox[0] && lon <= cur.bbox[2] && lat >= cur.bbox[1] && lat <= cur.bbox[3];
+    if (inside && this.sectorReady && !force) return;
+    this.sectorBusy = true;
+    try {
+      const r = await fetch(`${import.meta.env.BASE_URL}api/sector?lon=${lon.toFixed(5)}&lat=${lat.toFixed(5)}`, { cache: 'no-store' });
+      if (!r.ok) return;
+      const j = (await r.json()) as { id: string; bbox: [number, number, number, number]; ready: boolean; def?: RegionDef };
+      if (j.ready && j.def && j.id !== cur?.id) {
+        this.pendingSector = null;
+        const def = withDefaults(j.def);
+        const data = await loadRegion(def, () => {}, this.wf);
+        this.activate(data);
+      } else if (!j.ready) {
+        this.pendingSector = j.id;
+        // dopóki dane się przygotowują – rama zastępcza w nowym miejscu (bez szlaków starego sektora)
+        if (!inside) this.activate(placeholderRegion(j.bbox, this.wf));
+      }
+    } catch {
+      /* serwer chwilowo niedostępny */
+    } finally {
+      this.sectorBusy = false;
+      this.changed();
+    }
+  }
+
+  // ---------------------------------------------------------------- ostatnio odwiedzone miejsca
+  recentPlaces(): { name: string; lon: number; lat: number; when: number }[] {
+    try {
+      return JSON.parse(localStorage.getItem('gran.recent.v2') ?? '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  private rememberPlace(def: RegionDef) {
+    if (!def.name) return;
+    const lon = (def.bbox[0] + def.bbox[2]) / 2, lat = (def.bbox[1] + def.bbox[3]) / 2;
+    const list = this.recentPlaces().filter((p) => p.name !== def.name);
+    list.unshift({ name: def.name, lon, lat, when: Date.now() });
+    try {
+      localStorage.setItem('gran.recent.v2', JSON.stringify(list.slice(0, 12)));
+    } catch {
+      /* ignoruj */
+    }
+  }
+
+  /** Lot kamery do punktu geograficznego (w ramce świata). */
+  flyToLonLat(lon: number, lat: number, distance: number) {
+    if (!this.wf) return;
+    const [x, z] = frameLonLatToWorld(this.wf, lon, lat);
+    this.engine.flyTo({ x, z, distance, pitch: 45 }, 2200);
   }
 
   // ---------------------------------------------------------------- stan → scena
@@ -365,7 +427,8 @@ export class App {
     u.uSunColor.value.copy(sky.sun);
     u.uSkyColor.value.copy(sky.ambient);
     u.uFogColor.value.copy(sky.horizon).multiplyScalar(0.9 + sky.day * 0.25);
-    u.uFogDensity.value = 1 / (70000 + sky.day * 20000);
+    this.fogBase = 1 / (70000 + sky.day * 20000);
+    u.uFogDensity.value = this.fogBase;
     // mgła sceny dla linii (szlaki, trasy) – zgodna z perspektywą powietrzną terenu
     const fog = (this.engine.scene.fog as THREE.FogExp2 | null) ?? (this.engine.scene.fog = new THREE.FogExp2(0xffffff, 1));
     fog.color.copy(u.uFogColor.value);
@@ -393,8 +456,16 @@ export class App {
   }
 
   // ---------------------------------------------------------------- pętla
+  private fogBase = 1 / 80000;
   private frame(dt: number) {
     if (!this.terrain) return;
+    // mgła słabnie z wysokością kamery (z góry widać dalej); dane okolicy dociągane po zatrzymaniu kamery
+    const camAlt = Math.max(0, this.engine.camera.position.y / this.engine.exag - this.engine.heightAt(this.engine.camera.position.x, this.engine.camera.position.z));
+    const fd = this.fogBase / (1 + camAlt / 9000);
+    this.terrain.material.uniforms.uFogDensity.value = fd;
+    const sf = this.engine.scene.fog as THREE.FogExp2 | null;
+    if (sf) sf.density = fd * 1.05;
+    if (!this.engine.isMoving) void this.checkSector();
     if (this.tiles) {
       const cam = this.engine.camera;
       cam.updateMatrixWorld();
@@ -450,6 +521,11 @@ export class App {
     canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       if (this.engine.panorama) return;
+      // po obrocie prawym przyciskiem nie pokazujemy menu
+      if (this.engine.rightDragged) {
+        this.engine.rightDragged = false;
+        return;
+      }
       const p = this.engine.pick(e.clientX, e.clientY);
       if (p) this.openCtx?.(e.clientX, e.clientY, this.pointFromWorld(p.x, p.z));
     });
@@ -1364,7 +1440,12 @@ export class App {
     const v = this.engine.view;
     const [lon, lat] = this.region.dem.worldToLonLat(v.x, v.z);
     const s = this.store.state;
-    let h = `#${this.region.def.id}/${lat.toFixed(5)},${lon.toFixed(5)},${Math.round(v.distance)},${Math.round(v.heading)},${Math.round(v.pitch)}`;
+    let h = `#${lat.toFixed(5)},${lon.toFixed(5)},${Math.round(v.distance)},${Math.round(v.heading)},${Math.round(v.pitch)}`;
+    try {
+      localStorage.setItem('gran.view', JSON.stringify({ lat, lon, distance: v.distance, heading: v.heading, pitch: v.pitch }));
+    } catch {
+      /* ignoruj */
+    }
     if (s.waypoints.length) h += `&w=${s.waypoints.map((w) => `${w.lon.toFixed(5)},${w.lat.toFixed(5)}`).join(';')}&m=${s.routeMode === 'trails' ? 't' : 'x'}`;
     history.replaceState(null, '', h);
   }
@@ -1374,8 +1455,10 @@ export class App {
     const out: { region?: string; view?: { lat: number; lon: number; distance: number; heading: number; pitch: number }; wps?: [number, number][]; mode?: 'trails' | 'terrain' } = {};
     if (!h) return out;
     const [main, ...rest] = h.split('&');
-    const [region, cam] = main.split('/');
-    if (REGIONS.some((r) => r.id === region)) out.region = region;
+    // nowy format: #szer,dł,odl,azymut,nachylenie; stary: #region/szer,dł,…
+    const parts = main.split('/');
+    const cam = parts.length > 1 ? parts[1] : parts[0];
+    if (parts.length > 1 && REGIONS.some((r) => r.id === parts[0])) out.region = parts[0];
     if (cam) {
       const [lat, lon, distance, heading, pitch] = cam.split(',').map(Number);
       if ([lat, lon, distance, heading, pitch].every(Number.isFinite)) out.view = { lat, lon, distance, heading, pitch };
@@ -1386,6 +1469,19 @@ export class App {
       if (k === 'm') out.mode = v === 'x' ? 'terrain' : 'trails';
     }
     return out;
+  }
+
+  /** Widok startowy: z adresu, z ostatniej wizyty albo domyślny (Tatry). */
+  startView() {
+    const h = this.pendingHash?.view;
+    if (h) return h;
+    try {
+      const v = JSON.parse(localStorage.getItem('gran.view') ?? 'null');
+      if (v && Number.isFinite(v.lat) && Number.isFinite(v.lon)) return v as { lat: number; lon: number; distance: number; heading: number; pitch: number };
+    } catch {
+      /* ignoruj */
+    }
+    return { lat: 49.215, lon: 20.0, distance: 42000, heading: 172, pitch: 42 };
   }
 
   // ---------------------------------------------------------------- komunikaty

@@ -1,4 +1,6 @@
 import { Dem, type DemMeta } from './dem';
+import type { WorldFrame } from './frame';
+import { lat2px, lon2px, px2lat, px2lon } from './geo';
 import type { TileIndex } from '../scene/tiles';
 
 export interface RegionDef {
@@ -51,7 +53,7 @@ export function regionArea(r: RegionDef) {
   return { wk, hk, km2: wk * hk };
 }
 
-function withDefaults(r: RegionDef): RegionDef {
+export function withDefaults(r: RegionDef): RegionDef {
   if (r.home) return r;
   const { wk, hk } = regionArea(r);
   return {
@@ -172,7 +174,7 @@ async function fetchWithProgress(url: string, onProgress: (f: number) => void) {
   return out.buffer;
 }
 
-export async function loadRegion(def: RegionDef, onProgress: (f: number, label: string) => void): Promise<LoadedRegion> {
+export async function loadRegion(def: RegionDef, onProgress: (f: number, label: string) => void, frame?: WorldFrame): Promise<LoadedRegion> {
   const base = `${import.meta.env.BASE_URL}data/${def.id}/`;
   onProgress(0.02, 'Metadane regionu');
   const meta: DemMeta = await (await fetch(base + 'meta.json')).json();
@@ -183,7 +185,7 @@ export async function loadRegion(def: RegionDef, onProgress: (f: number, label: 
     fetch(base + 'pois.json').then((r) => r.json() as Promise<Poi[]>),
   ]);
   onProgress(0.8, 'Przygotowanie siatki');
-  const dem = new Dem(meta, new Uint16Array(demBuf));
+  const dem = new Dem(meta, new Uint16Array(demBuf), frame);
   const pois = poisRaw.map((p, id) => {
     const [x, z] = dem.lonLatToWorld(p.lon, p.lat);
     return { ...p, x, z, ele: p.e ?? p.d, prom: 0, id };
@@ -241,4 +243,27 @@ function computeProminence(pois: Poi[], dem: Dem) {
 
 export function regionForPoint(lon: number, lat: number) {
   return REGIONS.find((r) => lon > r.bbox[0] && lon < r.bbox[2] && lat > r.bbox[1] && lat < r.bbox[3]);
+}
+
+// ------------------------------------------------------------------ sektory (model „Google Earth”)
+export const SECTOR_Z = 9;
+export const PLACEHOLDER_ID = '__okolica';
+
+/** Sektor (kafel z9) zawierający punkt – jak sectorAt() w serwerze. */
+export function sectorBBox(lon: number, lat: number): [number, number, number, number] {
+  const x = Math.floor(lon2px(lon, SECTOR_Z) / 256), y = Math.floor(lat2px(lat, SECTOR_Z) / 256);
+  return [px2lon(x * 256, SECTOR_Z), px2lat((y + 1) * 256, SECTOR_Z), px2lon((x + 1) * 256, SECTOR_Z), px2lat(y * 256, SECTOR_Z)];
+}
+
+/** Zastępczy „pusty” region (płaski model, bez szlaków) na czas przygotowywania danych okolicy. */
+export function placeholderRegion(bbox: [number, number, number, number], frame: WorldFrame): LoadedRegion {
+  const zoom = 12;
+  const px0 = Math.floor(lon2px(bbox[0], zoom)), px1 = Math.ceil(lon2px(bbox[2], zoom));
+  const py0 = Math.floor(lat2px(bbox[3], zoom)), py1 = Math.ceil(lat2px(bbox[1], zoom));
+  const w = Math.max(2, Math.round((px1 - px0) / 8)), h = Math.max(2, Math.round((py1 - py0) / 8));
+  // rzadka siatka (z9) – tylko jako rama; wysokości dają kafle globalne
+  const meta: DemMeta = { id: PLACEHOLDER_ID, width: w, height: h, zoom: zoom - 3, px0: Math.floor(px0 / 8), py0: Math.floor(py0 / 8), min: 0, max: 3000, scale: 0.1 };
+  const def = withDefaults({ id: PLACEHOLDER_ID, name: '', subtitle: '', bbox, zoom: 9 } as RegionDef);
+  const dem = new Dem(meta, new Uint16Array(w * h), frame);
+  return { def, biome: DEFAULT_BIOME, dem, trails: { nodes: [], edges: [], routes: [] }, pois: [], tiles: null };
 }

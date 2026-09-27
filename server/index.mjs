@@ -15,6 +15,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { CACHE_DIR, DATA_DIR, ROOT } from '../scripts/lib/common.mjs';
 import { LIMITS, areaKm2, deriveRegion, slug, validate } from '../scripts/lib/area.mjs';
+import { getTile, lidarBusy } from '../scripts/lib/tileservice.mjs';
+import { lat2px, lon2px, px2lat, px2lon, UA } from '../scripts/lib/terrain.mjs';
 
 const DEV = process.argv.includes('--dev');
 const PORT = Number(process.env.PORT || 5190);
@@ -56,7 +58,7 @@ function listAreas() {
     if (!e.isDirectory() || e.name.startsWith('.')) continue;
     const dir = path.join(DATA_DIR, e.name);
     const def = readJson(path.join(dir, 'region.json'));
-    if (!def?.custom) continue;
+    if (!def?.custom || def.custom === 'sector') continue;
     const installed = fs.existsSync(path.join(dir, 'meta.json')) && fs.existsSync(path.join(dir, 'trails.json')) && fs.existsSync(path.join(dir, 'install.json'));
     const info = readJson(path.join(dir, 'install.json')) ?? {};
     if (installed && !sizeCache.has(e.name)) sizeCache.set(e.name, dirSize(dir));
@@ -79,6 +81,57 @@ function publicJob(j) {
     id: j.id, level: j.level, state: j.state, progress: j.progress, label: j.label, error: j.error ?? null, log: j.log.slice(-12),
     name: j.name ?? '', res: j.res ?? null, km2: j.km2 ?? null, elapsed, eta, finished: j.finished ?? null,
   };
+}
+
+// ------------------------------------------------------------------ sektory (dane okolicy pod kamerą)
+// Sektor = kafel z9 (~50×50 km): szlaki, punkty, miejscowości, pokrycie terenu i model do analiz.
+const SECTOR_Z = 9;
+export function sectorAt(lon, lat) {
+  const x = Math.floor(lon2px(lon, SECTOR_Z) / 256), y = Math.floor(lat2px(lat, SECTOR_Z) / 256);
+  const bbox = [px2lon(x * 256, SECTOR_Z), px2lat((y + 1) * 256, SECTOR_Z), px2lon((x + 1) * 256, SECTOR_Z), px2lat(y * 256, SECTOR_Z)];
+  return { id: `s${SECTOR_Z}-${x}-${y}`, x, y, bbox };
+}
+
+function ensureSector(sec) {
+  const dir = path.join(DATA_DIR, sec.id);
+  const ready = fs.existsSync(path.join(dir, 'install.json'));
+  if (ready) return { ready: true, def: readJson(path.join(dir, 'region.json')) };
+  if (current?.id === sec.id) return { ready: false, job: publicJob(current) };
+  if (!queue.some((j) => j.id === sec.id)) {
+    const def = { ...deriveRegion({ id: sec.id, name: '', bbox: sec.bbox.map((v) => +v.toFixed(6)), quality: 'normal' }), custom: 'sector' };
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'region.json'), JSON.stringify(def, null, 2));
+    // nowszy sektor wypiera czekające (kamera poleciała dalej); własne kwadraty zostają w kolejce
+    for (let i = queue.length - 1; i >= 0; i--) if (queue[i].sector) queue.splice(i, 1);
+    queue.unshift({ id: sec.id, level: 'base', sector: true, state: 'queued', progress: 0, label: 'W kolejce', log: [] });
+    void runNext();
+  }
+  return { ready: false, queued: true };
+}
+
+// ------------------------------------------------------------------ wyszukiwanie miejsc (Nominatim, 1 zapytanie/s)
+const geoCache = new Map();
+let geoLast = 0;
+async function geocode(q) {
+  const key = q.toLowerCase();
+  if (geoCache.has(key)) return geoCache.get(key);
+  const wait = Math.max(0, geoLast + 1100 - Date.now());
+  geoLast = Date.now() + wait;
+  if (wait) await new Promise((r) => setTimeout(r, wait));
+  const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=pl&q=${encodeURIComponent(q)}`, { headers: { 'User-Agent': UA } });
+  if (!r.ok) throw new Error(`Nominatim ${r.status}`);
+  const j = (await r.json()).map((p) => ({
+    name: p.name || p.display_name.split(',')[0],
+    label: p.display_name,
+    type: p.type,
+    category: p.category,
+    lon: +p.lon,
+    lat: +p.lat,
+    bbox: p.boundingbox ? [+p.boundingbox[2], +p.boundingbox[0], +p.boundingbox[3], +p.boundingbox[1]] : null,
+  }));
+  geoCache.set(key, j);
+  if (geoCache.size > 500) geoCache.delete(geoCache.keys().next().value);
+  return j;
 }
 
 function enqueue(id, level) {
@@ -132,7 +185,7 @@ async function runNext() {
   job.started = Date.now();
   const def = readJson(path.join(DATA_DIR, job.id, 'region.json'));
   const hd = job.level === 'hd' && def?.hd;
-  job.name = def?.name || '';
+  job.name = def?.name || (def?.custom === 'sector' ? 'Dane okolicy' : '');
   job.res = hd ? (def.hd.zoom >= 15 ? 3 : def.hd.zoom >= 14 ? 6 : 12) : null;
   job.km2 = def?.bbox ? Math.round(areaKm2(def.bbox)) : null;
   try {
@@ -186,7 +239,23 @@ async function api(req, res, url) {
       job: publicJob(current),
       queue: queue.map((j) => ({ id: j.id, level: j.level })),
       last: publicJob(lastFinished),
+      lidarBlocks: lidarBusy(),
     });
+  }
+  if (url.pathname === '/api/sector' && req.method === 'GET') {
+    const lon = Number(url.searchParams.get('lon')), lat = Number(url.searchParams.get('lat'));
+    if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lat) > 84) return send(res, 400, { error: 'Złe współrzędne.' });
+    const sec = sectorAt(lon, lat);
+    return send(res, 200, { id: sec.id, bbox: sec.bbox, ...ensureSector(sec) });
+  }
+  if (url.pathname === '/api/geocode' && req.method === 'GET') {
+    const q = (url.searchParams.get('q') ?? '').trim().slice(0, 120);
+    if (q.length < 2) return send(res, 200, []);
+    try {
+      return send(res, 200, await geocode(q));
+    } catch (e) {
+      return send(res, 502, { error: e.message });
+    }
   }
   if (req.method !== 'GET' && !authorized(req)) return send(res, 401, { error: 'Wymagane hasło administratora.' });
   if (url.pathname === '/api/areas' && req.method === 'POST') {
@@ -259,6 +328,12 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', 'http://localhost');
   try {
     if (url.pathname.startsWith('/api/')) return await api(req, res, url);
+    const tm = url.pathname.match(/^\/tiles\/dem\/(\d+)\/(\d+)\/(\d+)\.png$/);
+    if (tm) {
+      const file = await getTile(+tm[1], +tm[2], +tm[3]);
+      if (!file) return send(res, 404, 'Brak kafla', 'text/plain; charset=utf-8');
+      return serveFile(res, file, 'public, max-age=604800');
+    }
     if (url.pathname.startsWith('/data/')) {
       const file = safeJoin(DATA_DIR, url.pathname.slice(6));
       if (!file) return send(res, 400, 'Zła ścieżka', 'text/plain; charset=utf-8');

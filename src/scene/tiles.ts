@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import type { Dem } from '../core/dem';
+import { FRAME_Z, type WorldFrame } from '../core/frame';
+import { tileNearLidar, tileOrthoSources } from '../core/area';
 import { terrainFragment, tileVertex } from './shaders';
 
 /**
@@ -43,8 +44,8 @@ class TNode {
     readonly z: number,
     readonly x: number,
     readonly y: number,
-    readonly min: number,
-    readonly max: number,
+    public min: number,
+    public max: number,
     readonly ox: number,
     readonly oz: number,
     readonly sm: number
@@ -81,16 +82,24 @@ export class TileTerrain {
   /** rozdzielczość ortofoto na najdrobniejszym poziomie */
   orthoMax: 256 | 512 | 1024 = 1024;
   private seg = 128;
+  /** tryb globalny: kafle z serwera dla całej Ziemi (brak indeksu) */
+  readonly global: boolean;
+  private rootZ: number;
+  private topZ: number;
   /** mnożnik mikrorzeźby wspólny dla wszystkich kafli */
   noiseScale = 1;
   constructor(
-    private dem: Dem,
-    readonly index: TileIndex,
+    private wf: WorldFrame,
+    readonly index: TileIndex | null,
     private baseUrl: string,
     private shared: Record<string, THREE.IUniform>,
-    private orthoSources: string[],
+    /** źródła ortofoto; null = dobór automatyczny (Sentinel-2 + ortofoto krajowe) */
+    private orthoSources: string[] | null,
     private anisotropy: number
   ) {
+    this.global = !index;
+    this.rootZ = index ? index.minZ : 4;
+    this.topZ = index ? index.maxZ : 15;
     this.geo = this.buildGeometry();
     this.blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
     this.blank.needsUpdate = true;
@@ -100,15 +109,21 @@ export class TileTerrain {
       w.onmessage = (e) => this.onTile(e.data);
       this.workers.push(w);
     }
-    for (const k of Object.keys(index.tiles)) {
-      const [z, x, y] = k.split('/').map(Number);
-      if (z === index.minZ) this.roots.push(this.node(z, x, y)!);
+    if (index) {
+      for (const k of Object.keys(index.tiles)) {
+        const [z, x, y] = k.split('/').map(Number);
+        if (z === index.minZ) this.roots.push(this.node(z, x, y)!);
+      }
+      for (const r of this.roots) this.request(r, 0);
+    } else {
+      const n = 2 ** this.rootZ;
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) this.roots.push(this.node(this.rootZ, x, y)!);
     }
-    for (const r of this.roots) this.request(r, 0);
     this.pump();
   }
 
-  get maxZ() { return this.index.maxZ; }
+  get maxZ() { return this.topZ; }
+  get minZ() { return this.rootZ; }
   get loading() { return this.inflight + this.queue.size; }
   get orthoLoading() { return this.orthoInflight + this.orthoQueue.size; }
 
@@ -116,19 +131,28 @@ export class TileTerrain {
     const k = key(z, x, y);
     let n = this.nodes.get(k);
     if (n) return n;
-    const mm = this.index.tiles[`${z}/${x}/${y}`];
-    if (!mm) return null;
-    const d = this.dem;
-    const s = 2 ** (z - d.zoom);
-    const ox = ((x * 256) / s - d.px0 - 0.5 - (d.w - 1) / 2) * d.mpp;
-    const oz = ((y * 256) / s - d.py0 - 0.5 - (d.h - 1) / 2) * d.mpp;
-    n = new TNode(z, x, y, mm[0], mm[1], ox, oz, d.mpp / s);
+    let mm: [number, number] | undefined;
+    if (this.index) {
+      mm = this.index.tiles[`${z}/${x}/${y}`];
+      if (!mm) return null;
+    } else {
+      if (x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z || z > this.topZ) return null;
+      // powyżej z13 tylko tam, gdzie jest LiDAR (poza nim model globalny nie ma więcej szczegółów)
+      if (z > 13 && !tileNearLidar(z, x, y)) return null;
+      const p = z > this.rootZ ? this.nodes.get(key(z - 1, x >> 1, y >> 1)) : null;
+      mm = p ? [p.min, p.max] : [-50, 4800];
+    }
+    const f = this.wf;
+    const s20 = 2 ** (FRAME_Z - z);
+    const ox = (x * 256 * s20 - f.ox) * f.mpp20;
+    const oz = (y * 256 * s20 - f.oy) * f.mpp20;
+    n = new TNode(z, x, y, mm[0], mm[1], ox, oz, f.mpp20 * s20);
     this.nodes.set(k, n);
     return n;
   }
 
   private children(n: TNode) {
-    if (n.z >= this.index.maxZ) return null;
+    if (n.z >= this.topZ) return null;
     const a = this.node(n.z + 1, n.x * 2, n.y * 2);
     if (!a) return null;
     return [a, this.node(n.z + 1, n.x * 2 + 1, n.y * 2)!, this.node(n.z + 1, n.x * 2, n.y * 2 + 1)!, this.node(n.z + 1, n.x * 2 + 1, n.y * 2 + 1)!].filter(Boolean);
@@ -224,6 +248,17 @@ export class TileTerrain {
       n.tex.needsUpdate = true;
       n.state = 2;
       this.readyCount++;
+      if (this.global) {
+        // rzeczywisty zakres wysokości kafla (granice do przycinania i LOD)
+        let mn = Infinity, mx = -Infinity;
+        for (let j = 1; j < S - 1; j += 4) for (let i = 1; i < S - 1; i += 4) {
+          const v = n.data[j * S + i];
+          if (v < mn) mn = v;
+          if (v > mx) mx = v;
+        }
+        n.min = mn;
+        n.max = mx;
+      }
     }
     this.pump();
     this.onChange();
@@ -235,8 +270,13 @@ export class TileTerrain {
   }
 
   whenReady() {
+    const t0 = performance.now();
     return new Promise<void>((resolve) => {
-      const check = () => (this.rootsReady ? resolve() : setTimeout(check, 50));
+      const check = () => {
+        const ok = this.global ? this.readyCount > 0 && this.loading === 0 : this.rootsReady;
+        if (ok || performance.now() - t0 > 8000) resolve();
+        else setTimeout(check, 60);
+      };
       check();
     });
   }
@@ -247,7 +287,7 @@ export class TileTerrain {
     this.m4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.m4);
     const cam = camera.position;
-    const lim = this.maxLevel ? Math.min(this.maxLevel, this.index.maxZ) : this.index.maxZ;
+    const lim = this.maxLevel ? Math.min(this.maxLevel, this.topZ) : this.topZ;
     const K = 2.1 * this.quality * Math.max(0.6, viewH / 900) * (38 / camera.fov);
     const render = new Set<TNode>();
     const visit = (n: TNode) => {
@@ -260,7 +300,7 @@ export class TileTerrain {
         let ok = true;
         for (const k of kids) {
           k.used = this.frame;
-          if (k.state === 0) this.request(k, d / n.size + (this.index.maxZ - k.z) * 0.1);
+          if (k.state === 0) this.request(k, d / n.size + (this.topZ - k.z) * 0.1);
           if (k.state !== 2) ok = false;
         }
         if (ok) {
@@ -272,7 +312,7 @@ export class TileTerrain {
     };
     for (const r of this.roots) {
       if (r.state === 2) visit(r);
-      else if (r.state === 0) this.request(r, 0);
+      else if (r.state === 0 && (!this.global || this.frustum.intersectsBox(this.worldBox(r, exag, this.tmpBox)))) this.request(r, 0);
     }
     // aktualizacja siatek
     let changed = false;
@@ -287,7 +327,7 @@ export class TileTerrain {
     }
     this.rendered = render;
     // kolejka: porzuć żądania kafli, których już nie potrzebujemy
-    for (const n of this.queue) if (n.used < this.frame - 2 && n.z > this.index.minZ) this.queue.delete(n);
+    for (const n of this.queue) if (n.used < this.frame - 2 && n.z > this.rootZ) this.queue.delete(n);
     for (const n of this.orthoQueue) if (!render.has(n)) this.orthoQueue.delete(n);
     this.pump();
     this.pumpOrtho();
@@ -296,7 +336,7 @@ export class TileTerrain {
   }
 
   private makeMesh(n: TNode) {
-    const fine = n.z - (this.index.maxZ - 2);
+    const fine = n.z - (this.topZ - 2);
     n.mat = new THREE.ShaderMaterial({
       vertexShader: tileVertex,
       fragmentShader: terrainFragment,
@@ -333,7 +373,7 @@ export class TileTerrain {
     let dz = 0;
     while (a && a.orthoState !== 2) {
       dz++;
-      a = a.z > this.index.minZ ? this.nodes.get(key(a.z - 1, a.x >> 1, a.y >> 1)) ?? null : null;
+      a = a.z > this.rootZ ? this.nodes.get(key(a.z - 1, a.x >> 1, a.y >> 1)) ?? null : null;
     }
     if (!a) {
       u.uOrthoOn.value = 0;
@@ -361,16 +401,18 @@ export class TileTerrain {
   private async loadOrtho(n: TNode) {
     n.orthoState = 1;
     this.orthoInflight++;
-    const lim = this.maxLevel ? Math.min(this.maxLevel, this.index.maxZ) : this.index.maxZ;
+    const lim = this.maxLevel ? Math.min(this.maxLevel, this.topZ) : this.topZ;
     const size = n.z >= lim ? this.orthoMax : Math.min(512, this.orthoMax);
     const tiles = 256 * 2 ** n.z;
     const mx0 = ((n.x * 256) / tiles) * 2 * WM - WM, mx1 = (((n.x + 1) * 256) / tiles) * 2 * WM - WM;
     const my0 = WM - (((n.y + 1) * 256) / tiles) * 2 * WM, my1 = WM - ((n.y * 256) / tiles) * 2 * WM;
     const bb = `${mx0.toFixed(2)},${my0.toFixed(2)},${mx1.toFixed(2)},${my1.toFixed(2)}`;
     try {
+      const sources = this.orthoSources ?? ['eox', ...tileOrthoSources(n.z, n.x, n.y)];
       const imgs = await Promise.all(
-        this.orthoSources.map(async (src) => {
+        sources.map(async (src) => {
           try {
+            if (src === 'eox') return await this.eoxImage(n, size);
             const r = await fetch(ORTHO_URL[src](bb, size));
             if (!r.ok) return null;
             const blob = await r.blob();
@@ -408,7 +450,7 @@ export class TileTerrain {
     this.noiseScale = scale;
     for (const n of this.nodes.values()) {
       if (!n.mat) continue;
-      const fine = n.z - (this.index.maxZ - 2);
+      const fine = n.z - (this.topZ - 2);
       n.mat.uniforms.uNoiseAmt.value = THREE.MathUtils.clamp(1 - fine * 0.35, 0.3, 1) * scale;
     }
     this.onChange();
@@ -446,7 +488,7 @@ export class TileTerrain {
         n.orthoState = 0;
       }
     }
-    const ready = [...this.nodes.values()].filter((n) => n.state === 2 && n.z > this.index.minZ);
+    const ready = [...this.nodes.values()].filter((n) => n.state === 2 && n.z > this.rootZ);
     if (ready.length < 420) return;
     ready.sort((a, b) => a.used - b.used);
     for (const n of ready.slice(0, ready.length - 360)) {
@@ -472,14 +514,39 @@ export class TileTerrain {
     this.readyCount--;
   }
 
+  /** Mozaika Sentinel-2 cloudless (EOX) dla kafla: 4 kafle o poziom wyżej albo 1 skalowany. */
+  private async eoxImage(n: TNode, size: number) {
+    const z = Math.min(n.z + 1, 15);
+    const k = 2 ** (z - n.z);
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d')!;
+    let any = false;
+    await Promise.all(
+      Array.from({ length: k * k }, async (_, i) => {
+        const dx = i % k, dy = Math.floor(i / k);
+        try {
+          const r = await fetch(`https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/${z}/${n.y * k + dy}/${n.x * k + dx}.jpg`);
+          if (!r.ok) return;
+          const bmp = await createImageBitmap(await r.blob());
+          ctx.drawImage(bmp, (dx * size) / k, (dy * size) / k, size / k, size / k);
+          bmp.close();
+          any = true;
+        } catch {
+          /* pojedynczy kafel */
+        }
+      })
+    );
+    return any ? createImageBitmap(c) : null;
+  }
+
   /** Wysokość terenu z najdokładniejszego wczytanego kafla (m n.p.m.) lub null. */
   heightAt(x: number, z: number): number | null {
-    const d = this.dem;
-    const cgx = d.px0 + x / d.mpp + (d.w - 1) / 2 + 0.5;
-    const cgy = d.py0 + z / d.mpp + (d.h - 1) / 2 + 0.5;
-    for (let lz = this.index.maxZ; lz >= this.index.minZ; lz--) {
-      const s = 2 ** (lz - d.zoom);
-      const cx = cgx * s, cy = cgy * s;
+    const f = this.wf;
+    const p20x = f.ox + x / f.mpp20, p20y = f.oy + z / f.mpp20;
+    for (let lz = this.topZ; lz >= this.rootZ; lz--) {
+      const s = 2 ** (lz - FRAME_Z);
+      const cx = p20x * s, cy = p20y * s;
       const tx = Math.floor(cx / 256), ty = Math.floor(cy / 256);
       const n = this.nodes.get(key(lz, tx, ty));
       if (!n || !n.data) continue;

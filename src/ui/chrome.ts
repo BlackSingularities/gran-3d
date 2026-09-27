@@ -1,7 +1,6 @@
 import type { App } from '../app';
 import { escapeHtml, trailHex } from '../app';
 import { bearing, compassDir, DEG, fmt1, fmtCoords, fmtDecimal, fmtDist, fmtEle, fmtInt, fmtSigned, fmtTime, haversine } from '../core/geo';
-import { REGIONS } from '../core/region';
 import type { Lens, MeasurePoint, Tool } from '../core/store';
 import { ALT_COLORS } from '../scene/routes';
 import { TRAIL_NAME_PL } from '../scene/trails';
@@ -28,13 +27,6 @@ const HINTS: Partial<Record<Tool, string>> = {
   measure: '<b>Klikaj</b> kolejne punkty · <kbd>Esc</kbd> kończy',
 };
 
-const REGION_MAX: Record<string, [string, number]> = {
-  tatry: ['Gerlach', 2655],
-  karkonosze: ['Śnieżka', 1603],
-  pieniny: ['Trzy Korony', 982],
-  'babia-gora': ['Diablak', 1725],
-  bieszczady: ['Tarnica', 1346],
-};
 
 /** Stylizowana sylwetka pasma (deterministyczna). */
 function silhouette(seed: string, max: number) {
@@ -57,9 +49,11 @@ export class Chrome {
   private hintEl: HTMLElement | null = null;
   private panoEl: HTMLElement | null = null;
   private paletteIdx = 0;
-  private paletteItems: { kind: 'poi' | 'route'; id: number }[] = [];
+  private paletteItems: { kind: 'poi' | 'route' | 'geo'; id: number }[] = [];
+  private geo: { q: string; items: { name: string; label: string; type: string; lon: number; lat: number; bbox: [number, number, number, number] | null }[] } = { q: '', items: [] };
+  private geoTimer = 0;
 
-  constructor(private app: App, private switchRegion: (id: string) => void, private openMaps: () => void = () => {}) {
+  constructor(private app: App, _switchRegion: (id: string) => void, private openMaps: () => void = () => {}) {
     this.buildRail();
     this.buildLensDock();
     this.buildRegionMenu();
@@ -92,13 +86,12 @@ export class Chrome {
       `<div class="rail__sep"></div>
        <button class="tool" data-act="layers" aria-label="Mapa i światło">${ICON.layers}<span class="tool__tip">Mapa i światło<kbd>M</kbd></span></button>
        <button class="tool" data-act="search" aria-label="Szukaj">${ICON.target}<span class="tool__tip">Szukaj<kbd>/</kbd></span></button>
-       <button class="tool" data-act="maps" aria-label="Mapy">${ICON.gpx}<span class="tool__tip">Pobierz mapy / zarządzaj<kbd>D</kbd></span></button>
        <button class="tool" data-act="help" aria-label="Pomoc">${ICON.help}<span class="tool__tip">Skróty i pomoc<kbd>?</kbd></span></button>`;
     rail.querySelectorAll<HTMLElement>('[data-tool]').forEach((b) => b.addEventListener('click', () => this.app.setTool(b.dataset.tool as Tool)));
     rail.querySelector('[data-act="layers"]')!.addEventListener('click', () => this.openMapTab());
     rail.querySelector('[data-act="search"]')!.addEventListener('click', () => this.openPalette());
     rail.querySelector('[data-act="help"]')!.addEventListener('click', () => ($('help').hidden = false));
-    rail.querySelector('[data-act="maps"]')!.addEventListener('click', () => this.openMaps());
+
     $('search-btn').addEventListener('click', () => this.openPalette());
   }
 
@@ -122,21 +115,24 @@ export class Chrome {
 
   private renderRegionMenu() {
     const menu = $('region-menu');
-    const cur = this.app.store.state.regionId;
+    const a = this.app;
+    const recent = a.recentPlaces();
+    const cur = a.region?.def;
     menu.innerHTML =
-      REGIONS.map((r) => {
-        const [pn, pe] = r.peak ? [r.peak.name, r.peak.ele] : REGION_MAX[r.id] ?? ['', 0];
-        return `<button class="menu__item ${r.id === cur ? 'is-on' : ''}" data-region="${r.id}">${silhouette(r.id, pe)}<span><span class="menu__name">${r.name}</span><br><span class="menu__sub">${r.subtitle}</span></span><span class="menu__max">${fmtInt(pe)} m<small>${pn}</small></span></button>`;
-      }).join('') +
-      `<button class="menu__more" data-maps>${ICON.gpx}<span><b>Zaznacz kolejny kwadrat…</b><small>mapa pobierania · zarządzanie terenem</small></span></button>`;
-    menu.querySelector('[data-maps]')!.addEventListener('click', () => {
+      `<button class="menu__more" data-search>${ICON.target}<span><b>Szukaj miejsca na świecie…</b><small>szczyt, miejscowość, pasmo górskie · klawisz /</small></span></button>` +
+      (recent.length ? `<div class="menu__label">Ostatnio odwiedzone</div>` : '') +
+      recent
+        .map((r, i) => `<button class="menu__item ${cur && r.name === cur.name ? 'is-on' : ''}" data-recent="${i}">${silhouette(r.name, 1800)}<span><span class="menu__name">${escapeHtml(r.name)}</span><br><span class="menu__sub">${r.lat.toFixed(3)}°N · ${r.lon.toFixed(3)}°E</span></span><span class="menu__max">${new Date(r.when).toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })}</span></button>`)
+        .join('');
+    menu.querySelector('[data-search]')!.addEventListener('click', () => {
       menu.hidden = true;
-      this.openMaps();
+      this.openPalette();
     });
-    menu.querySelectorAll<HTMLElement>('[data-region]').forEach((b) =>
+    menu.querySelectorAll<HTMLElement>('[data-recent]').forEach((b) =>
       b.addEventListener('click', () => {
         menu.hidden = true;
-        if (b.dataset.region !== cur) this.switchRegion(b.dataset.region!);
+        const r = recent[Number(b.dataset.recent)];
+        a.flyToLonLat(r.lon, r.lat, 22000);
       })
     );
   }
@@ -276,8 +272,13 @@ export class Chrome {
     if (!a.region) return;
     this.updateLensDock();
     this.updateTileStat();
-    $('region-name').textContent = a.region.def.name;
-    $('region-sub').textContent = `${fmtInt(a.region.dem.min)}–${fmtInt(a.region.dem.max)} m · ${fmtInt(a.graph?.totalKm ?? 0)} km szlaków`;
+    if (a.sectorReady) {
+      $('region-name').textContent = a.region.def.name || 'Okolica';
+      $('region-sub').textContent = `${fmtInt(a.region.dem.min)}–${fmtInt(a.region.dem.max)} m · ${fmtInt(a.graph?.totalKm ?? 0)} km szlaków`;
+    } else {
+      $('region-name').textContent = a.pendingSector ? 'Przygotowuję okolicę…' : 'Widok świata';
+      $('region-sub').textContent = a.pendingSector ? 'szlaki, szczyty i miejscowości' : 'przybliż, aby wczytać szlaki';
+    }
     document.querySelectorAll<HTMLElement>('#rail [data-tool]').forEach((b) => b.classList.toggle('is-on', b.dataset.tool === s.tool));
     this.updateReadout();
     this.updateCompass();
@@ -521,7 +522,23 @@ export class Chrome {
     const norm = (t: string) => t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l');
     const nq = norm(query.trim());
     const pois = a.region!.pois;
-    let items: { kind: 'poi' | 'route'; id: number; score: number }[] = [];
+    let items: { kind: 'poi' | 'route' | 'geo'; id: number; score: number }[] = [];
+    // wyniki z całego świata (Nominatim przez serwer) – z opóźnieniem, żeby nie zasypywać usługi
+    if (nq.length >= 2 && this.geo.q !== query.trim()) {
+      clearTimeout(this.geoTimer);
+      const q = query.trim();
+      this.geoTimer = window.setTimeout(async () => {
+        try {
+          const r = await fetch(`${import.meta.env.BASE_URL}api/geocode?q=${encodeURIComponent(q)}`);
+          const items = r.ok ? await r.json() : [];
+          this.geo = { q, items: Array.isArray(items) ? items : [] };
+          const input = document.querySelector<HTMLInputElement>('#pal-q');
+          if (input && input.value.trim() === q && !$('palette').hidden) this.renderPalette(input.value);
+        } catch {
+          /* bez wyników globalnych */
+        }
+      }, 350);
+    }
     if (!nq) {
       items = [...pois].filter((p) => p.t === 'peak' || p.t === 'hut' || p.t === 'lake' || (p.t === 'place' && (p.k === 'town' || p.k === 'city'))).sort((x, y) => y.prom - x.prom).slice(0, 12).map((p) => ({ kind: 'poi' as const, id: p.id, score: 0 }));
     } else {
@@ -537,7 +554,8 @@ export class Chrome {
         if (n.includes(nq) || colorHit) items.push({ kind: 'route', id: i, score: 20 + (colorHit ? 10 : 0) });
       });
       items.sort((x, y) => y.score - x.score);
-      items = items.slice(0, 30);
+      items = items.slice(0, 20);
+      if (this.geo.q === query.trim()) this.geo.items.forEach((_, i) => items.push({ kind: 'geo', id: i, score: 0 }));
     }
     this.paletteItems = items;
     const hl = (t: string) => {
@@ -548,6 +566,11 @@ export class Chrome {
     const list = $('pal-list');
     list.innerHTML = items.length
       ? items.map((it, k) => {
+          if (it.kind === 'geo') {
+            const g = this.geo.items[it.id];
+            const head = k === 0 || items[k - 1].kind !== 'geo' ? '<div class="palette__head">Na świecie</div>' : '';
+            return `${head}<button class="palette__item ${k === this.paletteIdx ? 'is-on' : ''}" data-k="${k}"><span class="ico">${ICON.pin}</span><span class="nm">${hl(g.name)}<small>${escapeHtml(g.label.split(',').slice(1, 4).join(',').trim())}</small></span><span class="el">${escapeHtml(g.type)}</span></button>`;
+          }
           if (it.kind === 'poi') {
             const p = pois[it.id];
             return `<button class="palette__item ${k === this.paletteIdx ? 'is-on' : ''}" data-k="${k}"><span class="ico">${POI_ICON[p.t] ?? ICON.pin}</span><span class="nm">${hl(p.n)}<small>${POI_TYPE_PL[p.t] ?? ''}</small></span><span class="el">${p.t === 'lake' ? '' : fmtEle(p.ele)}</span></button>`;
@@ -555,7 +578,7 @@ export class Chrome {
           const r = a.graph!.routes[it.id];
           return `<button class="palette__item ${k === this.paletteIdx ? 'is-on' : ''}" data-k="${k}"><span class="ico" style="color:${trailHex(r.color)}">${ICON.trail}</span><span class="nm">${hl(r.name)}<small>szlak ${TRAIL_NAME_PL[r.color] ?? ''}</small></span><span class="el">${escapeHtml(r.ref)}</span></button>`;
         }).join('')
-      : '<div class="empty" style="margin:10px">Nic nie znaleziono w tym regionie.</div>';
+      : `<div class="empty" style="margin:10px">${nq.length >= 2 ? 'Szukam na świecie…' : 'Wpisz nazwę szczytu, miejscowości albo pasma.'}</div>`;
     list.querySelectorAll<HTMLElement>('[data-k]').forEach((b) => b.addEventListener('click', (e) => this.choosePalette(Number(b.dataset.k), e.shiftKey)));
     list.querySelector('.is-on')?.scrollIntoView({ block: 'nearest' });
   }
@@ -565,6 +588,17 @@ export class Chrome {
     if (!it) return;
     this.closePalette();
     const a = this.app;
+    if (it.kind === 'geo') {
+      const g = this.geo.items[it.id];
+      // odległość kamery z rozmiaru obiektu (szczyt – blisko, kraj – wysoko)
+      let dist = 18000;
+      if (g.bbox) {
+        const km = Math.max((g.bbox[2] - g.bbox[0]) * 111 * Math.cos((g.lat * Math.PI) / 180), (g.bbox[3] - g.bbox[1]) * 111);
+        dist = Math.min(1_200_000, Math.max(6000, km * 1000 * 1.6));
+      }
+      a.flyToLonLat(g.lon, g.lat, dist);
+      return;
+    }
     if (it.kind === 'poi') {
       const p = a.region!.pois[it.id];
       if (addToRoute) {
@@ -601,7 +635,6 @@ export class Chrome {
         case '/': e.preventDefault(); this.openPalette(); break;
         case '?': $('help').hidden = !$('help').hidden; break;
         case 'm': this.openMapTab(); break;
-        case 'd': this.openMaps(); break;
         case 'p': a.store.set({ panelOpen: !s.panelOpen }); break;
         case 't': a.store.set({ trails: !s.trails }); break;
         case 'l': a.store.set({ labels: !s.labels }); break;
@@ -642,7 +675,7 @@ export class Chrome {
       ['<kbd>T</kbd> <kbd>L</kbd> <kbd>C</kbd>', 'szlaki · nazwy · poziomice'], ['klik z soczewką / <kbd>Esc</kbd>', 'przypnij / odepnij soczewkę'], ['<kbd>+</kbd> <kbd>−</kbd>', 'przewyższenie terenu'],
       ['<kbd>[</kbd> <kbd>]</kbd>', 'pora dnia −/+ 30 min'], ['<kbd>F</kbd>', 'przelot nad trasą'], ['<kbd>N</kbd>', 'północ u góry'],
       ['<kbd>V</kbd>', 'widok z góry / ukośny'], ['<kbd>R</kbd>', 'widok początkowy regionu'], ['<kbd>G</kbd>', 'eksport GPX'],
-      ['<kbd>S</kbd>', 'zrzut ekranu PNG'], ['<kbd>D</kbd>', 'pobieranie i zarządzanie mapami'], ['<kbd>⌫</kbd>', 'usuń ostatni punkt'], ['<kbd>Esc</kbd>', 'anuluj / wyjdź'],
+      ['<kbd>S</kbd>', 'zrzut ekranu PNG'], ['<kbd>⌫</kbd>', 'usuń ostatni punkt'], ['<kbd>Esc</kbd>', 'anuluj / wyjdź'],
       ['lewy przycisk', 'przesuwanie'], ['prawy przycisk', 'obrót / nachylenie · menu analiz (klik)'], ['dwuklik', 'przybliż do punktu'],
     ];
     $('help').innerHTML = `<div class="help__box grain">

@@ -782,3 +782,6 @@ input[type='date'] {
 .poi--k-hamlet .poi__name { font-size: 10px; font-weight: 500; text-transform: none; letter-spacing: 0.02em; color: #e9e1d0; }
 .poi__glyph--place { width: 7px; height: 7px; margin-top: -1px; }
 .poi--k-town .poi__glyph--place, .poi--k-city .poi__glyph--place { width: 9px; height: 9px; }
+
+.menu__label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-4); padding: 10px 10px 4px; }
+.palette__head { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-4); padding: 10px 10px 4px; }
