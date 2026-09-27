@@ -88,6 +88,7 @@ uniform float uRelOn;
 uniform vec3 uRef;           // x, z świata, wysokość
 uniform float uRelRange;
 uniform vec4 uCursor;        // x, z, wysokość, aktywny
+uniform float uCursorIso;    // poziomica przez kursor włączona
 uniform float uGridOn;
 uniform float uSnowLine;
 uniform float uSnowOn;
@@ -359,7 +360,7 @@ void main() {
     col = mix(col, vec3(1.0, 0.95, 0.85), ring * 0.9);
     float isoF = abs(elev - uCursor.z) / max(fwidth(elev), 1e-4);
     float isoL = (1.0 - smoothstep(0.6, 1.6, isoF)) * step(0.5, fract(rd / (30.0 + vDist * 0.01)));
-    col = mix(col, vec3(1.0, 0.96, 0.8), isoL * 0.42 * (1.0 - smoothstep(1200.0, 4500.0, rd)));
+    col = mix(col, vec3(1.0, 0.96, 0.8), isoL * uCursorIso * 0.42 * (1.0 - smoothstep(1200.0, 4500.0, rd)));
   }
 
   // ---------- perspektywa powietrzna ----------

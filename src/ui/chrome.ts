@@ -441,6 +441,7 @@ export class Chrome {
         case 't': a.store.set({ trails: !s.trails }); break;
         case 'l': a.store.set({ labels: !s.labels }); break;
         case 'c': a.store.set({ contours: !s.contours }); break;
+        case 'i': a.store.set({ cursorIso: !s.cursorIso }); a.toast(s.cursorIso ? 'Poziomica kursora wyłączona.' : 'Poziomica kursora włączona.'); break;
         case 'f': a.toggleFly(); break;
         case 'n': a.engine.flyTo({ heading: 0 }, 800); break;
         case 'r': {
@@ -471,7 +472,7 @@ export class Chrome {
   private buildHelp() {
     const rows: [string, string][] = [
       ['<kbd>1</kbd>–<kbd>5</kbd>', 'narzędzia'], ['<kbd>/</kbd>', 'wyszukiwarka'], ['<kbd>M</kbd>', 'mapa i światło'], ['<kbd>P</kbd>', 'pokaż / ukryj panel'],
-      ['<kbd>T</kbd> <kbd>L</kbd> <kbd>C</kbd>', 'szlaki · nazwy · poziomice'], ['<kbd>+</kbd> <kbd>−</kbd>', 'przewyższenie terenu'],
+      ['<kbd>T</kbd> <kbd>L</kbd> <kbd>C</kbd>', 'szlaki · nazwy · poziomice'], ['<kbd>I</kbd>', 'poziomica przez kursor'], ['<kbd>+</kbd> <kbd>−</kbd>', 'przewyższenie terenu'],
       ['<kbd>[</kbd> <kbd>]</kbd>', 'pora dnia −/+ 30 min'], ['<kbd>F</kbd>', 'przelot nad trasą'], ['<kbd>N</kbd>', 'północ u góry'],
       ['<kbd>V</kbd>', 'widok z góry / ukośny'], ['<kbd>R</kbd>', 'widok początkowy regionu'], ['<kbd>G</kbd>', 'eksport GPX'],
       ['<kbd>S</kbd>', 'zrzut ekranu PNG'], ['<kbd>⌫</kbd>', 'usuń ostatni punkt'], ['<kbd>Esc</kbd>', 'anuluj / wyjdź'],

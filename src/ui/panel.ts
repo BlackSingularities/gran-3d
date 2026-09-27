@@ -44,7 +44,7 @@ export class Panel {
     const a = this.app, s = a.store.state;
     const sel = a.selection;
     return JSON.stringify([
-      this.tab, s.regionId, s.tool, s.routeMode, s.routing, s.activeRoute, s.style, s.contours, s.trails, s.labels, s.shadows, s.grid, s.snow,
+      this.tab, s.regionId, s.tool, s.routeMode, s.routing, s.activeRoute, s.style, s.contours, s.trails, s.labels, s.shadows, s.grid, s.snow, s.cursorIso,
       s.day, s.flying, s.panorama, s.vsEye, s.timeKind, s.pace, s.profileOpen,
       sel ? [sel.kind, sel.poi?.id, sel.point?.x, sel.routeIdx] : null,
       s.waypoints.map((w) => w.id + (w.label ?? '')),
@@ -336,7 +336,7 @@ export class Panel {
       ${legend}
       ${st ? `<div class="stats" style="margin-top:16px"><div class="stat"><div class="stat__v">${fmtInt(st.frac * 100)}<small>%</small></div><div class="stat__k">terenu wyżej</div></div><div class="stat"><div class="stat__v">${fmtInt((1 - st.frac) * 100)}<small>%</small></div><div class="stat__k">terenu niżej</div></div></div>
       <div class="section"><div class="section__title"><span class="kicker">Szczyty względem punktu</span></div><div class="peaklist">${st.peaks.map(({ p, dh, dist }) => `<button class="peakrow" data-poi="${p.id}"><span class="peakrow__n">${escapeHtml(p.n)}</span><span class="peakrow__e" style="color:${dh > 0 ? '#ffb08c' : '#8fd3ff'}">${fmtSigned(dh)}</span><span class="peakrow__d">${fmtDist(dist)}</span></button>`).join('')}</div></div>` : ''}
-      <p class="note">Najedź kursorem na teren – w pasku odczytu zobaczysz <b>Δh</b>, odległość i kąt wzniesienia względem punktu. Linia przerywana wyznacza poziomicę przechodzącą przez kursor.</p>
+      <p class="note">Najedź kursorem na teren – w pasku odczytu zobaczysz <b>Δh</b>, odległość i kąt wzniesienia względem punktu. Linia przerywana wyznacza poziomicę przechodzącą przez kursor (włącz/wyłącz klawiszem <b>I</b> lub w zakładce „Mapa i światło”).</p>
       <div class="btns" style="margin-top:12px"><button class="btn" data-act="vs" data-x="${s.ref.x}" data-z="${s.ref.z}">${ICON.viewshed} Widoczność stąd</button><button class="btn" data-act="pano" data-x="${s.ref.x}" data-z="${s.ref.z}">${ICON.person} Panorama</button></div>`;
   }
 
@@ -417,6 +417,7 @@ export class Panel {
           ${toggle('shadows', 'Cienie rzucane')}
           ${toggle('snow', 'Śnieg sezonowy')}
           ${toggle('grid', 'Siatka 1 km')}
+          ${toggle('cursorIso', 'Poziomica kursora', 'I')}
         </div>
         <div class="slider"><label>Przewyższenie pionowe</label><output id="o-exag">×${fmt1(s.exag)}</output><input type="range" min="1" max="3" step="0.1" value="${s.exag}" data-range="exag"></div>
       </div>

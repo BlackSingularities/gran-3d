@@ -32,6 +32,7 @@ export interface State {
   shadows: boolean;
   grid: boolean;
   snow: boolean;
+  cursorIso: boolean;
   exag: number;
   day: string;
   hour: number;

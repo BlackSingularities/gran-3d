@@ -85,6 +85,7 @@ export class TerrainLayer {
         uRef: { value: new THREE.Vector3() },
         uRelRange: { value: 500 },
         uCursor: { value: new THREE.Vector4() },
+        uCursorIso: { value: 1 },
         uGridOn: { value: 0 },
         uSnowLine: { value: 2500 },
         uSnowOn: { value: 1 },

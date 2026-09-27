@@ -93,6 +93,7 @@ export class App {
       shadows: true,
       grid: false,
       snow: true,
+      cursorIso: true,
       exag: 1.4,
       day: todayWarsaw(),
       hour: 11.5,
@@ -220,7 +221,7 @@ export class App {
   private onState(s: State, ch: Set<keyof State>) {
     if (!this.terrain) return;
     if (ch.has('style')) this.applyStyle();
-    if (['contours', 'trails', 'labels', 'shadows', 'grid', 'snow'].some((k) => ch.has(k as keyof State))) this.applyLayers();
+    if (['contours', 'trails', 'labels', 'shadows', 'grid', 'snow', 'cursorIso'].some((k) => ch.has(k as keyof State))) this.applyLayers();
     if (ch.has('exag')) {
       this.engine.setExag(s.exag);
       this.terrain.material.uniforms.uExag.value = s.exag;
@@ -271,6 +272,7 @@ export class App {
     u.uShadowOn.value = s.shadows ? 1 : 0;
     u.uGridOn.value = s.grid ? 1 : 0;
     u.uSnowOn.value = s.snow ? 1 : 0;
+    u.uCursorIso.value = s.cursorIso ? 1 : 0;
     this.trails!.setVisible(s.trails);
     this.overlay.enabled = s.labels;
     this.overlay.update(true);
