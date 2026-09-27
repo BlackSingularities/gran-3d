@@ -64,6 +64,7 @@ export class MapsManager {
 
   open(onboarding = false) {
     this.onboarding = onboarding;
+    this.built = false;
     this.el.hidden = false;
     this.el.classList.toggle('is-onboarding', onboarding);
     void this.refresh();
@@ -135,7 +136,7 @@ export class MapsManager {
     let status = '';
     let actions = '';
     if (job) {
-      status = `<div class="mcard__bar"><i style="width:${(job.progress * 100).toFixed(1)}%"></i></div><div class="mcard__job"><span class="spinner"></span>${escapeHtml(job.label)} · ${fmtInt(job.progress * 100)}%</div>`;
+      status = `<div class="mcard__bar"><i></i></div><div class="mcard__job"><span class="spinner"></span><span data-joblabel></span></div>`;
       actions = `<button class="btn btn--ghost" data-cancel="${r.id}">Anuluj</button>`;
     } else if (queued) {
       status = '<div class="mcard__job">W kolejce…</div>';
@@ -168,35 +169,90 @@ export class MapsManager {
     </div>`;
   }
 
-  render() {
+  private built = false;
+  private cardKeys = new Map<string, string>();
+
+  /** Szkielet okna – budowany raz; potem aktualizowane są tylko zmienione fragmenty (bez migania). */
+  private build() {
     const groups = new Map<string, RegionDef[]>();
     for (const r of CATALOG) {
       const g = r.group ?? 'Inne';
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push(r);
     }
-    const installed = REGIONS.length;
-    const total = [...STATUS.values()].reduce((s, v) => s + (v.bytes ?? 0), 0);
-    const scroll = this.el.querySelector('.maps__list')?.scrollTop ?? 0;
-    const needToken = this.api?.admin && !this.token();
     this.el.innerHTML = `<div class="maps__box grain">
-      ${!this.onboarding || installed ? `<button class="btn btn--icon maps__close" data-close>${ICON.x}</button>` : ''}
-      <div class="kicker">${this.onboarding ? 'Pierwsze uruchomienie' : 'Menedżer map'}</div>
-      <h1 class="h1">${this.onboarding ? 'Wybierz góry do pobrania' : 'Pasma górskie'}</h1>
-      <p class="lede">${
-        SERVER_MODE
-          ? `Dane każdego pasma pobierane są bezpośrednio ze źródeł (OpenStreetMap, model terenu Terrarium, LiDAR GUGiK/ČÚZK) i zapisywane na tym serwerze. <b>Podstawowy</b> pakiet (model ~25 m) wystarcza do tras i analiz; <b>LiDAR</b> dodaje teren w rozdzielczości 3–6 m po stronie polskiej (i czeskiej).`
-          : `Ta instancja działa bez serwera menedżera. Pasma dodasz poleceniem <kbd>npm run bake:all</kbd> albo uruchamiając aplikację przez <kbd>npm start</kbd>.`
-      }</p>
-      <div class="maps__summary"><span><b>${installed}</b> z ${CATALOG.length} pasm pobranych</span>${total ? `<span>${mb(total / 1048576)} na dysku</span>` : ''}${this.api?.queue.length ? `<span>${this.api.queue.length} w kolejce</span>` : ''}</div>
-      ${needToken || this.message ? `<div class="maps__token">${this.message ? `<span>${escapeHtml(this.message)}</span>` : ''}${needToken || this.message.includes('hasło') ? `<input type="password" placeholder="Hasło administratora" data-token><button class="btn" data-savetoken>Zapisz</button>` : ''}</div>` : ''}
+      <button class="btn btn--icon maps__close" data-close>${ICON.x}</button>
+      <div class="kicker" data-kicker></div>
+      <h1 class="h1" data-title></h1>
+      <p class="lede" data-lede></p>
+      <div class="maps__summary" data-summary></div>
+      <div class="maps__token" data-tokenbox hidden></div>
       <div class="maps__list">
-        ${[...groups.entries()].map(([g, list]) => `<div class="maps__group"><div class="kicker">${escapeHtml(g)}</div>${list.map((r) => this.card(r)).join('')}</div>`).join('')}
+        ${[...groups.entries()].map(([g, list]) => `<div class="maps__group"><div class="kicker">${escapeHtml(g)}</div>${list.map((r) => `<div data-card="${r.id}"></div>`).join('')}</div>`).join('')}
       </div>
       <p class="note">Rozmiary są orientacyjne; pobieranie LiDAR trwa kilka–kilkanaście minut (serwer GUGiK udostępnia dane fragmentami). Dane: © OpenStreetMap (ODbL), Terrarium/AWS, © GUGiK, © ČÚZK.</p>
     </div>`;
-    const list = this.el.querySelector('.maps__list');
-    if (list) list.scrollTop = scroll;
+    this.cardKeys.clear();
+    this.built = true;
+  }
+
+  private set(sel: string, html: string) {
+    const el = this.el.querySelector<HTMLElement>(sel);
+    if (el && el.dataset.h !== html) {
+      el.dataset.h = html;
+      el.innerHTML = html;
+    }
+    return el;
+  }
+
+  render() {
+    if (!this.built || this.el.querySelectorAll('[data-card]').length !== CATALOG.length) this.build();
+    const installed = REGIONS.length;
+    const total = [...STATUS.values()].reduce((s, v) => s + (v.bytes ?? 0), 0);
+    const close = this.el.querySelector<HTMLElement>('[data-close]')!;
+    close.hidden = this.onboarding && !installed;
+    this.set('[data-kicker]', this.onboarding ? 'Pierwsze uruchomienie' : 'Menedżer map');
+    this.set('[data-title]', this.onboarding ? 'Wybierz góry do pobrania' : 'Pasma górskie');
+    this.set(
+      '[data-lede]',
+      SERVER_MODE
+        ? `Dane każdego pasma pobierane są bezpośrednio ze źródeł (OpenStreetMap, model terenu Terrarium, LiDAR GUGiK/ČÚZK) i zapisywane na tym serwerze. <b>Podstawowy</b> pakiet (model ~25 m) wystarcza do tras i analiz; <b>LiDAR</b> dodaje teren w rozdzielczości 3–6 m po stronie polskiej (i czeskiej).`
+        : `Ta instancja działa bez serwera menedżera. Pasma dodasz poleceniem <kbd>npm run bake:all</kbd> albo uruchamiając aplikację przez <kbd>npm start</kbd>.`
+    );
+    this.set(
+      '[data-summary]',
+      `<span><b>${installed}</b> z ${CATALOG.length} pasm pobranych</span>${total ? `<span>${mb(total / 1048576)} na dysku</span>` : ''}${this.api?.queue.length ? `<span>${this.api.queue.length} w kolejce</span>` : ''}`
+    );
+    const needToken = !!this.api?.admin && !this.token();
+    const tokenBox = this.el.querySelector<HTMLElement>('[data-tokenbox]')!;
+    const showToken = needToken || !!this.message;
+    tokenBox.hidden = !showToken;
+    if (showToken) {
+      const key = `${this.message}|${needToken}`;
+      if (tokenBox.dataset.h !== key) {
+        tokenBox.dataset.h = key;
+        tokenBox.innerHTML = `${this.message ? `<span>${escapeHtml(this.message)}</span>` : ''}${needToken || this.message.includes('hasło') ? `<input type="password" placeholder="Hasło administratora" data-token><button class="btn" data-savetoken>Zapisz</button>` : ''}`;
+      }
+    }
+    // karty: przerysowanie tylko przy zmianie stanu pasma
+    for (const r of CATALOG) {
+      const el = this.el.querySelector<HTMLElement>(`[data-card="${r.id}"]`);
+      if (!el) continue;
+      const html = this.card(r);
+      if (this.cardKeys.get(r.id) !== html) {
+        this.cardKeys.set(r.id, html);
+        el.innerHTML = html;
+      }
+      // postęp pobierania – aktualizacja w miejscu
+      const job = this.api?.job?.id === r.id ? this.api.job : null;
+      if (job) {
+        const bar = el.querySelector<HTMLElement>('.mcard__bar i');
+        if (bar) bar.style.width = `${(job.progress * 100).toFixed(1)}%`;
+        const lab = el.querySelector<HTMLElement>('[data-joblabel]');
+        const txt = `${job.label} · ${fmtInt(job.progress * 100)}%`;
+        if (lab && lab.textContent !== txt) lab.textContent = txt;
+      }
+    }
   }
 
   private async onClick(e: MouseEvent) {
