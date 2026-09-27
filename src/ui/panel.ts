@@ -140,7 +140,7 @@ export class Panel {
     return `
       <div class="section">
         <div class="section__title"><span class="kicker">Wczytany ślad GPX</span><button class="btn btn--ghost btn--icon" data-act="gpx-clear" title="Usuń ślad">${ICON.x}</button></div>
-        <div style="font-family:var(--serif);font-size:22px;font-style:italic;line-height:1.1;margin-bottom:10px">${escapeHtml(g.labels[0])}</div>
+        <div style="font-family:var(--display);font-size:19px;font-weight:650;letter-spacing:-0.02em;line-height:1.15;margin-bottom:10px">${escapeHtml(g.labels[0])}</div>
         <div class="metrics">
           <div><div class="metric__k">Dystans</div><div class="metric__v">${fmtDist(st.len2)}</div></div>
           <div><div class="metric__k">Czas przejścia</div><div class="metric__v">${fmtTime(st.time)}</div></div>

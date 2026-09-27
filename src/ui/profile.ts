@@ -289,7 +289,7 @@ export class Profile {
     // nazwy mijanych punktów
     const pois = (this.data.pois ?? []).slice().sort((a, b) => b.ele - a.ele);
     const used: [number, number][] = [];
-    c.font = 'italic 13px "Instrument Serif", serif';
+    c.font = '600 11.5px "Bricolage Grotesque", "Geist", sans-serif';
     c.textBaseline = 'bottom';
     for (const p of pois) {
       const x = X(p.d), y = Y(p.ele) - 8;
