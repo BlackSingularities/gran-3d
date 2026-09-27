@@ -1,13 +1,13 @@
 // GRAŃ – serwer do samodzielnego hostowania.
-// Serwuje aplikację, dane pobranych pasm (katalog data/) oraz API menedżera map,
-// które pobiera i wypieka wybrane pasma w tle (skrypty z katalogu scripts/).
+// Serwuje aplikację, zapamiętane kwadraty terenu (katalog data/) oraz API,
+// które pobiera i wypieka wybrane przez użytkownika wycinki w tle.
 //
 //   npm run dev          – tryb deweloperski (Vite jako middleware, HMR)
 //   npm start            – produkcja (wymaga wcześniejszego `npm run build`)
 //
 // Zmienne środowiskowe:
 //   PORT (5190), HOST (0.0.0.0), GRAN_DATA_DIR (./data), GRAN_CACHE_DIR (./.cache),
-//   GRAN_ADMIN_TOKEN – jeśli ustawiony, pobieranie i usuwanie pasm wymaga tego hasła,
+//   GRAN_ADMIN_TOKEN – jeśli ustawiony, pobieranie i usuwanie kwadratów wymaga tego hasła,
 //   GRAN_KEEP_CACHE=1 – nie usuwaj dużych plików LiDAR z bufora po instalacji.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -35,8 +35,6 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-const catalog = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'catalog.json'), 'utf8')).regions;
-
 // ------------------------------------------------------------------ obszary (katalogi w data/)
 const sizeCache = new Map();
 function dirSize(dir) {
@@ -52,28 +50,13 @@ const readJson = (f) => {
   try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; }
 };
 
-/** Starsze instalacje (pasma z katalogu) → region.json w nowym formacie. */
-function migrate() {
-  for (const e of fs.readdirSync(DATA_DIR, { withFileTypes: true })) {
-    if (!e.isDirectory() || e.name.startsWith('.')) continue;
-    const dir = path.join(DATA_DIR, e.name);
-    if (fs.existsSync(path.join(dir, 'region.json')) || !fs.existsSync(path.join(dir, 'meta.json'))) continue;
-    const preset = catalog().find((r) => r.id === e.name);
-    if (!preset) continue;
-    const hd = fs.existsSync(path.join(dir, 'tiles', 'index.json'));
-    const def = { ...preset, quality: hd ? 'high' : 'normal', created: new Date().toISOString() };
-    if (!hd) delete def.hd;
-    fs.writeFileSync(path.join(dir, 'region.json'), JSON.stringify(def, null, 2));
-  }
-}
-
 function listAreas() {
   const out = [];
   for (const e of fs.readdirSync(DATA_DIR, { withFileTypes: true })) {
     if (!e.isDirectory() || e.name.startsWith('.')) continue;
     const dir = path.join(DATA_DIR, e.name);
     const def = readJson(path.join(dir, 'region.json'));
-    if (!def) continue;
+    if (!def?.custom) continue;
     const installed = fs.existsSync(path.join(dir, 'meta.json')) && fs.existsSync(path.join(dir, 'trails.json')) && fs.existsSync(path.join(dir, 'install.json'));
     const info = readJson(path.join(dir, 'install.json')) ?? {};
     if (installed && !sizeCache.has(e.name)) sizeCache.set(e.name, dirSize(dir));
@@ -187,28 +170,12 @@ async function api(req, res, url) {
       admin: !!TOKEN,
       limits: LIMITS,
       regions: listAreas(),
-      presets: catalog(),
       job: publicJob(current),
       queue: queue.map((j) => ({ id: j.id, level: j.level })),
       last: publicJob(lastFinished),
     });
   }
   if (req.method !== 'GET' && !authorized(req)) return send(res, 401, { error: 'Wymagane hasło administratora.' });
-  // Zgodność z menedżerem gotowych pasm: zapisujemy preset jako obszar,
-  // a następnie uruchamiamy tę samą kolejkę co dla obszarów użytkownika.
-  if (url.pathname === '/api/install' && req.method === 'POST') {
-    const { id, level } = await readBody(req);
-    const preset = catalog().find((r) => r.id === id);
-    if (!preset) return send(res, 404, { error: 'Nieznane pasmo.' });
-    const dir = path.join(DATA_DIR, id);
-    const existing = readJson(path.join(dir, 'region.json'));
-    const high = level === 'hd' && !!preset.hd;
-    const def = { ...preset, ...existing, quality: high ? 'high' : (existing?.quality ?? 'normal'), created: existing?.created ?? new Date().toISOString() };
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'region.json'), JSON.stringify(def, null, 2));
-    enqueue(id, high ? 'hd' : 'base');
-    return send(res, 202, { ok: true });
-  }
   if (url.pathname === '/api/areas' && req.method === 'POST') {
     const { name, bbox, quality } = await readBody(req);
     const q = quality === 'high' ? 'high' : 'normal';
@@ -302,12 +269,11 @@ if (DEV) {
   process.exit(1);
 }
 
-migrate();
 server.listen(PORT, HOST, () => {
   const installed = listAreas().filter((r) => r.installed).map((r) => r.def.name);
   console.log(`\n  ▲ GRAŃ ${DEV ? '(dev)' : ''} → http://localhost:${PORT}`);
   console.log(`  dane: ${DATA_DIR}`);
-  console.log(`  pobrane obszary: ${installed.length ? installed.join(', ') : 'brak – wybierz je na mapie w aplikacji'}`);
+  console.log(`  pobrane kwadraty: ${installed.length ? installed.join(', ') : 'brak – zaznacz pierwszy na mapie w aplikacji'}`);
   if (TOKEN) console.log('  menedżer map chroniony hasłem (GRAN_ADMIN_TOKEN)');
   console.log('');
 });

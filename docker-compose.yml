@@ -7,7 +7,7 @@ services:
       - gran-data:/data
     environment:
       TZ: Europe/Warsaw
-      # odkomentuj, aby pobieranie i usuwanie pasm wymagało hasła
+      # odkomentuj, aby pobieranie i usuwanie kwadratów wymagało hasła
       # GRAN_ADMIN_TOKEN: "zmien-mnie"
     restart: unless-stopped
 volumes:

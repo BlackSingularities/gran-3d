@@ -2,7 +2,7 @@
 export type Quality = 'normal' | 'high';
 export type BBox = [number, number, number, number];
 
-export const LIMITS: Record<Quality, number> = { normal: 1200, high: 300 };
+export const LIMITS: Record<Quality, number> = { normal: 3000, high: 3000 };
 
 export interface CoverageCountry {
   code: string;
@@ -61,8 +61,8 @@ export function validate(bbox: BBox, quality: Quality): string | null {
   if (km2 < 1) return 'Obszar jest za mały (min. 1 km²).';
   if (km2 > LIMITS[quality]) return `Obszar za duży dla tej jakości – zmniejsz zaznaczenie do ${LIMITS[quality]} km².`;
   const cov = coverageOf(bbox);
-  if (cov.any < 0.5) return 'Zaznacz obszar w zasięgu danych: Polska, Czechy lub Słowacja.';
-  if (quality === 'high' && cov.lidar < 0.05) return 'Wysoka jakość wymaga danych LiDAR – dostępne w Polsce i Czechach.';
+  if (cov.any < 0.5) return 'Zaznacz obszar lądowy w obsługiwanej części Europy.';
+  if (quality === 'high' && cov.lidar <= 0) return 'LiDAR musi obejmować choć część zaznaczenia – jest dostępny w Polsce i Czechach.';
   return null;
 }
 
@@ -73,5 +73,5 @@ export function estimate(bbox: BBox, quality: Quality) {
   const base = 1 + km2 * (km2 > 500 ? 0.008 : 0.02);
   const mb = quality === 'high' ? base + km2 * cov.lidar * 0.16 : base;
   const min = quality === 'high' ? 1.5 + km2 * cov.lidar * 0.015 : 1 + km2 / 800;
-  return { mb, min, lidar: cov.lidar };
+  return { km2, mb, min, lidar: cov.lidar };
 }

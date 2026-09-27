@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT } from './common.mjs';
 
-export const LIMITS = { normal: 1200, high: 300 };
+export const LIMITS = { normal: 3000, high: 3000 };
 export const COVERAGE = JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'coverage.json'), 'utf8')).countries;
 
 export function areaKm2([w, s, e, n]) {
@@ -43,12 +43,12 @@ export function validate(bbox, quality) {
   if (km2 < 1) return 'Obszar jest za mały (min. 1 km²).';
   if (km2 > LIMITS[quality]) return `Obszar za duży: ${Math.round(km2)} km² (limit ${LIMITS[quality]} km²).`;
   const cov = coverageOf(bbox);
-  if (cov.any < 0.5) return 'Obszar leży poza zasięgiem danych (Polska, Czechy, Słowacja).';
-  if (quality === 'high' && cov.lidar < 0.05) return 'Wysoka jakość wymaga danych LiDAR (Polska lub Czechy).';
+  if (cov.any < 0.5) return 'Obszar leży poza obsługiwaną częścią Europy.';
+  if (quality === 'high' && cov.lidar <= 0) return 'LiDAR musi obejmować choć część obszaru (Polska lub Czechy).';
   return null;
 }
 
-/** Definicja pasma (region.json) dla skryptów wypiekających. */
+/** Definicja kwadratu (region.json) dla skryptów wypiekających. */
 export function deriveRegion({ id, name, bbox, quality }) {
   const cov = coverageOf(bbox);
   const km2 = areaKm2(bbox);

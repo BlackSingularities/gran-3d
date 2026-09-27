@@ -2,7 +2,7 @@
 
 Trójwymiarowy atlas polskich gór działający w całości w przeglądarce. Łączy rzeczywisty numeryczny model terenu z siecią znakowanych szlaków z OpenStreetMap i dokłada do tego narzędzia analityczne: wysokość względną, wyznaczanie tras z wariantami, pole widoczności, linię wzroku, cienie o dowolnej porze dnia i przelot kamery nad trasą.
 
-Aplikacja jest przeznaczona do **samodzielnego hostowania**. Repozytorium nie zawiera żadnych danych gór — jest w nim tylko **katalog pasm** (`public/catalog.json`: Tatry, Pieniny, Gorce, Babia Góra, Beskidy Żywiecki, Śląski, Mały, Sądecki i Niski, Bieszczady, Karkonosze, Góry Izerskie, Stołowe, Sowie i Masyw Śnieżnika). W aplikacji otwierasz **menedżer map** (przycisk „Mapy” na szynie narzędzi, klawisz `D` albo „Pobierz więcej pasm…” w menu regionów), wybierasz pasma i poziom szczegółów, a serwer pobiera dane bezpośrednio ze źródeł i przygotowuje je w tle. W menu regionów widać tylko pobrane pasma.
+Aplikacja jest przeznaczona do **samodzielnego hostowania**. Repozytorium nie zawiera żadnych danych gór. W aplikacji otwierasz **mapę pobierania** (przycisk „Mapy” na szynie narzędzi albo klawisz `D`) i zaznaczasz kwadrat do 3000 km² w dowolnym miejscu Europy — także w Alpach. Serwer pobiera dokładnie ten wycinek i przygotowuje go w tle. Zapamiętane są wyłącznie kwadraty wybrane przez użytkownika; nie ma katalogu gotowych pasm.
 
 ## Uruchomienie
 
@@ -21,29 +21,27 @@ npm start                # serwer + aplikacja + menedżer map na porcie 5190
 albo w kontenerze:
 
 ```bash
-docker compose up -d     # dane pasm trafiają do wolumenu gran-data
+docker compose up -d     # pobrane kwadraty trafiają do wolumenu gran-data
 ```
 
 | zmienna | domyślnie | znaczenie |
 | --- | --- | --- |
 | `PORT`, `HOST` | `5190`, `0.0.0.0` | adres serwera |
-| `GRAN_DATA_DIR` | `./data` | katalog pobranych pasm |
+| `GRAN_DATA_DIR` | `./data` | katalog pobranych kwadratów |
 | `GRAN_CACHE_DIR` | `./.cache` | bufor pobranych kafli i odpowiedzi |
-| `GRAN_ADMIN_TOKEN` | — | hasło wymagane do pobierania i usuwania pasm (zalecane na publicznym serwerze) |
+| `GRAN_ADMIN_TOKEN` | — | hasło wymagane do pobierania i usuwania kwadratów (zalecane na publicznym serwerze) |
 | `GRAN_KEEP_CACHE` | — | `1` = nie usuwaj dużych plików LiDAR z bufora po instalacji |
 
 Poziomy pakietów:
-- **Podstawowy** (kilka MB): model terenu ~25 m (Terrarium), szlaki, szczyty, schroniska i pokrycie terenu z OpenStreetMap – wystarcza do tras i wszystkich analiz.
-- **LiDAR** (kilkanaście–kilkadziesiąt MB): dodatkowo kafle terenu 3–6 m z NMT GUGiK (Polska) i DMR 5G ČÚZK (Czechy). Pobieranie trwa kilka–kilkanaście minut.
+- **Standard**: globalny model terenu ~10–25 m (Terrarium), szlaki, szczyty, schroniska i pokrycie terenu z OpenStreetMap w całej Europie.
+- **LiDAR**: kafle terenu 3 m z NMT GUGiK (Polska) i DMR 5G ČÚZK (Czechy). Wystarczy, że źródło LiDAR obejmuje część kwadratu; reszta korzysta z modelu globalnego z płynnym przejściem.
 
-Nowe pasmo dodasz, dopisując wpis do `public/catalog.json` (prostokąt `bbox`, poziom `zoom`, źródła `hd.lidar` / `hd.ortho`, piętra roślinności `biome`).
-
-Bez serwera (np. hosting statyczny) aplikacja też działa: wtedy pokazuje pasma, których dane leżą w `data/` obok zbudowanej aplikacji (`npm run bake:all`).
+Każdy kwadrat ma własny `data/<id>/region.json` z granicami `bbox`, wybraną jakością i wykrytymi źródłami danych. Bez serwera aplikacja może nadal otwierać wcześniej przygotowane dane statyczne, ale nie utworzy nowych kwadratów.
 
 ## Funkcje
 
 ### Teren
-- **Model LiDAR ~3 m** (Tatry, Pieniny, Babia Góra) i **~6 m** (Karkonosze, Bieszczady) z darmowych danych krajowych: **NMT GUGiK** (Polska, lotnicze skanowanie laserowe) i **DMR 5G ČÚZK** (Czechy). Poza ich zasięgiem (Słowacja, Ukraina) – model globalny z płynnym przejściem na granicy.
+- **Model LiDAR ~3–6 m** z darmowych danych krajowych: **NMT GUGiK** (Polska, lotnicze skanowanie laserowe) i **DMR 5G ČÚZK** (Czechy). W kwadracie pokrytym tylko częściowo reszta korzysta z modelu globalnego, z płynnym przejściem na granicy.
 - **Teren kaflowy z poziomami szczegółowości** (drzewo czwórkowe Web Mercator, kafle 259×259 z ramką, fartuchy maskujące szczeliny), doczytywany w wątkach roboczych wokół kamery; suwak szczegółowości w zakładce „Mapa i światło”.
 - **Ortofotomapa** z usług krajowych składana na każdy kafel: **GUGiK** (PL), **ZBGIS** (SK), **ČÚZK** (CZ) – do ~0,8 m/px; w tle mozaika Sentinel‑2.
 - **Realistyczne cieniowanie**: piętra roślinności (regiel, kosodrzewina, hale, turnie) zależne od wysokości, nachylenia i ekspozycji; **rzeczywiste pokrycie terenu z OSM** (stawy, lasy, kosodrzewina, piargi) wypiekane do maski rastrowej; mikrorzeźba proceduralna na skałach; odbicia nieba i odblaski słońca na wodzie.
@@ -75,7 +73,7 @@ Wyszukiwarka (`/`) szczytów, schronisk, przełęczy i szlaków (także po kolor
 
 ## Dane
 
-Dane pasma (w `data/<pasmo>/`) przygotowują skrypty `scripts/bake.mjs` i `scripts/bake-hd.mjs` – uruchamiane przez menedżer map albo ręcznie:
+Dane kwadratu (w `data/<id>/`) przygotowują skrypty `scripts/bake.mjs` i `scripts/bake-hd.mjs` – normalnie uruchamiane przez mapę pobierania, a diagnostycznie także ręcznie:
 
 | plik | zawartość | źródło |
 | --- | --- | --- |
@@ -94,9 +92,8 @@ Ortofoto (ładowane na żądanie z usług WMS/ArcGIS): **© GUGiK** (geoportal.g
 Ręczne przygotowanie lub odświeżenie danych (np. po zmianach w OSM):
 
 ```bash
-npm run bake:all        # OSM + LiDAR dla wszystkich regionów
-npm run bake -- tatry   # etap 1: teren globalny, szlaki, punkty, pokrycie terenu
-npm run bake:hd -- tatry  # etap 2: LiDAR → piramida kafli, model analityczny i wysokości szlaków
+npm run bake -- moj-kwadrat     # etap 1: teren globalny, szlaki, punkty, pokrycie terenu
+npm run bake:hd -- moj-kwadrat  # etap 2: LiDAR → piramida kafli, model analityczny i wysokości szlaków
 ```
 
 Etap 2 pobiera setki MB danych LiDAR (GUGiK udostępnia NMT w układzie PUWG‑1992 – przeliczenie do Web Mercatora jest w `scripts/lib/puwg.mjs`). Słowacki DMR 5.0 nie ma publicznej usługi z surowymi wysokościami (tylko wysyłka na dysku), dlatego słowacka strona gór korzysta z modelu globalnego.

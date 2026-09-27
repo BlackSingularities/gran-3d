@@ -1,7 +1,7 @@
 import type { App } from '../app';
 import { escapeHtml, trailHex } from '../app';
 import { bearing, compassDir, DEG, fmt1, fmtCoords, fmtDecimal, fmtDist, fmtEle, fmtInt, fmtSigned, fmtTime, haversine } from '../core/geo';
-import { CATALOG, REGIONS } from '../core/region';
+import { REGIONS } from '../core/region';
 import type { Lens, MeasurePoint, Tool } from '../core/store';
 import { ALT_COLORS } from '../scene/routes';
 import { TRAIL_NAME_PL } from '../scene/trails';
@@ -127,7 +127,7 @@ export class Chrome {
         const [pn, pe] = r.peak ? [r.peak.name, r.peak.ele] : REGION_MAX[r.id] ?? ['', 0];
         return `<button class="menu__item ${r.id === cur ? 'is-on' : ''}" data-region="${r.id}">${silhouette(r.id, pe)}<span><span class="menu__name">${r.name}</span><br><span class="menu__sub">${r.subtitle}</span></span><span class="menu__max">${fmtInt(pe)} m<small>${pn}</small></span></button>`;
       }).join('') +
-      `<button class="menu__more" data-maps>${ICON.gpx}<span><b>Pobierz więcej pasm…</b><small>${CATALOG.length - REGIONS.length} dostępnych do pobrania · zarządzanie mapami</small></span></button>`;
+      `<button class="menu__more" data-maps>${ICON.gpx}<span><b>Zaznacz kolejny kwadrat…</b><small>mapa pobierania · zarządzanie terenem</small></span></button>`;
     menu.querySelector('[data-maps]')!.addEventListener('click', () => {
       menu.hidden = true;
       this.openMaps();
@@ -140,7 +140,7 @@ export class Chrome {
     );
   }
 
-  /** Lista pobranych pasm się zmieniła (menedżer map). */
+  /** Lista pobranych kwadratów się zmieniła (menedżer map). */
   refreshRegions() {
     if (!$('region-menu').hidden) this.renderRegionMenu();
   }

@@ -1,4 +1,4 @@
-// Generuje public/coverage.json: uproszczone granice krajów, w których GRAŃ ma źródła danych
+// Generuje public/coverage.json: uproszczone granice europejskiego zasięgu GRAŃ
 // (Natural Earth 1:50m, domena publiczna). Uruchamiane jednorazowo przy zmianie zasięgu.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,11 +9,25 @@ const file = path.join(CACHE_DIR, 'ne50.geojson');
 if (!fs.existsSync(file)) fs.writeFileSync(file, Buffer.from(await (await fetch(SRC)).arrayBuffer()));
 const ne = JSON.parse(fs.readFileSync(file, 'utf8'));
 
-const COUNTRIES = {
-  POL: { code: 'PL', name: 'Polska', lidar: 'pl', ortho: 'pl' },
-  CZE: { code: 'CZ', name: 'Czechy', lidar: 'cz', ortho: 'cz' },
-  SVK: { code: 'SK', name: 'Słowacja', lidar: null, ortho: 'sk' },
+// Bazowy model Terrarium i OSM obejmuje całą Europę. LiDAR/ortofoto są
+// oznaczone osobno, bo tylko te źródła zależą od krajowych geoportali.
+const EUROPE = {
+  ALB: ['AL', 'Albania'], AUT: ['AT', 'Austria'], BEL: ['BE', 'Belgia'], BIH: ['BA', 'Bośnia i Hercegowina'],
+  BGR: ['BG', 'Bułgaria'], HRV: ['HR', 'Chorwacja'], CYP: ['CY', 'Cypr'], CZE: ['CZ', 'Czechy'],
+  DNK: ['DK', 'Dania'], EST: ['EE', 'Estonia'], FIN: ['FI', 'Finlandia'], FRA: ['FR', 'Francja'],
+  DEU: ['DE', 'Niemcy'], GRC: ['GR', 'Grecja'], HUN: ['HU', 'Węgry'], ISL: ['IS', 'Islandia'],
+  IRL: ['IE', 'Irlandia'], ITA: ['IT', 'Włochy'], KOS: ['XK', 'Kosowo'], LVA: ['LV', 'Łotwa'],
+  LTU: ['LT', 'Litwa'], LUX: ['LU', 'Luksemburg'], MDA: ['MD', 'Mołdawia'], MNE: ['ME', 'Czarnogóra'],
+  NLD: ['NL', 'Holandia'], MKD: ['MK', 'Macedonia Północna'], NOR: ['NO', 'Norwegia'], POL: ['PL', 'Polska'],
+  PRT: ['PT', 'Portugalia'], ROU: ['RO', 'Rumunia'], SRB: ['RS', 'Serbia'], SVK: ['SK', 'Słowacja'],
+  SVN: ['SI', 'Słowenia'], ESP: ['ES', 'Hiszpania'], SWE: ['SE', 'Szwecja'], CHE: ['CH', 'Szwajcaria'],
+  TUR: ['TR', 'Turcja'], UKR: ['UA', 'Ukraina'], GBR: ['GB', 'Wielka Brytania'],
 };
+const COUNTRIES = Object.fromEntries(Object.entries(EUROPE).map(([iso, [code, name]]) => [iso, {
+  code, name,
+  lidar: code === 'PL' ? 'pl' : code === 'CZ' ? 'cz' : null,
+  ortho: code === 'PL' ? 'pl' : code === 'CZ' ? 'cz' : code === 'SK' ? 'sk' : null,
+}]));
 
 // Douglas–Peucker
 function simplify(pts, tol) {

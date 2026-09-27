@@ -11,8 +11,8 @@ const step = document.getElementById('loader-step')!;
 const regionLabel = document.getElementById('loader-region')!;
 drawLoaderTopo();
 
-// katalog pasm i lista pobranych (z serwera albo z plików)
-step.textContent = 'Katalog pasm';
+// lista kwadratów zapamiętanych na serwerze albo dostępnych statycznie
+step.textContent = 'Pobrane kwadraty';
 await initCatalog();
 
 const app = new App();
@@ -42,7 +42,7 @@ async function switchRegion(id: string) {
 const chrome = new Chrome(app, (id) => void switchRegion(id), () => maps.open(false));
 app.switchRegion = switchRegion;
 
-// menedżer map: nowe pasmo gotowe → otwórz (pierwsze) albo zaproponuj przejście
+// menedżer map: nowy kwadrat gotowy → otwórz pierwszy albo odśwież listę
 maps.onChange = () => chrome.refreshRegions();
 maps.onInstalled = (id, first) => {
   if (first || !app.region) {
@@ -51,7 +51,7 @@ maps.onInstalled = (id, first) => {
     return;
   }
   const r = REGIONS.find((x) => x.id === id);
-  if (r) app.toast(`Pobrano pasmo: ${r.name} – jest już w menu regionów.`);
+  if (r) app.toast(`Pobrano kwadrat: ${r.name} – jest już w przełączniku terenu.`);
 };
 maps.onOpen = (id) => void switchRegion(id).then(() => chrome.updateScale());
 
@@ -82,7 +82,7 @@ document.getElementById('app')!.classList.toggle('panel-closed', !app.store.stat
 if (REGIONS.length) {
   void switchRegion(app.store.state.regionId).then(() => chrome.updateScale());
 } else {
-  // brak pobranych pasm – ekran wyboru zamiast mapy
+  // brak pobranych kwadratów – ekran wyboru zamiast mapy
   loader.classList.add('is-done');
   maps.open(true);
 }

@@ -13,6 +13,9 @@ export interface RegionDef {
   biome?: Biome;
   home: { lon: number; lat: number; heading: number; pitch: number; distance: number };
   hd?: { zoom: number; lidar: string[]; ortho: string[] };
+  custom?: boolean;
+  quality?: 'normal' | 'high';
+  created?: string;
 }
 
 /** Piętra roślinności (m n.p.m.) – sterują realistycznym cieniowaniem terenu. */
@@ -30,9 +33,10 @@ export interface RegionStatus {
   level?: 'base' | 'hd';
   bytes?: number;
   date?: string | null;
+  def?: RegionDef;
 }
 
-/** Pełny katalog pasm (definicje) i lista pobranych – ustawiane przez initCatalog(). */
+/** Zapamiętane kwadraty (definicje) i lista gotowych – ustawiane przez initCatalog(). */
 export let CATALOG: RegionDef[] = [];
 export let REGIONS: RegionDef[] = [];
 export let STATUS = new Map<string, RegionStatus>();
@@ -56,18 +60,26 @@ function withDefaults(r: RegionDef): RegionDef {
   };
 }
 
-/** Wczytuje katalog pasm i stan instalacji (z API serwera albo – bez serwera – sprawdzając pliki). */
+/** Wczytuje kwadraty i stan instalacji (z API serwera albo z plików statycznych). */
 export async function initCatalog() {
   const base = import.meta.env.BASE_URL;
   const cat = (await (await fetch(`${base}catalog.json`, { cache: 'no-cache' })).json()) as { regions: RegionDef[] };
-  CATALOG = cat.regions.map(withDefaults);
+  const defs = new Map(cat.regions.map((r) => [r.id, withDefaults(r)]));
+  CATALOG = [...defs.values()];
   const status = new Map<string, RegionStatus>();
   let server = false;
   try {
     const r = await fetch(`${base}api/status`, { cache: 'no-store' });
     if (r.ok && (r.headers.get('content-type') ?? '').includes('json')) {
       const j = (await r.json()) as { regions: RegionStatus[] };
-      for (const st of j.regions) status.set(st.id, st);
+      // W trybie serwerowym katalog tworzą wyłącznie kwadraty zaznaczone
+      // przez użytkownika.
+      defs.clear();
+      for (const st of j.regions) {
+        status.set(st.id, st);
+        if (st.def) defs.set(st.id, withDefaults(st.def));
+      }
+      CATALOG = [...defs.values()];
       server = true;
     }
   } catch {
