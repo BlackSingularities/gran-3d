@@ -29,7 +29,7 @@ export class RouteLayer {
   private add(set: Lines, pos: number[], params: ConstructorParameters<typeof LineMaterial>[0], order: number, dashed = false) {
     const g = new LineGeometry();
     g.setPositions(pos);
-    const m = new LineMaterial({ worldUnits: false, transparent: true, ...params });
+    const m = new LineMaterial({ fog: true, worldUnits: false, transparent: true, ...params });
     const l = new Line2(g, m);
     if (dashed) l.computeLineDistances();
     l.renderOrder = order;

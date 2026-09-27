@@ -260,10 +260,15 @@ export class Engine {
     if (!this.panorama) this.savedView = this.view;
     this.panorama = true;
     this.anim = null;
-    const eye = (this.dem!.sampleWorld(x, z) + 2) * this.exag;
+    // oko nad najwyższym z sąsiednich węzłów siatki – trójkąty mogą leżeć wyżej niż interpolacja dwuliniowa
+    const dem = this.dem!;
+    const gx = Math.floor(dem.xToGx(x)), gy = Math.floor(dem.zToGy(z));
+    let top = dem.sampleWorld(x, z);
+    for (let j = 0; j <= 1; j++) for (let i = 0; i <= 1; i++) top = Math.max(top, dem.at(gx + i, gy + j));
+    const eye = (top + 2) * this.exag;
     const h = heading * DEG;
     const pos = new THREE.Vector3(x, eye, z);
-    const dir = new THREE.Vector3(Math.sin(h), -0.04, -Math.cos(h)).normalize();
+    const dir = new THREE.Vector3(Math.sin(h), 0.02, -Math.cos(h)).normalize();
     this.camera.position.copy(pos);
     this.controls.target.copy(pos.clone().add(dir.multiplyScalar(1)));
     this.controls.minDistance = this.controls.maxDistance = 1;

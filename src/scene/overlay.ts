@@ -104,7 +104,7 @@ export class Overlay {
     const exag = this.engine.exag;
     // punktacja: ważność ↓ z odległością
     const scored = this.labels.map((l) => {
-      const d = Math.hypot(l.poi.x - cam.x, l.poi.z - cam.z, l.poi.ele * exag - cam.y);
+      const d = Math.hypot(l.poi.x - cam.x, l.poi.z - cam.z, l.poi.d * exag - cam.y);
       return { l, d, s: l.poi.prom / (1 + d / (pano ? 9000 : 22000)) };
     });
     scored.sort((a, b) => b.s - a.s);
@@ -113,13 +113,14 @@ export class Overlay {
       let show = false;
       let px = 0, py = 0;
       if (this.enabled && count < maxLabels) {
-        const p = this.engine.project(l.poi.x, l.poi.ele, l.poi.z);
+        // kotwica na powierzchni modelu (DEM wygładza wierzchołki), wysokość z OSM tylko w opisie
+        const p = this.engine.project(l.poi.x, l.poi.d, l.poi.z);
         if (p && p.x > -40 && p.x < W + 40 && p.y > 50 && p.y < H - 10) {
           const w = l.poi.n.length * (l.poi.t === 'hut' ? 6.6 : 8.2) + 12;
           const h = 38;
           const r: [number, number, number, number] = [p.x - w / 2, p.y - h - 6, p.x + w / 2, p.y];
           const hit = placed.some((q) => r[0] < q[2] && r[2] > q[0] && r[1] < q[3] && r[3] > q[1]);
-          if (!hit && !this.engine.occluded(l.poi.x, l.poi.ele, l.poi.z, 28)) {
+          if (!hit && !this.engine.occluded(l.poi.x, l.poi.d, l.poi.z, 28)) {
             show = true;
             placed.push([r[0] - 6, r[1] - 3, r[2] + 6, r[3] + 3]);
             px = p.x;
@@ -134,10 +135,8 @@ export class Overlay {
         l.el.classList.toggle('poi--major', l.poi.t === 'peak' && l.poi.prom > 5 && d < 30000);
         l.el.classList.toggle('is-far', d > 26000);
         l.el.style.transform = `translate(${px.toFixed(1)}px, ${py.toFixed(1)}px) translate(-50%, -100%)`;
-        if (pano) {
-          const ele = l.el.querySelector('.poi__ele');
-          if (ele) ele.textContent = `${fmtInt(l.poi.ele)} · ${fmtDist(d)}`;
-        }
+        const ele = l.el.querySelector('.poi__ele');
+        if (ele) ele.textContent = pano ? `${fmtInt(l.poi.ele)} · ${fmtDist(d)}` : fmtInt(l.poi.ele);
         l.shown = true;
       } else if (l.el && l.shown) {
         l.el.classList.add('is-hidden');

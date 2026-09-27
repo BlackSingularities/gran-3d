@@ -70,17 +70,17 @@ export class TrailsLayer {
     const g = new LineSegmentsGeometry();
     g.setPositions(pos);
     g.setColors(col);
-    this.coreMat = new LineMaterial({ linewidth: 2.4, vertexColors: true, worldUnits: false, transparent: true, opacity: 1 });
+    this.coreMat = new LineMaterial({ fog: true, linewidth: 2.4, vertexColors: true, worldUnits: false, transparent: true, opacity: 1 });
     this.core = new LineSegments2(g, this.coreMat);
     this.core.renderOrder = 2;
 
     const cg = new LineSegmentsGeometry();
     cg.setPositions(cpos);
-    this.casingMat = new LineMaterial({ linewidth: 5, color: 0xfff6e2, worldUnits: false, transparent: true, opacity: 0.75, depthWrite: false });
+    this.casingMat = new LineMaterial({ fog: true, linewidth: 5, color: 0xfff6e2, worldUnits: false, transparent: true, opacity: 0.75, depthWrite: false });
     this.casing = new LineSegments2(cg, this.casingMat);
     this.casing.renderOrder = 1;
 
-    this.hlMat = new LineMaterial({ linewidth: 9, color: 0xffe9a8, worldUnits: false, transparent: true, opacity: 0.55, depthTest: false });
+    this.hlMat = new LineMaterial({ fog: true, linewidth: 9, color: 0xffe9a8, worldUnits: false, transparent: true, opacity: 0.55, depthTest: false });
 
     this.group.add(this.casing, this.core);
   }

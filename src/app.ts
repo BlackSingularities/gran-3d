@@ -267,7 +267,7 @@ export class App {
   applyLayers() {
     const s = this.store.state;
     const u = this.terrain!.material.uniforms;
-    u.uContourOn.value = s.contours ? 1 : 0;
+    u.uContourOn.value = s.contours && !s.panorama ? 1 : 0;
     u.uShadowOn.value = s.shadows ? 1 : 0;
     u.uGridOn.value = s.grid ? 1 : 0;
     u.uSnowOn.value = s.snow ? 1 : 0;
@@ -295,6 +295,10 @@ export class App {
     u.uSkyColor.value.copy(sky.ambient);
     u.uFogColor.value.copy(sky.horizon).multiplyScalar(0.9 + sky.day * 0.25);
     u.uFogDensity.value = 1 / (70000 + sky.day * 20000);
+    // mgła sceny dla linii (szlaki, trasy) – zgodna z perspektywą powietrzną terenu
+    const fog = (this.engine.scene.fog as THREE.FogExp2 | null) ?? (this.engine.scene.fog = new THREE.FogExp2(0xffffff, 1));
+    fog.color.copy(u.uFogColor.value);
+    fog.density = u.uFogDensity.value * 1.05;
     this.terrain.wallMaterial.uniforms.uLight.value.setScalar(0.25 + sky.day * 0.85);
     u.uSnowLine.value = seasonalSnowline(date);
     const m = date.getUTCMonth();
@@ -478,7 +482,7 @@ export class App {
   // ---------------------------------------------------------------- zaznaczenia
   selectPoi(p: Poi, fly = false) {
     this.selection = { kind: 'poi', poi: p };
-    this.setSelMarker(p.x, p.z, p.ele);
+    this.setSelMarker(p.x, p.z, p.d);
     if (this.store.state.tool !== 'explore') this.store.set({ tool: 'explore' });
     if (fly) {
       const v = this.engine.view;
@@ -1053,10 +1057,17 @@ export class App {
   }
 
   // ---------------------------------------------------------------- panorama
+  private exagBeforePano: number | null = null;
   enterPanorama(x: number, z: number) {
     this.stopFly();
+    // panorama zawsze w skali 1:1 – bez przewyższenia
+    if (this.exagBeforePano == null) this.exagBeforePano = this.store.state.exag;
+    this.engine.setExag(1);
+    this.terrain!.material.uniforms.uExag.value = 1;
+    this.store.state.exag = 1;
     this.engine.enterPanorama(x, z);
     this.store.set({ panorama: true });
+    this.terrain!.material.uniforms.uContourOn.value = 0;
     document.getElementById('app')!.classList.add('is-panorama');
     this.terrain!.material.uniforms.uCursor.value.w = 0;
     this.changed();
@@ -1064,7 +1075,13 @@ export class App {
 
   exitPanorama() {
     this.engine.exitPanorama();
+    if (this.exagBeforePano != null) {
+      const e = this.exagBeforePano;
+      this.exagBeforePano = null;
+      this.store.set({ exag: e });
+    }
     this.store.set({ panorama: false });
+    this.terrain!.material.uniforms.uContourOn.value = this.store.state.contours ? 1 : 0;
     document.getElementById('app')!.classList.remove('is-panorama');
     this.changed();
   }
