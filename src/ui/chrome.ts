@@ -2,7 +2,7 @@ import type { App } from '../app';
 import { escapeHtml, trailHex } from '../app';
 import { bearing, compassDir, DEG, fmt1, fmtCoords, fmtDecimal, fmtDist, fmtEle, fmtInt, fmtSigned, fmtTime, haversine } from '../core/geo';
 import { REGIONS } from '../core/region';
-import type { MeasurePoint, Tool } from '../core/store';
+import type { Lens, MeasurePoint, Tool } from '../core/store';
 import { ALT_COLORS } from '../scene/routes';
 import { TRAIL_NAME_PL } from '../scene/trails';
 import { ICON, POI_ICON, POI_TYPE_PL } from './icons';
@@ -12,15 +12,19 @@ const $ = (id: string) => document.getElementById(id)!;
 const TOOLS: { id: Tool; name: string; key: string; icon: string }[] = [
   { id: 'explore', name: 'Eksploracja', key: '1', icon: ICON.explore },
   { id: 'route', name: 'Planowanie trasy', key: '2', icon: ICON.route },
-  { id: 'relative', name: 'Wysokość względna', key: '3', icon: ICON.relative },
-  { id: 'viewshed', name: 'Widoczność', key: '4', icon: ICON.viewshed },
-  { id: 'measure', name: 'Pomiar i linia wzroku', key: '5', icon: ICON.measure },
+  { id: 'measure', name: 'Pomiar i linia wzroku', key: '3', icon: ICON.measure },
+];
+
+/** Soczewki kursora – co teren pokazuje wokół wskazanego punktu. */
+export const LENSES: { id: Exclude<Lens, 'none'>; name: string; short: string; key: string; icon: string; hint: string }[] = [
+  { id: 'iso', name: 'Poziomica przez kursor', short: 'Poziomica', key: 'I', icon: ICON.iso, hint: 'linia łączy miejsca na tej samej wysokości co kursor' },
+  { id: 'band', name: 'Ta sama wysokość', short: 'Ta sama wys.', key: 'H', icon: ICON.band, hint: 'podświetlony pas terenu na wysokości kursora' },
+  { id: 'rel', name: 'Wysokość względna', short: 'Względna', key: 'W', icon: ICON.relative, hint: 'teren barwiony różnicą wysokości względem kursora' },
+  { id: 'vis', name: 'Widoczność', short: 'Widoczność', key: 'O', icon: ICON.viewshed, hint: 'rozświetlone jest to, co widać z miejsca pod kursorem' },
 ];
 
 const HINTS: Partial<Record<Tool, string>> = {
   route: '<b>Kliknij</b> start i cel · kolejne kliknięcia dodają punkty · przeciągaj znaczniki',
-  relative: '<b>Kliknij</b> punkt, który ma być poziomem zero',
-  viewshed: '<b>Kliknij</b> miejsce obserwatora',
   measure: '<b>Klikaj</b> kolejne punkty · <kbd>Esc</kbd> kończy',
 };
 
@@ -57,6 +61,7 @@ export class Chrome {
 
   constructor(private app: App, private switchRegion: (id: string) => void) {
     this.buildRail();
+    this.buildLensDock();
     this.buildRegionMenu();
     this.buildHelp();
     this.bindKeys();
@@ -141,9 +146,55 @@ export class Chrome {
     if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; }
   }
 
+  // ------------------------------------------------------------- soczewka kursora
+  private buildLensDock() {
+    const dock = document.createElement('div');
+    dock.id = 'lensdock';
+    dock.className = 'lensdock';
+    $('app').appendChild(dock);
+    dock.addEventListener('click', (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>('[data-lens],[data-lp],[data-unpin]');
+      if (!t) return;
+      const a = this.app;
+      if (t.dataset.lens) a.setLens(t.dataset.lens as Lens);
+      else if (t.dataset.unpin != null) a.unpinLens();
+      else if (t.dataset.lp) {
+        const [k, v] = t.dataset.lp.split(':');
+        const n = Number(v);
+        if (k === 'band') a.store.set({ bandTol: n });
+        if (k === 'rel') a.store.set({ relRange: n });
+        if (k === 'eye') {
+          a.store.set({ vsEye: n });
+          const vs = a.store.state.viewshed;
+          if (vs) void a.runViewshed(vs.point.x, vs.point.z);
+        }
+      }
+    });
+  }
+
+  private updateLensDock() {
+    const a = this.app, s = a.store.state;
+    const dock = $('lensdock');
+    const lens = LENSES.find((l) => l.id === s.lens);
+    const key = [s.lens, s.bandTol, s.relRange, s.vsEye, a.lensPinned, s.panorama].join('|');
+    if (dock.dataset.k === key) return;
+    dock.dataset.k = key;
+    const chip = (k: string, v: number, label: string, cur: number) => `<button class="lens__chip ${cur === v ? 'is-on' : ''}" data-lp="${k}:${v}">${label}</button>`;
+    let params = '';
+    if (s.lens === 'band') params = [5, 10, 25, 50].map((v) => chip('band', v, `±${v} m`, s.bandTol)).join('');
+    if (s.lens === 'rel') params = [200, 500, 1000].map((v) => chip('rel', v, `±${v} m`, s.relRange)).join('');
+    if (s.lens === 'vis') params = [1.7, 10, 30, 100].map((v) => chip('eye', v, v === 1.7 ? 'oczy' : `+${v} m`, s.vsEye)).join('');
+    dock.classList.toggle('is-active', !!lens);
+    dock.innerHTML = `
+      <span class="lens__title">Soczewka</span>
+      ${LENSES.map((l) => `<button class="lens__btn ${s.lens === l.id ? 'is-on' : ''}" data-lens="${l.id}" title="${l.name} (${l.key})">${l.icon}<span>${l.short}</span><kbd>${l.key}</kbd></button>`).join('')}
+      ${lens ? `<span class="lens__sep"></span>${params}${a.lensPinned ? `<button class="lens__chip lens__pin" data-unpin title="Odepnij (Esc)">${ICON.pin} przypięta ✕</button>` : '<span class="lens__live">na żywo</span>'}` : ''}`;
+  }
+
   update() {
     const a = this.app, s = a.store.state;
     if (!a.region) return;
+    this.updateLensDock();
     this.updateTileStat();
     $('region-name').textContent = a.region.def.name;
     $('region-sub').textContent = `${fmtInt(a.region.dem.min)}–${fmtInt(a.region.dem.max)} m · ${fmtInt(a.graph?.totalKm ?? 0)} km szlaków`;
@@ -157,8 +208,16 @@ export class Chrome {
 
   private updateHint() {
     const s = this.app.store.state;
-    const txt = HINTS[s.tool];
-    const show = txt && !s.panorama && !(s.tool === 'route' && s.waypoints.length >= 2) && !(s.tool === 'relative' && s.ref) && !(s.tool === 'viewshed' && s.viewshed) && !(s.tool === 'measure' && s.measure.length >= 2);
+    const lens = LENSES.find((l) => l.id === s.lens);
+    let txt = HINTS[s.tool];
+    let show = !!txt && !s.panorama && !(s.tool === 'route' && s.waypoints.length >= 2) && !(s.tool === 'measure' && s.measure.length >= 2);
+    const key = lens ? `lens:${lens.id}:${this.app.lensPinned}` : s.tool;
+    if (lens && s.tool === 'explore' && !s.panorama) {
+      txt = this.app.lensPinned
+        ? `Soczewka <b>${lens.name}</b> przypięta · <kbd>Esc</kbd> odepnij · kliknij gdzie indziej, by przenieść`
+        : `Soczewka <b>${lens.name}</b>: ${lens.hint} · <b>kliknij</b>, by przypiąć`;
+      show = true;
+    }
     if (!show) {
       this.hintEl?.remove();
       this.hintEl = null;
@@ -169,8 +228,8 @@ export class Chrome {
       this.hintEl.className = 'hint-tool';
       $('app').appendChild(this.hintEl);
     }
-    if (this.hintEl.dataset.t !== s.tool) {
-      this.hintEl.dataset.t = s.tool;
+    if (this.hintEl.dataset.t !== key) {
+      this.hintEl.dataset.t = key;
       this.hintEl.innerHTML = txt!;
     }
   }
@@ -203,12 +262,20 @@ export class Chrome {
       return;
     }
     let html = `<div><em>Położenie</em><b>${fmtCoords(c.lon, c.lat)}</b></div><div><em>Wysokość</em><b>${fmtEle(c.e)}</b></div><div><em>Nachylenie</em><b>${fmtInt(c.slope)}°</b> ${compassDir(c.aspect)}</div>`;
-    if (s.ref && s.tool === 'relative') {
+    if (s.lens === 'band' || s.lens === 'iso') {
+      const lvl = s.ref?.e ?? c.e;
+      html += `<div><em>${s.lens === 'band' ? 'Pas wysokości' : 'Poziomica'}</em><b>${fmtEle(lvl)}</b>${s.lens === 'band' ? ` ± ${s.bandTol} m` : ''}</div>`;
+      if (s.ref) html += `<div><em>Δh od poziomu</em><b class="${c.e - lvl >= 0 ? 'up' : 'down'}">${fmtSigned(c.e - lvl)}</b></div>`;
+    } else if (s.lens === 'vis' && !a.lensPinned && Number.isFinite(a.liveArea)) {
+      html += `<div><em>Widać stąd</em><b>${fmt1(a.liveArea)} km²</b></div>`;
+    }
+    if (s.ref && s.lens === 'rel') {
       const dh = c.e - s.ref.e;
       const d = haversine(s.ref.lon, s.ref.lat, c.lon, c.lat);
       const ang = d > 0 ? Math.atan2(dh, d) / DEG : 0;
       html += `<div><em>Δh od punktu</em><b class="${dh >= 0 ? 'up' : 'down'}">${fmtSigned(dh)}</b></div><div><em>Odległość</em><b>${fmtDist(d)}</b> · ${fmt1(ang)}°</div><div><em>Azymut</em><b>${fmtInt(bearing(s.ref.lon, s.ref.lat, c.lon, c.lat))}°</b></div>`;
-    } else if (s.tool === 'measure' && s.measure.length) {
+    }
+    if (s.tool === 'measure' && s.measure.length) {
       const last = s.measure[s.measure.length - 1];
       html += `<div><em>Od ostatniego</em><b>${fmtDist(haversine(last.lon, last.lat, c.lon, c.lat))}</b> · ${fmtSigned(c.e - last.e)}</div>`;
     }
@@ -293,8 +360,10 @@ export class Chrome {
       <button data-c="end">${ICON.pin}Trasa dotąd</button>
       ${s.waypoints.length >= 2 ? `<button data-c="via">${ICON.plus}Dodaj punkt pośredni</button>` : ''}
       <hr>
-      <button data-c="ref">${ICON.relative}Wysokość względna od tego punktu<kbd>3</kbd></button>
-      <button data-c="vs">${ICON.viewshed}Co widać z tego miejsca?<kbd>4</kbd></button>
+      <button data-c="iso">${ICON.iso}Poziomica przez ten punkt<kbd>I</kbd></button>
+      <button data-c="band">${ICON.band}Teren na tej samej wysokości<kbd>H</kbd></button>
+      <button data-c="ref">${ICON.relative}Wysokość względna od tego punktu<kbd>W</kbd></button>
+      <button data-c="vs">${ICON.viewshed}Co widać z tego miejsca?<kbd>O</kbd></button>
       <button data-c="pano">${ICON.person}Stań tutaj – panorama</button>
       <button data-c="measure">${ICON.measure}Pomiar stąd<kbd>5</kbd></button>
       <hr>
@@ -319,8 +388,10 @@ export class Chrome {
             a.addWaypoint(p.x, p.z);
             break;
           case 'via': a.addWaypoint(p.x, p.z, s.waypoints.length - 1); break;
-          case 'ref': a.setRef(p.x, p.z); break;
-          case 'vs': void a.runViewshed(p.x, p.z); break;
+          case 'iso': a.pinLens(p.x, p.z, 'iso'); break;
+          case 'band': a.pinLens(p.x, p.z, 'band'); break;
+          case 'ref': a.pinLens(p.x, p.z, 'rel'); break;
+          case 'vs': a.pinLens(p.x, p.z, 'vis'); break;
           case 'pano': a.enterPanorama(p.x, p.z); break;
           case 'measure': a.store.set({ tool: 'measure', measure: [p] }); break;
           case 'info': a.store.set({ tool: 'explore' }); a.selectPoint(p.x, p.z); a.store.set({ panelOpen: true }); break;
@@ -439,6 +510,8 @@ export class Chrome {
         if (s.panorama) return a.exitPanorama();
         if (s.flying || a.fly) return a.stopFly();
         if (s.tool === 'measure' && s.measure.length) return a.store.set({ tool: 'explore' });
+        if (a.lensPinned) return a.unpinLens();
+        if (s.lens !== 'none') return a.setLens(s.lens);
         if (a.selection) return a.clearSelection();
         if (s.tool !== 'explore') return a.setTool('explore');
         return;
@@ -454,7 +527,10 @@ export class Chrome {
         case 't': a.store.set({ trails: !s.trails }); break;
         case 'l': a.store.set({ labels: !s.labels }); break;
         case 'c': a.store.set({ contours: !s.contours }); break;
-        case 'i': a.store.set({ cursorIso: !s.cursorIso }); a.toast(s.cursorIso ? 'Poziomica kursora wyłączona.' : 'Poziomica kursora włączona.'); break;
+        case 'i': a.setLens('iso'); break;
+        case 'h': a.setLens('band'); break;
+        case 'w': a.setLens('rel'); break;
+        case 'o': a.setLens('vis'); break;
         case 'f': a.toggleFly(); break;
         case 'n': a.engine.flyTo({ heading: 0 }, 800); break;
         case 'r': {
@@ -484,8 +560,8 @@ export class Chrome {
 
   private buildHelp() {
     const rows: [string, string][] = [
-      ['<kbd>1</kbd>–<kbd>5</kbd>', 'narzędzia'], ['<kbd>/</kbd>', 'wyszukiwarka'], ['<kbd>M</kbd>', 'mapa i światło'], ['<kbd>P</kbd>', 'pokaż / ukryj panel'],
-      ['<kbd>T</kbd> <kbd>L</kbd> <kbd>C</kbd>', 'szlaki · nazwy · poziomice'], ['<kbd>I</kbd>', 'poziomica przez kursor'], ['<kbd>+</kbd> <kbd>−</kbd>', 'przewyższenie terenu'],
+      ['<kbd>1</kbd>–<kbd>3</kbd>', 'eksploracja · trasa · pomiar'], ['<kbd>I</kbd> <kbd>H</kbd> <kbd>W</kbd> <kbd>O</kbd>', 'soczewka: poziomica · ta sama wys. · względna · widoczność'], ['<kbd>/</kbd>', 'wyszukiwarka'], ['<kbd>M</kbd>', 'mapa i światło'], ['<kbd>P</kbd>', 'pokaż / ukryj panel'],
+      ['<kbd>T</kbd> <kbd>L</kbd> <kbd>C</kbd>', 'szlaki · nazwy · poziomice'], ['klik z soczewką / <kbd>Esc</kbd>', 'przypnij / odepnij soczewkę'], ['<kbd>+</kbd> <kbd>−</kbd>', 'przewyższenie terenu'],
       ['<kbd>[</kbd> <kbd>]</kbd>', 'pora dnia −/+ 30 min'], ['<kbd>F</kbd>', 'przelot nad trasą'], ['<kbd>N</kbd>', 'północ u góry'],
       ['<kbd>V</kbd>', 'widok z góry / ukośny'], ['<kbd>R</kbd>', 'widok początkowy regionu'], ['<kbd>G</kbd>', 'eksport GPX'],
       ['<kbd>S</kbd>', 'zrzut ekranu PNG'], ['<kbd>⌫</kbd>', 'usuń ostatni punkt'], ['<kbd>Esc</kbd>', 'anuluj / wyjdź'],

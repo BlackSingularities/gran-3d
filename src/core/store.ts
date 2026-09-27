@@ -1,6 +1,8 @@
 import type { Route, Snap } from './graph';
 
-export type Tool = 'explore' | 'route' | 'relative' | 'viewshed' | 'measure';
+export type Tool = 'explore' | 'route' | 'measure';
+/** Soczewka kursora: co pokazuje teren wokół wskazanego (lub przypiętego) punktu. */
+export type Lens = 'none' | 'iso' | 'band' | 'rel' | 'vis';
 export type Style = 'terrain' | 'hypso' | 'slope' | 'aspect' | 'satellite' | 'paper';
 
 export interface Waypoint {
@@ -32,7 +34,8 @@ export interface State {
   shadows: boolean;
   grid: boolean;
   snow: boolean;
-  cursorIso: boolean;
+  lens: Lens;
+  bandTol: number;
   exag: number;
   day: string;
   hour: number;

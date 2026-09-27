@@ -35,6 +35,8 @@ export const ICON = {
   north: s('<path d="M12 3 L16 19 L12 16 L8 19 Z"/>'),
   expand: s('<path d="M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15"/>'),
   chevronDown: s('<path d="M6 9 L12 15 L18 9"/>'),
+  iso: s('<path d="M3 17 L8 9 L12 13 L16 6 L21 17"/><path d="M2 12 C 6 10, 9 14, 13 11.5 S 19 10, 22 12" stroke-dasharray="0" stroke-width="2"/>'),
+  band: s('<path d="M3 18 L9 7 L13 12 L17 6 L21 18 Z"/><path d="M4 11.5 H20 M4 14.5 H20" stroke-width="1.3"/>'),
   reset: s('<path d="M4 12 A8 8 0 1 0 7 5.8"/><path d="M4 4 V9 H9"/>'),
 };
 

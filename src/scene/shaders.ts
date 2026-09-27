@@ -117,7 +117,9 @@ uniform float uRelOn;
 uniform vec3 uRef;           // x, z świata, wysokość
 uniform float uRelRange;
 uniform vec4 uCursor;        // x, z, wysokość, aktywny
-uniform float uCursorIso;    // poziomica przez kursor włączona
+uniform float uLens;         // soczewka: 0 brak, 1 poziomica, 2 ta sama wysokość, 3 względna, 4 widoczność
+uniform float uLensOn;       // czy jest punkt źródłowy (kursor lub przypięty)
+uniform float uBandTol;      // połowa szerokości pasa „tej samej wysokości” [m]
 uniform float uGridOn;
 uniform float uSnowLine;
 uniform float uSnowOn;
@@ -440,9 +442,32 @@ void main() {
     float r = 40.0 + vDist * 0.012;
     float ring = 1.0 - smoothstep(0.0, 1.8, abs(rd - r) / max(fwidth(rd), 1e-4));
     col = mix(col, vec3(1.0, 0.95, 0.85), ring * 0.9);
-    float isoF = abs(elev - uCursor.z) / max(fwidth(elev), 1e-4);
-    float isoL = (1.0 - smoothstep(0.6, 1.6, isoF)) * step(0.5, fract(rd / (30.0 + vDist * 0.01)));
-    col = mix(col, vec3(1.0, 0.96, 0.8), isoL * uCursorIso * 0.42 * (1.0 - smoothstep(1200.0, 4500.0, rd)));
+  }
+
+  // ---------- soczewka: poziomica przez punkt ----------
+  if (uLensOn > 0.5 && uLens > 0.5 && uLens < 1.5) {
+    float dz = elev - uRef.z;
+    float isoF = abs(dz) / max(fwidth(elev), 1e-4);
+    float core = 1.0 - smoothstep(0.7, 1.7, isoF);
+    float glow = (1.0 - smoothstep(1.5, 7.0, isoF)) * 0.35;
+    float fade = 1.0 - smoothstep(9000.0, 20000.0, length(wp - uRef.xy));
+    col = mix(col, vec3(1.0, 0.86, 0.45), glow * fade);
+    col = mix(col, vec3(1.0, 0.97, 0.88), core * fade);
+  }
+
+  // ---------- soczewka: ta sama wysokość (pas ±tolerancja) ----------
+  if (uLensOn > 0.5 && uLens > 1.5 && uLens < 2.5) {
+    float d = abs(elev - uRef.z);
+    float inBand = 1.0 - smoothstep(uBandTol * 0.8, uBandTol, d);
+    vec3 lum = vec3(dot(col, vec3(0.3, 0.59, 0.11)));
+    vec3 outside = mix(col, lum, 0.55) * 0.55;
+    vec3 inside = mix(col, srgb(vec3(0.25, 0.85, 0.92)), 0.55) * 1.15 + srgb(vec3(0.02, 0.08, 0.1));
+    col = mix(outside, inside, inBand);
+    // krawędzie pasa i linia dokładnie na poziomie
+    float eF = abs(d - uBandTol) / max(fwidth(elev), 1e-4);
+    col = mix(col, srgb(vec3(0.55, 0.98, 1.0)), (1.0 - smoothstep(0.6, 1.6, eF)) * 0.8);
+    float cF = d / max(fwidth(elev), 1e-4);
+    col = mix(col, vec3(1.0), (1.0 - smoothstep(0.6, 1.6, cF)) * 0.9);
   }
 
   // ---------- perspektywa powietrzna ----------

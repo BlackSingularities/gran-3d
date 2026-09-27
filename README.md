@@ -34,6 +34,7 @@ npm run build      # statyczna wersja w dist/ (działa z dowolnego hostingu plik
 - **Przelot kamery** wzdłuż trasy, eksport **GPX**, import GPX (przeciągnij plik na mapę), link z zapisanym widokiem i punktami trasy.
 
 ### Analizy
+- **Soczewka kursora** (pasek u góry, klawisze `I` `H` `W` `O`): teren na żywo pokazuje wokół kursora **poziomicę przez kursor**, **pas tej samej wysokości** (±5–50 m), **wysokość względną** albo **widoczność** z miejsca pod kursorem. Kliknięcie przypina soczewkę w punkcie (panel pokazuje wtedy statystyki i listy szczytów), `Esc` ją odpina.
 - **Wysokość względna**: dowolny punkt staje się poziomem 0 — teren w skali rozbieżnej, izolinia „tej samej wysokości”, pierścienie odległości, odsetek terenu wyżej/niżej, szczyty z Δh; w odczycie kursora Δh, odległość, kąt i azymut.
 - **Pole widoczności** (viewshed) z uwzględnieniem krzywizny Ziemi i refrakcji, wysokość obserwatora 1,7/10/30/100 m, powierzchnia widoczna i lista widocznych szczytów.
 - **Pomiar po terenie** i **linia wzroku** między dwoma punktami z miejscem przeszkody na profilu.

@@ -354,6 +354,38 @@ input[type='date'] {
 .profile__tip b { font-family: var(--display); font-size: 16px; font-weight: 650; display: block; line-height: 1.15; }
 .profile__tip span { color: var(--paper-3); }
 
+/* ---------- soczewka kursora ---------- */
+.lensdock {
+  position: absolute; top: 66px; left: calc((100% - var(--panel-w)) / 2); transform: translateX(-50%); z-index: 19;
+  display: flex; align-items: center; gap: 3px; padding: 4px; border-radius: 14px; white-space: nowrap;
+  background: var(--glass); border: 1px solid var(--hair); backdrop-filter: blur(14px); box-shadow: var(--shadow); transition: left 0.35s, border-color 0.2s;
+}
+#app.panel-closed .lensdock { left: 50%; }
+.lensdock.is-active { border-color: rgba(63, 214, 198, 0.45); }
+.lens__title { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-4); padding: 0 8px 0 8px; }
+.lens__btn {
+  display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 9px 0 8px; border-radius: 10px; font-size: 12px; color: var(--paper-2);
+  transition: background 0.15s, color 0.15s;
+}
+.lens__btn svg { width: 17px; height: 17px; }
+.lens__btn kbd { font-size: 9px; padding: 0 4px; opacity: 0.6; }
+.lens__btn:hover { background: rgba(255, 255, 255, 0.06); color: var(--paper); }
+.lens__btn.is-on { background: var(--teal); color: var(--ink-0); font-weight: 600; }
+.lens__btn.is-on kbd { border-color: rgba(0,0,0,0.25); color: var(--ink-1); }
+.lens__sep { width: 1px; height: 20px; background: var(--hair-2); margin: 0 4px; }
+.lens__chip { height: 26px; padding: 0 9px; border-radius: 8px; font-family: var(--mono); font-size: 11px; color: var(--paper-3); border: 1px solid transparent; }
+.lens__chip:hover { color: var(--paper); border-color: var(--hair-2); }
+.lens__chip.is-on { color: var(--teal); border-color: rgba(63, 214, 198, 0.5); }
+.lens__pin { display: flex; align-items: center; gap: 5px; color: var(--brass); border-color: var(--brass-dim); margin-left: 2px; }
+.lens__pin svg { width: 13px; height: 13px; }
+.lens__live { font-family: var(--mono); font-size: 10px; color: var(--teal); padding: 0 8px; display: flex; align-items: center; gap: 6px; }
+.lens__live::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--teal); animation: pulse-t 1.6s infinite; }
+@keyframes pulse-t { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.pin--band .pin__label { border-color: var(--teal); }
+.pin--band .pin__stem { background: linear-gradient(180deg, var(--teal), rgba(63,214,198,0)); }
+.pin--band .pin__dot { background: var(--teal); }
+#app.is-panorama .lensdock { display: none; }
+
 /* ---------- odczyt kursora ---------- */
 .readout {
   position: absolute; left: calc(16px + var(--rail-w) + 12px); bottom: 16px; z-index: 15; display: flex; gap: 0; border-radius: 12px; overflow: hidden;
@@ -504,7 +536,7 @@ input[type='date'] {
 #app.has-profile .attrib { opacity: 0; }
 
 .hint-tool {
-  position: absolute; top: 70px; left: 50%; transform: translateX(-50%); z-index: 15; padding: 8px 14px; border-radius: 999px; font-size: 12px;
+  position: absolute; top: 122px; left: 50%; transform: translateX(-50%); z-index: 15; padding: 8px 14px; border-radius: 999px; font-size: 12px;
   background: rgba(10,14,17,0.72); border: 1px solid var(--hair); backdrop-filter: blur(10px); color: var(--paper-2); pointer-events: none;
   display: flex; gap: 8px; align-items: center; animation: fadein 0.4s ease-out;
 }
@@ -560,6 +592,8 @@ input[type='date'] {
   .region { min-width: 0; flex: 1; }
   #rail { flex-direction: row; top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; justify-content: space-between; overflow-x: auto; }
   .tool__tip { display: none; }
+  .lensdock { left: 50% !important; top: 62px; }
+  .lens__btn span, .lens__btn kbd, .lens__title { display: none; }
   .rail__sep { width: 1px; height: auto; margin: 6px 3px; }
   #panel { top: auto; height: 52vh; bottom: 84px; left: 12px; right: 12px; width: auto; border-radius: 20px; border: 1px solid var(--hair-2); }
   .profile { left: 12px; right: 12px !important; bottom: 84px; }

@@ -44,7 +44,7 @@ export class Panel {
     const a = this.app, s = a.store.state;
     const sel = a.selection;
     return JSON.stringify([
-      this.tab, s.regionId, s.tool, s.routeMode, s.routing, s.activeRoute, s.style, s.contours, s.trails, s.labels, s.shadows, s.grid, s.snow, s.cursorIso,
+      this.tab, s.regionId, s.tool, s.routeMode, s.routing, s.activeRoute, s.style, s.contours, s.trails, s.labels, s.shadows, s.grid, s.snow, s.lens, s.bandTol, a.lensPinned,
       s.day, s.flying, s.panorama, s.vsEye, s.timeKind, s.pace, s.profileOpen,
       sel ? [sel.kind, sel.poi?.id, sel.point?.x, sel.routeIdx] : null,
       s.waypoints.map((w) => w.id + (w.label ?? '')),
@@ -52,7 +52,7 @@ export class Panel {
       s.ref ? [s.ref.x, s.ref.z] : null,
       s.viewshed ? [s.viewshed.point.x, s.viewshed.areaKm2] : null,
       s.measure.length, a.measureInfo && s.measure.length ? [Math.round(a.measureInfo.surface), a.measureInfo.visible] : null,
-      s.gpx?.id, Math.round(a.satProgress * 10), s.tool === 'relative' ? s.relRange : 0,
+      s.gpx?.id, Math.round(a.satProgress * 10), s.lens === 'rel' ? s.relRange : 0,
     ]);
   }
 
@@ -73,14 +73,15 @@ export class Panel {
     switch (s.tool) {
       case 'route':
         return this.routeView();
-      case 'relative':
-        return this.relativeView();
-      case 'viewshed':
-        return this.viewshedView();
       case 'measure':
         return this.measureView();
-      default:
+      default: {
+        // przypięta soczewka kursora ma pierwszeństwo przed kartą regionu
+        if (s.lens === 'rel' && s.ref) return this.relativeView();
+        if (s.lens === 'vis' && s.viewshed) return this.viewshedView();
+        if ((s.lens === 'iso' || s.lens === 'band') && s.ref) return this.levelView();
         return this.exploreView();
+      }
     }
   }
 
@@ -340,6 +341,39 @@ export class Panel {
       <div class="btns" style="margin-top:12px"><button class="btn" data-act="vs" data-x="${s.ref.x}" data-z="${s.ref.z}">${ICON.viewshed} Widoczność stąd</button><button class="btn" data-act="pano" data-x="${s.ref.x}" data-z="${s.ref.z}">${ICON.person} Panorama</button></div>`;
   }
 
+  /** Przypięta poziomica / pas tej samej wysokości. */
+  private levelView() {
+    const a = this.app, s = a.store.state;
+    const ref = s.ref!;
+    const dem = a.region!.dem;
+    const tol = s.lens === 'band' ? s.bandTol : 15;
+    let inBand = 0, above = 0;
+    const d = dem.data;
+    for (let i = 0; i < d.length; i += 2) {
+      if (Math.abs(d[i] - ref.e) <= tol) inBand++;
+      if (d[i] > ref.e) above++;
+    }
+    const n = Math.ceil(d.length / 2);
+    const same = a.region!.pois
+      .filter((p) => p.t !== 'lake' && p.t !== 'viewpoint' && Math.abs(p.ele - ref.e) <= Math.max(tol, 15))
+      .map((p) => ({ p, dist: haversine(ref.lon, ref.lat, p.lon, p.lat) }))
+      .filter((q) => q.dist > 100)
+      .sort((x, y) => x.dist - y.dist)
+      .slice(0, 14);
+    return `
+      <div class="row row--between"><span class="kicker">${s.lens === 'band' ? 'Ta sama wysokość' : 'Poziomica przez punkt'}</span><button class="btn btn--ghost btn--icon" data-act="clear-ref" title="Odepnij (Esc)">${ICON.x}</button></div>
+      <div class="big" style="margin-top:6px">${fmtInt(ref.e)}<small>m n.p.m.${s.lens === 'band' ? ` ± ${s.bandTol} m` : ''}</small></div>
+      <div class="note" style="font-family:var(--mono)">${fmtCoords(ref.lon, ref.lat)}</div>
+      <div class="stats" style="margin-top:14px">
+        <div class="stat"><div class="stat__v">${fmt1((inBand / n) * 100)}<small>%</small></div><div class="stat__k">terenu w pasie ±${tol} m</div></div>
+        <div class="stat"><div class="stat__v">${fmtInt((above / n) * 100)}<small>%</small></div><div class="stat__k">terenu wyżej</div></div>
+      </div>
+      <div class="section"><div class="section__title"><span class="kicker">Na tej samej wysokości (±${Math.max(tol, 15)} m)</span></div>
+      ${same.length ? `<div class="peaklist">${same.map(({ p, dist }) => `<button class="peakrow" data-poi="${p.id}"><span class="peakrow__n">${escapeHtml(p.n)}</span><span class="peakrow__e">${fmtSigned(p.ele - ref.e)}</span><span class="peakrow__d">${fmtDist(dist)}</span></button>`).join('')}</div>` : '<div class="empty">Brak nazwanych punktów na tej wysokości.</div>'}</div>
+      <p class="note">Przesuwaj kursor – w pasku odczytu zobaczysz <b>Δh</b> względem tego poziomu. Kliknięcie w inne miejsce przenosi poziom, <kbd>Esc</kbd> odpina soczewkę.</p>
+      <div class="btns" style="margin-top:12px"><button class="btn" data-act="ref" data-x="${ref.x}" data-z="${ref.z}">${ICON.relative} Względna stąd</button><button class="btn" data-act="vs" data-x="${ref.x}" data-z="${ref.z}">${ICON.viewshed} Widoczność stąd</button></div>`;
+  }
+
   private viewshedView() {
     const a = this.app, s = a.store.state;
     const eyes = [1.7, 10, 30, 100];
@@ -417,7 +451,6 @@ export class Panel {
           ${toggle('shadows', 'Cienie rzucane')}
           ${toggle('snow', 'Śnieg sezonowy')}
           ${toggle('grid', 'Siatka 1 km')}
-          ${toggle('cursorIso', 'Poziomica kursora', 'I')}
         </div>
         ${a.tiles ? `<div class="slider"><label>Szczegółowość terenu LiDAR</label><output id="o-q">${fmt1(a.tiles.quality)}×</output><input type="range" min="0.5" max="2" step="0.1" value="${a.tiles.quality}" data-range="quality"></div>` : ''}
         <div class="slider"><label>Przewyższenie pionowe</label><output id="o-exag">×${fmt1(s.exag)}</output><input type="range" min="1" max="3" step="0.1" value="${s.exag}" data-range="exag"></div>
@@ -523,8 +556,9 @@ export class Panel {
         switch (el.dataset.act) {
           case 'unselect': a.clearSelection(); break;
           case 'wp': a.store.set({ tool: 'route' }); a.addWaypoint(x, z); break;
-          case 'ref': a.setRef(x, z); break;
-          case 'vs': void a.runViewshed(x, z); break;
+          case 'ref': a.pinLens(x, z, 'rel'); break;
+          case 'vs': a.pinLens(x, z, 'vis'); break;
+          case 'band': a.pinLens(x, z, 'band'); break;
           case 'pano': a.enterPanorama(x, z); break;
           case 'copy': navigator.clipboard?.writeText(el.dataset.v ?? ''); a.toast('Skopiowano współrzędne.'); break;
           case 'fit-trail': if (a.selection?.edges) a.fitEdges(a.selection.edges); break;
@@ -539,8 +573,8 @@ export class Panel {
           case 'gpx-clear': a.store.set({ gpx: null }); break;
           case 'link': a.shareLink(); break;
           case 'shot': a.screenshot(); break;
-          case 'clear-ref': a.store.set({ ref: null }); break;
-          case 'clear-vs': a.clearViewshed(); break;
+          case 'clear-ref': a.unpinLens(); break;
+          case 'clear-vs': a.unpinLens(); break;
           case 'clear-m': a.clearMeasure(); break;
           case 'undo-m': a.store.set({ measure: a.store.state.measure.slice(0, -1) }); break;
           case 'now': {

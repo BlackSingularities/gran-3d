@@ -4,7 +4,7 @@ import { bearing, clamp, curvatureDrop, DEG, fmtDist, fmtEle, fmtSigned, haversi
 import { download, parseGpx, routeToGpx } from './core/gpx';
 import { timeModel } from './core/metrics';
 import { loadRegion, REGIONS, regionForPoint, type LoadedRegion, type Poi } from './core/region';
-import { Store, todayWarsaw, type MeasurePoint, type State, type Tool, type Waypoint } from './core/store';
+import { Store, todayWarsaw, type Lens, type MeasurePoint, type State, type Tool, type Waypoint } from './core/store';
 import { seasonalSnowline, sunPosition, sunVector, warsawDate } from './core/sun';
 import { Engine } from './scene/engine';
 import { Overlay, type Marker } from './scene/overlay';
@@ -75,6 +75,8 @@ export class App {
   hoverEdge: number | null = null;
   private wpMarkers = new Map<string, Marker>();
   private refMarker: Marker | null = null;
+  private refKey = '';
+  private vsKey = '';
   private vsMarker: Marker | null = null;
   private mMarkers: Marker[] = [];
   private hoverMarker: Marker | null = null;
@@ -101,7 +103,8 @@ export class App {
       shadows: true,
       grid: false,
       snow: true,
-      cursorIso: true,
+      lens: 'none',
+      bandTol: 10,
       exag: 1.4,
       day: todayWarsaw(),
       hour: 11.5,
@@ -179,6 +182,7 @@ export class App {
     this.overlay.clear();
     this.wpMarkers.clear();
     this.refMarker = this.vsMarker = this.hoverMarker = this.selMarker = null;
+    this.refKey = this.vsKey = '';
     this.mMarkers = [];
     this.selection = null;
     this.vsMask = null;
@@ -252,7 +256,7 @@ export class App {
   private onState(s: State, ch: Set<keyof State>) {
     if (!this.terrain) return;
     if (ch.has('style')) this.applyStyle();
-    if (['contours', 'trails', 'labels', 'shadows', 'grid', 'snow', 'cursorIso'].some((k) => ch.has(k as keyof State))) this.applyLayers();
+    if (['contours', 'trails', 'labels', 'shadows', 'grid', 'snow'].some((k) => ch.has(k as keyof State))) this.applyLayers();
     if (ch.has('exag')) {
       this.engine.setExag(s.exag);
       this.terrain.material.uniforms.uExag.value = s.exag;
@@ -273,7 +277,7 @@ export class App {
       this.routesLayer.setGpx(s.gpx);
       this.updateProfile();
     }
-    if (ch.has('ref') || ch.has('relRange')) this.applyRef();
+    if (['ref', 'relRange', 'lens', 'bandTol', 'viewshed'].some((k) => ch.has(k as keyof State))) this.applyLens();
     if (ch.has('tool')) this.onTool(s.tool);
     if (ch.has('measure')) this.applyMeasure();
     if (ch.has('profileOpen')) document.getElementById('app')!.classList.toggle('has-profile', s.profileOpen && !!this.profileTrack);
@@ -304,7 +308,6 @@ export class App {
     u.uShadowOn.value = s.shadows ? 1 : 0;
     u.uGridOn.value = s.grid ? 1 : 0;
     u.uSnowOn.value = s.snow ? 1 : 0;
-    u.uCursorIso.value = s.cursorIso ? 1 : 0;
     this.trails!.setVisible(s.trails);
     this.overlay.enabled = s.labels;
     this.overlay.update(true);
@@ -400,6 +403,7 @@ export class App {
       this.cursor = null;
       if (this.terrain) this.terrain.material.uniforms.uCursor.value.w = 0;
       this.setHoverEdge(null, 0, 0);
+      if (!this.lensPinned) this.applyLens();
       this.engine.dirty = true;
       this.changed();
     });
@@ -463,6 +467,10 @@ export class App {
       this.setHoverEdge(snap ? snap.edge : null, e.clientX, e.clientY);
     }
     if (tool === 'measure' && this.store.state.measure.length) this.applyMeasure();
+    if (this.store.state.lens !== 'none' && !this.lensPinned) {
+      this.applyLens();
+      if (this.store.state.lens === 'vis') this.liveViewshed(p.x, p.z);
+    }
     this.engine.dirty = true;
     this.changed();
   }
@@ -503,17 +511,13 @@ export class App {
       case 'route':
         this.addWaypoint(p.x, p.z);
         break;
-      case 'relative':
-        this.setRef(p.x, p.z);
-        break;
-      case 'viewshed':
-        this.runViewshed(p.x, p.z);
-        break;
       case 'measure':
         this.store.set({ measure: [...s.measure, this.pointFromWorld(p.x, p.z)] });
         break;
       default:
-        if (this.hoverEdge != null && this.graph) this.selectTrail(this.hoverEdge);
+        // aktywna soczewka: kliknięcie przypina ją w punkcie
+        if (s.lens !== 'none') this.pinLens(p.x, p.z);
+        else if (this.hoverEdge != null && this.graph) this.selectTrail(this.hoverEdge);
         else this.selectPoint(p.x, p.z);
     }
   }
@@ -601,9 +605,6 @@ export class App {
   }
 
   private onTool(t: Tool) {
-    const u = this.terrain!.material.uniforms;
-    u.uRelOn.value = t === 'relative' && this.store.state.ref ? 1 : 0;
-    u.uVsOn.value = t === 'viewshed' && this.vsMask ? 1 : 0;
     if (t !== 'explore') this.clearSelection();
     this.refreshMarkers();
     this.updateProfile();
@@ -760,22 +761,81 @@ export class App {
     this.fitBox(x0, x1, z0, z1);
   }
 
-  // --- wysokość względna
-  setRef(x: number, z: number) {
-    const p = this.pointFromWorld(x, z);
-    this.store.set({ ref: p, tool: 'relative' });
+  // --- soczewka kursora: poziomica / ta sama wysokość / wysokość względna / widoczność
+  setLens(l: Lens) {
+    const cur = this.store.state.lens;
+    const next = cur === l ? 'none' : l;
+    this.store.set({ lens: next, ...(next === 'none' ? { ref: null } : {}) });
+    if (next !== 'vis') this.clearViewshed(false);
+    if (next !== 'none' && this.store.state.tool === 'measure') this.store.set({ tool: 'explore' });
+    this.applyLens();
   }
 
-  private applyRef() {
+  /** Czy soczewka jest przypięta do punktu (zamiast podążać za kursorem). */
+  get lensPinned() {
     const s = this.store.state;
-    const u = this.terrain!.material.uniforms;
-    if (s.ref) {
-      u.uRef.value.set(s.ref.x, s.ref.z, s.ref.e);
-      u.uRelRange.value = s.relRange;
-    }
-    u.uRelOn.value = s.ref && s.tool === 'relative' ? 1 : 0;
+    return s.lens === 'vis' ? !!s.viewshed : s.lens !== 'none' && !!s.ref;
+  }
+
+  pinLens(x: number, z: number, lens?: Lens) {
+    if (lens && lens !== this.store.state.lens) this.store.set({ lens });
+    const s = this.store.state;
+    if (s.tool !== 'explore') this.store.set({ tool: 'explore' });
+    if (s.lens === 'vis') void this.runViewshed(x, z);
+    else this.store.set({ ref: this.pointFromWorld(x, z) });
+    if (!this.store.state.panelOpen) this.store.set({ panelOpen: true });
+    this.applyLens();
+  }
+
+  unpinLens() {
+    this.store.set({ ref: null });
+    this.clearViewshed(false);
+    this.applyLens();
+  }
+
+  /** Ustawia uniformy soczewki z przypiętego punktu albo z kursora. */
+  applyLens() {
+    if (!this.terrain) return;
+    const s = this.store.state;
+    const u = this.terrain.material.uniforms;
+    const ids: Record<Lens, number> = { none: 0, iso: 1, band: 2, rel: 3, vis: 4 };
+    const src = s.ref ?? (this.cursor ? { x: this.cursor.x, z: this.cursor.z, e: this.cursor.e } : null);
+    u.uLens.value = ids[s.lens];
+    u.uLensOn.value = src && s.lens !== 'none' && !s.panorama ? 1 : 0;
+    if (src) u.uRef.value.set(src.x, src.z, src.e);
+    u.uRelRange.value = s.relRange;
+    u.uBandTol.value = s.bandTol;
+    u.uRelOn.value = s.lens === 'rel' && src && !s.panorama ? 1 : 0;
+    u.uVsOn.value = s.lens === 'vis' && this.vsMask && (this.lensPinned || this.cursor) ? 1 : 0;
+    this.engine.dirty = true;
     this.refreshMarkers();
   }
+
+  private vsBusy = false;
+  private vsNext: { x: number; z: number } | null = null;
+  /** Widoczność na żywo spod kursora – jedno obliczenie naraz, zawsze dla najświeższej pozycji. */
+  private liveViewshed(x: number, z: number) {
+    if (this.vsBusy) {
+      this.vsNext = { x, z };
+      return;
+    }
+    this.vsBusy = true;
+    const dem = this.region!.dem;
+    const s = this.store.state;
+    void this.request({ type: 'viewshed', gx: dem.xToGx(x), gy: dem.zToGy(z), eye: s.vsEye, target: 0 }).then((res) => {
+      this.vsBusy = false;
+      if (this.store.state.lens === 'vis' && !this.lensPinned) {
+        this.vsMask = res.mask as Uint8Array;
+        this.terrain?.setViewshed(this.vsMask);
+        this.liveArea = res.areaKm2;
+        this.applyLens();
+      }
+      const n = this.vsNext;
+      this.vsNext = null;
+      if (n && this.store.state.lens === 'vis' && !this.lensPinned) this.liveViewshed(n.x, n.z);
+    });
+  }
+  liveArea = NaN;
 
   /** Statystyki wysokości względnej: jaki odsetek regionu jest wyżej/niżej, najwyższe punkty ponad odniesieniem. */
   relStats() {
@@ -800,13 +860,12 @@ export class App {
     const s = this.store.state;
     const dem = this.region!.dem;
     const point = this.pointFromWorld(x, z);
-    this.store.set({ tool: 'viewshed', viewshed: { point, eye: s.vsEye, areaKm2: NaN, count: 0, peaks: [] } });
+    this.store.set({ lens: 'vis', viewshed: { point, eye: s.vsEye, areaKm2: NaN, count: 0, peaks: [] } });
     this.refreshMarkers();
     const res = await this.request({ type: 'viewshed', gx: dem.xToGx(x), gy: dem.zToGy(z), eye: s.vsEye, target: 0 });
     const mask = res.mask as Uint8Array;
     this.vsMask = mask;
     this.terrain!.setViewshed(mask);
-    if (this.store.state.tool !== 'viewshed') this.terrain!.material.uniforms.uVsOn.value = 0;
     // widoczne szczyty
     const peaks: { id: number; dist: number }[] = [];
     for (const p of this.region!.pois) {
@@ -824,9 +883,11 @@ export class App {
     this.engine.dirty = true;
   }
 
-  clearViewshed() {
-    this.vsMask = null;
-    this.terrain?.setViewshed(null);
+  clearViewshed(resetMask = true) {
+    if (resetMask || this.store.state.lens !== 'vis') {
+      this.vsMask = null;
+      this.terrain?.setViewshed(null);
+    }
     this.store.set({ viewshed: null });
     this.refreshMarkers();
   }
@@ -1045,22 +1106,31 @@ export class App {
       m.x = w.x; m.z = w.z; m.e = this.engine.heightAt(w.x, w.z);
       m.hidden = s.tool !== 'route' && s.tool !== 'explore';
     });
-    // punkt odniesienia
-    this.overlay.remove(this.refMarker);
-    this.refMarker = null;
-    if (s.ref && s.tool === 'relative') {
-      const el = document.createElement('div');
-      el.className = 'marker';
-      el.innerHTML = `<div class="pin"><div class="pin__label"><b>${fmtEle(s.ref.e)}</b> poziom 0</div><div class="pin__stem"></div><div class="pin__dot"></div></div>`;
-      this.refMarker = this.overlay.add({ el, x: s.ref.x, z: s.ref.z, e: s.ref.e, lift: 0 });
+    // przypięta soczewka – znacznik tylko przy zmianie (applyLens woła to przy każdym ruchu myszy)
+    const lensLabel: Record<string, string> = { iso: 'poziomica', band: `±${s.bandTol} m`, rel: 'poziom 0' };
+    const refKey = s.ref && lensLabel[s.lens] ? `${s.lens}:${s.ref.x}:${s.ref.z}:${s.bandTol}` : '';
+    if (refKey !== this.refKey) {
+      this.refKey = refKey;
+      this.overlay.remove(this.refMarker);
+      this.refMarker = null;
+      if (refKey && s.ref) {
+        const el = document.createElement('div');
+        el.className = 'marker';
+        el.innerHTML = `<div class="pin${s.lens === 'band' ? ' pin--band' : ''}"><div class="pin__label"><b>${fmtEle(s.ref.e)}</b> ${lensLabel[s.lens]}</div><div class="pin__stem"></div><div class="pin__dot"></div></div>`;
+        this.refMarker = this.overlay.add({ el, x: s.ref.x, z: s.ref.z, e: s.ref.e, lift: 0 });
+      }
     }
-    this.overlay.remove(this.vsMarker);
-    this.vsMarker = null;
-    if (s.viewshed && s.tool === 'viewshed') {
-      const el = document.createElement('div');
-      el.className = 'marker';
-      el.innerHTML = `<div class="pin pin--eye"><div class="pin__label"><b>${fmtEle(s.viewshed.point.e)}</b> + ${s.viewshed.eye.toLocaleString('pl-PL')} m</div><div class="pin__stem"></div><div class="pin__dot"></div></div>`;
-      this.vsMarker = this.overlay.add({ el, x: s.viewshed.point.x, z: s.viewshed.point.z, e: s.viewshed.point.e, lift: 0 });
+    const vsKey = s.viewshed && s.lens === 'vis' ? `${s.viewshed.point.x}:${s.viewshed.point.z}:${s.viewshed.eye}` : '';
+    if (vsKey !== this.vsKey) {
+      this.vsKey = vsKey;
+      this.overlay.remove(this.vsMarker);
+      this.vsMarker = null;
+      if (vsKey && s.viewshed) {
+        const el = document.createElement('div');
+        el.className = 'marker';
+        el.innerHTML = `<div class="pin pin--eye"><div class="pin__label"><b>${fmtEle(s.viewshed.point.e)}</b> + ${s.viewshed.eye.toLocaleString('pl-PL')} m</div><div class="pin__stem"></div><div class="pin__dot"></div></div>`;
+        this.vsMarker = this.overlay.add({ el, x: s.viewshed.point.x, z: s.viewshed.point.z, e: s.viewshed.point.e, lift: 0 });
+      }
     }
     this.overlay.update(true);
   }
