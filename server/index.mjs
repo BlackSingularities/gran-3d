@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { CACHE_DIR, DATA_DIR, ROOT } from '../scripts/lib/common.mjs';
-import { LIMITS, deriveRegion, slug, validate } from '../scripts/lib/area.mjs';
+import { LIMITS, areaKm2, deriveRegion, slug, validate } from '../scripts/lib/area.mjs';
 
 const DEV = process.argv.includes('--dev');
 const PORT = Number(process.env.PORT || 5190);
@@ -70,7 +70,15 @@ const queue = [];
 let current = null;
 
 function publicJob(j) {
-  return j && { id: j.id, level: j.level, state: j.state, progress: j.progress, label: j.label, error: j.error ?? null, log: j.log.slice(-12) };
+  if (!j) return null;
+  const now = Date.now();
+  const elapsed = j.started ? (now - j.started) / 1000 : 0;
+  // szacowany czas do końca z tempa postępu (po rozgrzewce)
+  const eta = j.state === 'running' && j.progress > 0.04 && elapsed > 8 ? (elapsed / j.progress) * (1 - j.progress) : null;
+  return {
+    id: j.id, level: j.level, state: j.state, progress: j.progress, label: j.label, error: j.error ?? null, log: j.log.slice(-12),
+    name: j.name ?? '', res: j.res ?? null, km2: j.km2 ?? null, elapsed, eta, finished: j.finished ?? null,
+  };
 }
 
 function enqueue(id, level) {
@@ -121,8 +129,12 @@ async function runNext() {
   current = queue.shift();
   const job = current;
   job.state = 'running';
+  job.started = Date.now();
   const def = readJson(path.join(DATA_DIR, job.id, 'region.json'));
   const hd = job.level === 'hd' && def?.hd;
+  job.name = def?.name || '';
+  job.res = hd ? (def.hd.zoom >= 15 ? 3 : def.hd.zoom >= 14 ? 6 : 12) : null;
+  job.km2 = def?.bbox ? Math.round(areaKm2(def.bbox)) : null;
   try {
     await runStep(job, 'bake.mjs', 0, hd ? 0.3 : 1);
     if (hd) await runStep(job, 'bake-hd.mjs', 0.3, 1);
@@ -137,6 +149,7 @@ async function runNext() {
     console.error(`[gran] ${job.id}: ${e.message}`);
   }
   sizeCache.delete(job.id);
+  job.finished = Date.now();
   lastFinished = job;
   current = null;
   void runNext();
@@ -177,14 +190,15 @@ async function api(req, res, url) {
   }
   if (req.method !== 'GET' && !authorized(req)) return send(res, 401, { error: 'Wymagane hasło administratora.' });
   if (url.pathname === '/api/areas' && req.method === 'POST') {
-    const { name, bbox, quality } = await readBody(req);
+    const { name, bbox, quality, res: lidarRes } = await readBody(req);
     const q = quality === 'high' ? 'high' : 'normal';
     const err = validate(bbox, q);
     if (err) return send(res, 400, { error: err });
     if (current || queue.length) return send(res, 409, { error: 'Trwa pobieranie innego obszaru – poczekaj na jego koniec.' });
     const clean = String(name ?? '').trim().slice(0, 60);
     const id = slug(clean);
-    const def = deriveRegion({ id, name: clean, bbox, quality: q });
+    const r = [3, 6, 12].includes(Number(lidarRes)) ? Number(lidarRes) : 3;
+    const def = deriveRegion({ id, name: clean, bbox, quality: q, res: r });
     fs.mkdirSync(path.join(DATA_DIR, id), { recursive: true });
     fs.writeFileSync(path.join(DATA_DIR, id, 'region.json'), JSON.stringify(def, null, 2));
     enqueue(id, def.hd ? 'hd' : 'base');

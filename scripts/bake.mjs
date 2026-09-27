@@ -157,6 +157,7 @@ out skel qt;`;
   const poiQ = `[out:json][timeout:120];
 (
   node["natural"~"^(peak|saddle|volcano)$"]["name"](${bb});
+  node["place"~"^(city|town|village|hamlet)$"]["name"](${bb});
   node["mountain_pass"="yes"]["name"](${bb});
   nwr["tourism"~"^(alpine_hut|wilderness_hut)$"](${bb});
   nwr["amenity"="shelter"]["name"](${bb});
@@ -312,6 +313,7 @@ out center tags;`;
     else if (t.waterway === 'waterfall') type = 'waterfall';
     else if (t.natural === 'cave_entrance') type = 'cave';
     else if (t.tourism === 'viewpoint') type = 'viewpoint';
+    else if (t.place) type = 'place';
     else continue;
     const name = t['name:pl'] || t.name;
     if (!name && type !== 'hut') continue;
@@ -325,6 +327,7 @@ out center tags;`;
       d: +sample(lon, lat).toFixed(1),
       w: t.wikipedia || '',
       o: `${el.type}/${el.id}`,
+      ...(type === 'place' ? { k: t.place, pop: parseInt(String(t.population || '').replace(/\D/g, ''), 10) || 0 } : {}),
     });
   }
   pois.sort((a, b) => (b.e ?? b.d) - (a.e ?? a.d));

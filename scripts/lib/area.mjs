@@ -49,7 +49,8 @@ export function validate(bbox, quality) {
 }
 
 /** Definicja kwadratu (region.json) dla skryptów wypiekających. */
-export function deriveRegion({ id, name, bbox, quality }) {
+export function deriveRegion({ id, name, bbox, quality, res }) {
+  const hdZoom = res === 12 ? 13 : res === 6 ? 14 : 15;
   const cov = coverageOf(bbox);
   const km2 = areaKm2(bbox);
   const present = (code) => (cov.frac[code] ?? 0) > 0.01;
@@ -65,7 +66,7 @@ export function deriveRegion({ id, name, bbox, quality }) {
     countries: COVERAGE.filter((c) => present(c.code)).map((c) => c.code),
     bbox: bbox.map((v) => +v.toFixed(5)),
     zoom: km2 > 500 ? 12 : 13,
-    ...(quality === 'high' && lidar.length ? { hd: { zoom: 15, lidar, ortho } } : { ortho }),
+    ...(quality === 'high' && lidar.length ? { hd: { zoom: hdZoom, lidar, ortho } } : { ortho }),
   };
 }
 

@@ -366,20 +366,32 @@ void main() {
   // ---------- woda: stawy, jeziora, rzeki ----------
   if (water > 0.0) {
     vec3 V = normalize(cameraPosition - vWorld);
-    float fres = pow(1.0 - max(V.y, 0.0), 4.0) * 0.85 + 0.06;
-    vec3 wn = normalize(vec3((vnoise(wp / 6.0 + uSunDir.xz) - 0.5) * 0.05, 1.0, (vnoise(wp / 7.0 + 9.0) - 0.5) * 0.05));
-    vec3 deep = srgb(vec3(0.04, 0.16, 0.2));
+    // zmarszczki tylko z bliska – z daleka szum dawał „piasek” (aliasing)
+    float rip = (1.0 - smoothstep(600.0, 3500.0, vDist)) * 0.035;
+    vec3 wn = normalize(vec3((vnoise(wp / 5.0 + uSunDir.xz * 3.0) - 0.5) * rip, 1.0, (vnoise(wp / 6.5 + 9.0) - 0.5) * rip));
+    float cosV = max(dot(wn, V), 0.0);
+    float fres = 0.02 + 0.98 * pow(1.0 - cosV, 5.0);
+    // płycizny przy brzegu jaśniejsze (maska wody rośnie od brzegu do środka)
+    float depth = smoothstep(0.62, 0.98, landC.r);
+    vec3 shallow = srgb(vec3(0.16, 0.36, 0.34));
+    vec3 deep = srgb(vec3(0.015, 0.075, 0.11));
+    vec3 body = mix(shallow, deep, depth);
     vec3 wc;
     if (lit > 0.5) {
-      vec3 refl = mix(uFogColor, uSkyColor * 1.6, 0.4);
-      wc = mix(deep * (uSkyColor * 0.8 + uSunColor * 0.12), refl, fres);
-      vec3 Hh = normalize(uSunDir + V);
       float sh = uShadowOn > 0.5 ? texture(uShadowTex, uv).r : 1.0;
-      wc += uSunColor * pow(max(dot(wn, Hh), 0.0), 220.0) * 1.4 * sh;
+      // odbicie nieba: błękit zenitu przechodzący w jasny horyzont przy patrzeniu pod kątem
+      vec3 skyRefl = mix(uSkyColor * 1.25, uFogColor * 1.05, pow(1.0 - cosV, 2.0));
+      vec3 lightIn = uSkyColor * 0.9 + uSunColor * 0.18 * sh;
+      wc = mix(body * lightIn, skyRefl, fres);
+      vec3 Hh = normalize(uSunDir + V);
+      float glint = pow(max(dot(wn, Hh), 0.0), 380.0) * (1.0 - smoothstep(1500.0, 8000.0, vDist));
+      wc += uSunColor * glint * 2.2 * sh;
     } else {
       wc = uStyle == 5 ? srgb(vec3(0.62, 0.80, 0.93)) : srgb(vec3(0.36, 0.60, 0.80));
     }
-    col = mix(col, wc, water);
+    // ciemniejsza linia brzegowa
+    float shore = smoothstep(0.45, 0.75, landC.r);
+    col = mix(col, wc * mix(0.75, 1.0, shore), water);
   }
 
   // ---------- wysokość względna ----------

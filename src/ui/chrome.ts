@@ -6,6 +6,7 @@ import type { Lens, MeasurePoint, Tool } from '../core/store';
 import { ALT_COLORS } from '../scene/routes';
 import { TRAIL_NAME_PL } from '../scene/trails';
 import { ICON, POI_ICON, POI_TYPE_PL } from './icons';
+import { fmtDuration, type BakeJob } from './maps';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -138,6 +139,42 @@ export class Chrome {
         if (b.dataset.region !== cur) this.switchRegion(b.dataset.region!);
       })
     );
+  }
+
+  /** Pasek postępu wypiekania obszaru – widoczny w całej aplikacji. */
+  setJob(job: BakeJob | null, last: BakeJob | null) {
+    let el = document.getElementById('jobpill');
+    if (!el) {
+      el = document.createElement('button');
+      el.id = 'jobpill';
+      el.className = 'jobpill';
+      el.addEventListener('click', () => this.openMaps());
+      $('app').appendChild(el);
+    }
+    const recent = last && last.finished && Date.now() - last.finished < 8000 ? last : null;
+    const j = job ?? recent;
+    if (!j) {
+      el.classList.remove('is-on');
+      return;
+    }
+    el.classList.add('is-on');
+    el.classList.toggle('is-done', !job && j.state === 'done');
+    el.classList.toggle('is-err', !job && j.state === 'error');
+    const pct = Math.round(j.progress * 100);
+    const title = escapeHtml(j.name || 'Nowy obszar');
+    const res = j.res ? `LiDAR ${j.res} m` : 'Standard';
+    const html = job
+      ? `<span class="jobpill__ring" style="--p:${pct}"><i>${pct}%</i></span>
+         <span class="jobpill__main"><b>Wypiekanie: ${title}</b><small>${escapeHtml(j.label)} · ${res}${j.km2 ? ` · ${fmtInt(j.km2)} km²` : ''}</small></span>
+         <span class="jobpill__time"><b>${j.eta != null ? `~${fmtDuration(j.eta)}` : '…'}</b><small>${fmtDuration(j.elapsed ?? 0)} od startu</small></span>
+         <i class="jobpill__bar" style="width:${pct}%"></i>`
+      : j.state === 'done'
+        ? `<span class="jobpill__ring is-ok">✓</span><span class="jobpill__main"><b>Gotowe: ${title}</b><small>${res} · otwórz z listy obszarów</small></span>`
+        : `<span class="jobpill__ring is-bad">!</span><span class="jobpill__main"><b>Nie udało się: ${title}</b><small>${escapeHtml(j.error ?? '')}</small></span>`;
+    if (el.dataset.h !== html) {
+      el.dataset.h = html;
+      el.innerHTML = html;
+    }
   }
 
   /** Lista pobranych kwadratów się zmieniła (menedżer map). */
@@ -486,7 +523,7 @@ export class Chrome {
     const pois = a.region!.pois;
     let items: { kind: 'poi' | 'route'; id: number; score: number }[] = [];
     if (!nq) {
-      items = [...pois].filter((p) => p.t === 'peak' || p.t === 'hut' || p.t === 'lake').sort((x, y) => y.prom - x.prom).slice(0, 12).map((p) => ({ kind: 'poi' as const, id: p.id, score: 0 }));
+      items = [...pois].filter((p) => p.t === 'peak' || p.t === 'hut' || p.t === 'lake' || (p.t === 'place' && (p.k === 'town' || p.k === 'city'))).sort((x, y) => y.prom - x.prom).slice(0, 12).map((p) => ({ kind: 'poi' as const, id: p.id, score: 0 }));
     } else {
       for (const p of pois) {
         const n = norm(p.n);

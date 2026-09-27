@@ -265,11 +265,6 @@ function encodeTile(level, tx, ty) {
 // łączy go z tłem i zapisuje swoje kafle; w pamięci globalnie trzymamy tylko model poziomu zr+1.
 // Dzięki temu pamięć nie zależy od wielkości obszaru.
 
-/** Rozdzielczość LiDAR dopasowana do powierzchni (czas pobierania i rozmiar danych). */
-function fineZoom(hd, km2) {
-  const z = km2 > 4000 ? 13 : km2 > 1500 ? 14 : 15;
-  return Math.min(hd.zoom, z);
-}
 
 function bilin(data, W, H, x, y) {
   x = Math.max(0, Math.min(W - 1.001, x));
@@ -309,7 +304,8 @@ for (const region of regions) {
   const zr = region.zoom;
   const zg = zr + 1;
   const km2 = areaKm2(region.bbox);
-  const zf = Math.max(zg, fineZoom(hd, km2));
+  // rozdzielczość LiDAR wybrana przez użytkownika (15 ≈ 3 m, 14 ≈ 6 m, 13 ≈ 12 m)
+  const zf = Math.max(zg, hd.zoom);
   console.log(`\n▲ ${region.name} (LiDAR z${zf}, ${Math.round(km2)} km², źródła: ${hd.lidar.join(', ')})`);
   const [w, s, e, n] = region.bbox;
   const px0 = Math.floor(lon2px(w, zr)), px1 = Math.ceil(lon2px(e, zr));

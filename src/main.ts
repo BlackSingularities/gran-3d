@@ -44,6 +44,8 @@ app.switchRegion = switchRegion;
 
 // menedżer map: nowy kwadrat gotowy → otwórz pierwszy albo odśwież listę
 maps.onChange = () => chrome.refreshRegions();
+maps.onJob = (job, last) => chrome.setJob(job, last);
+void maps.poll();
 maps.onInstalled = (id, first) => {
   if (first || !app.region) {
     maps.close();

@@ -34,7 +34,7 @@ docker compose up -d     # pobrane kwadraty trafiają do wolumenu gran-data
 
 Poziomy pakietów:
 - **Standard**: globalny model terenu ~10–25 m (Terrarium), szlaki, szczyty, schroniska i pokrycie terenu z OpenStreetMap w całej Europie.
-- **LiDAR**: kafle terenu z NMT GUGiK (Polska) i DMR 5G ČÚZK (Czechy) – **3 m** do 1500 km², **6 m** do 4000 km², **12 m** dla większych kwadratów (do 10 000 km²). Przetwarzanie odbywa się blokami ~6×6 km, więc zużycie pamięci nie zależy od wielkości kwadratu. Wystarczy, że źródło LiDAR obejmuje część kwadratu; reszta korzysta z modelu globalnego z płynnym przejściem.
+- **LiDAR 3 / 6 / 12 m** (do wyboru przy pobieraniu, z szacunkiem rozmiaru i czasu): kafle terenu z NMT GUGiK (Polska) i DMR 5G ČÚZK (Czechy). Przetwarzanie odbywa się blokami ~6×6 km, więc zużycie pamięci nie zależy od wielkości kwadratu. Wystarczy, że źródło LiDAR obejmuje część kwadratu; reszta korzysta z modelu globalnego z płynnym przejściem.
 
 Każdy kwadrat ma własny `data/<id>/region.json` z granicami `bbox`, wybraną jakością i wykrytymi źródłami danych. Bez serwera aplikacja może nadal otwierać wcześniej przygotowane dane statyczne, ale nie utworzy nowych kwadratów.
 
@@ -88,6 +88,8 @@ Obraz satelitarny ładowany na żądanie: **Sentinel‑2 cloudless 2020 © EOX I
 | `tiles/{z}/{x}/{y}.png` + `tiles/index.json` | piramida kafli wysokości HD (RGB: `(R·65536 + G·256 + B)/10 − 1000` m) | **NMT GUGiK** (LiDAR, geoportal.gov.pl), **DMR 5G © ČÚZK**, Terrarium |
 
 Ortofoto (ładowane na żądanie z usług WMS/ArcGIS): **© GUGiK** (geoportal.gov.pl), **© ÚGKK SR** (ZBGIS), **© ČÚZK**.
+
+Nazwy miejscowości do starszych obszarów: `node scripts/places.mjs`.
 
 Ręczne przygotowanie lub odświeżenie danych (np. po zmianach w OSM):
 

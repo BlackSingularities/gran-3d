@@ -121,7 +121,7 @@ export interface RawTrails {
   routes: { id: number; name: string; ref: string; color: string; network: string; operator: string }[];
 }
 
-export type PoiType = 'peak' | 'saddle' | 'hut' | 'shelter' | 'lake' | 'waterfall' | 'cave' | 'viewpoint';
+export type PoiType = 'peak' | 'saddle' | 'hut' | 'shelter' | 'lake' | 'waterfall' | 'cave' | 'viewpoint' | 'place';
 export interface Poi {
   t: PoiType;
   n: string;
@@ -131,6 +131,9 @@ export interface Poi {
   d: number;
   w: string;
   o: string;
+  /** miejscowość: rodzaj (city/town/village/hamlet) i liczba mieszkańców */
+  k?: string;
+  pop?: number;
   // wyliczane po wczytaniu
   x: number;
   z: number;
@@ -228,7 +231,11 @@ function computeProminence(pois: Poi[], dem: Dem) {
     if (p.t === 'hut') p.prom = 6;
     else if (p.t === 'lake') p.prom = 3;
     else if (p.t === 'saddle') p.prom = 1.2;
-    else if (p.t !== 'peak') p.prom = 0.8;
+    else if (p.t === 'place') {
+      // miasta zawsze, miasteczka prawie zawsze, wsie gdy jest miejsce, przysiółki tylko z bliska
+      const base = { city: 16, town: 9, village: 2.6, hamlet: 0.7 }[p.k ?? 'village'] ?? 1;
+      p.prom = base + Math.log10(Math.max(1, p.pop ?? 0)) * (p.k === 'village' ? 0.35 : 0.2);
+    } else if (p.t !== 'peak') p.prom = 0.8;
   }
 }
 

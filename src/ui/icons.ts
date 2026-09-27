@@ -50,6 +50,7 @@ export const POI_ICON: Record<string, string> = {
   waterfall: ICON.lake,
   cave: ICON.pin,
   viewpoint: ICON.eye,
+  place: ICON.hut,
 };
 
 export const POI_TYPE_PL: Record<string, string> = {
@@ -61,4 +62,5 @@ export const POI_TYPE_PL: Record<string, string> = {
   waterfall: 'wodospad',
   cave: 'jaskinia',
   viewpoint: 'punkt widokowy',
+  place: 'miejscowość',
 };

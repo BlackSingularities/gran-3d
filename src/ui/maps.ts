@@ -1,5 +1,5 @@
 import { escapeHtml } from '../app';
-import { estimate, getCoverage, loadCoverage, validate, type BBox, type Quality, lidarResFromZoom } from '../core/area';
+import { estimate, getCoverage, loadCoverage, validate, LIDAR_RES, type BBox, type LidarRes, type Quality, lidarResFromZoom } from '../core/area';
 import { fmtInt } from '../core/geo';
 import { CATALOG, initCatalog, REGIONS, SERVER_MODE, STATUS, type RegionDef } from '../core/region';
 import { ICON } from './icons';
@@ -12,7 +12,25 @@ interface Job {
   label: string;
   error: string | null;
   log: string[];
+  name?: string;
+  res?: number | null;
+  km2?: number | null;
+  elapsed?: number;
+  eta?: number | null;
+  finished?: number | null;
 }
+
+/** Czas w sekundach → „4 min 20 s” / „1 h 05 min”. */
+export function fmtDuration(sec: number) {
+  if (!Number.isFinite(sec)) return '—';
+  const s = Math.max(0, Math.round(sec));
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ${String(s % 60).padStart(2, '0')} s`;
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
+}
+
+export type { Job as BakeJob };
 
 interface AreaStatus {
   id: string;
@@ -34,6 +52,7 @@ interface ApiStatus {
 }
 
 const TOKEN_KEY = 'gran.adminToken';
+const PAGE_LOADED = Date.now();
 const COUNTRY: Record<string, string> = {
   PL: 'Polska', CZ: 'Czechy', SK: 'Słowacja', AT: 'Austria', CH: 'Szwajcaria', IT: 'Włochy',
   FR: 'Francja', DE: 'Niemcy', SI: 'Słowenia', ES: 'Hiszpania', NO: 'Norwegia', SE: 'Szwecja',
@@ -65,12 +84,22 @@ export class MapsManager {
   private view: BBox = [...FOCUS.europe.view];
   private selection: BBox | null = null;
   private quality: Quality = 'normal';
+  private res: LidarRes = 3;
   private drag: { lon: number; lat: number; x: number; y: number } | null = null;
   onInstalled: (id: string, first: boolean) => void = () => {};
   onChange: () => void = () => {};
   onOpen: (id: string) => void = () => {};
+  /** stan wypiekania – dla paska postępu w aplikacji */
+  onJob: (job: Job | null, last: Job | null) => void = () => {};
+  private lastPoll = 0;
 
   constructor() {
+    // odpytywanie serwera także przy zamkniętym oknie: gęsto w trakcie zadania, rzadko poza nim
+    setInterval(() => {
+      if (!SERVER_MODE || this.isOpen) return;
+      const busy = !!this.api?.job;
+      if (busy || Date.now() - this.lastPoll > 5000) void this.refresh();
+    }, 1500);
     this.el = document.createElement('div');
     this.el.id = 'maps';
     this.el.className = 'maps';
@@ -124,7 +153,13 @@ export class MapsManager {
     return res.ok ? json : false;
   }
 
+  /** Wymuszenie odświeżenia stanu (np. po starcie aplikacji). */
+  poll() {
+    return this.refresh();
+  }
+
   private async refresh() {
+    this.lastPoll = Date.now();
     const before = new Set(REGIONS.map((r) => r.id));
     await initCatalog();
     if (SERVER_MODE) {
@@ -132,11 +167,13 @@ export class MapsManager {
       catch { this.api = null; }
     }
     const last = this.api?.last;
-    if (last && last.state === 'done' && `${last.id}:${last.level}` !== this.lastDone) {
+    // zadania zakończone przed otwarciem strony nie są „świeże” – nie przełączamy obszaru
+    if (last && last.state === 'done' && (last.finished ?? 0) > PAGE_LOADED && `${last.id}:${last.level}` !== this.lastDone) {
       const fresh = !this.lastDone;
       this.lastDone = `${last.id}:${last.level}`;
       if (!fresh || !before.has(last.id)) this.onInstalled(last.id, before.size === 0);
     }
+    this.onJob(this.api?.job ?? null, this.api?.last ?? null);
     const now = new Set(REGIONS.map((r) => r.id));
     if (before.size !== now.size || [...now].some((id) => !before.has(id))) this.onChange();
     if (!this.el.hidden && this.built) this.renderStatus();
@@ -166,8 +203,8 @@ export class MapsManager {
           <label class="areaform__label">Nazwa<input data-name maxlength="60" placeholder="np. Dolomity — Cortina" /></label>
           <div class="areaform__label">Jakość</div>
           <div class="qualitypick">
-            <button data-quality="normal" class="is-on"><b>Standard</b><small>teren ~10–25 m · szlaki OSM</small></button>
-            <button data-quality="high"><b>LiDAR</b><small>3 m · tylko Polska i Czechy</small></button>
+            <button data-quality="normal" class="is-on"><b>Standard</b><small data-est>teren ~25 m · szlaki OSM</small></button>
+            ${LIDAR_RES.map((r) => `<button data-quality="high" data-res="${r}"><b>LiDAR ${r} m</b><small data-est>${r === 3 ? 'najwięcej detali' : r === 6 ? 'kompromis' : 'duże obszary'}</small></button>`).join('')}
           </div>
           <div class="areaform__stats" data-selection></div>
           <button class="btn btn--signal areaform__download" data-create disabled>Pobierz zaznaczony kwadrat</button>
@@ -204,6 +241,7 @@ export class MapsManager {
       e.stopPropagation();
       if (button.disabled) return;
       this.quality = button.dataset.quality as Quality;
+      if (button.dataset.res) this.res = Number(button.dataset.res) as LidarRes;
       this.renderSelection();
     }));
     this.built = true;
@@ -308,31 +346,42 @@ export class MapsManager {
     const create = this.el.querySelector<HTMLButtonElement>('[data-create]');
     const hint = this.el.querySelector<HTMLElement>('[data-maphint]');
     if (!box || !create || !hint) return;
-    const high = this.el.querySelector<HTMLButtonElement>('[data-quality="high"]')!;
+    const highs = [...this.el.querySelectorAll<HTMLButtonElement>('[data-quality="high"]')];
     if (!this.selection || this.selection[2] - this.selection[0] < 1e-4 || this.selection[3] - this.selection[1] < 1e-4) {
       box.innerHTML = '<div class="areaform__empty">Nie zaznaczono kwadratu</div>';
       create.disabled = true;
-      high.disabled = true;
+      highs.forEach((b) => (b.disabled = true));
       hint.hidden = false;
       return;
     }
     hint.hidden = true;
     const normalError = validate(this.selection, 'normal');
     const highError = validate(this.selection, 'high');
-    high.disabled = !!highError;
+    highs.forEach((b) => (b.disabled = !!highError));
     if (this.quality === 'high' && highError) this.quality = 'normal';
-    this.el.querySelectorAll<HTMLElement>('[data-quality]').forEach((b) => b.classList.toggle('is-on', b.dataset.quality === this.quality));
-    const info = estimate(this.selection, this.quality);
-    const hs = high.querySelector('small');
-    if (hs) hs.textContent = `${info.res} m · tylko Polska i Czechy`;
+    this.el.querySelectorAll<HTMLElement>('[data-quality]').forEach((b) =>
+      b.classList.toggle('is-on', b.dataset.quality === this.quality && (this.quality === 'normal' || Number(b.dataset.res) === this.res))
+    );
+    // szacunek dla każdej opcji na jej przycisku
+    const fmtMin = (m: number) => (m < 60 ? `${m < 2 ? m.toFixed(1).replace('.', ',') : fmtInt(m)} min` : `${(m / 60).toFixed(1).replace('.', ',')} h`);
+    this.el.querySelectorAll<HTMLElement>('[data-quality]').forEach((b) => {
+      const est = b.querySelector<HTMLElement>('[data-est]');
+      if (!est || !this.selection) return;
+      if (b.dataset.quality === 'high' && highError) { est.textContent = 'brak LiDAR w zaznaczeniu'; return; }
+      const e = estimate(this.selection, b.dataset.quality as Quality, (Number(b.dataset.res) || 3) as LidarRes);
+      est.textContent = `~${mb(e.mb)} · ~${fmtMin(e.min)}`;
+    });
+    const info = estimate(this.selection, this.quality, this.res);
     const names = Object.entries(this.countryFractions(this.selection)).filter(([, f]) => f > 0.01).map(([c]) => COUNTRY[c] ?? c);
     const error = this.quality === 'high' ? highError : normalError;
     box.innerHTML = `<div class="areaform__numbers">
       <div><b>${fmtInt(info.km2)}</b><small>km²</small></div>
       <div><b>~${mb(info.mb)}</b><small>na dysku</small></div>
-      <div><b>~${info.min < 2 ? info.min.toFixed(1).replace('.', ',') : fmtInt(info.min)}</b><small>min</small></div>
+      <div><b>~${fmtMin(info.min).split(' ')[0]}</b><small>${fmtMin(info.min).split(' ')[1]}</small></div>
     </div>
     <div class="areaform__where">${names.length ? names.join(' · ') : 'poza obsługiwanym zasięgiem'}</div>
+    ${this.quality === 'high' && !error ? `<div class="areaform__where">LiDAR ${this.res} m obejmuje ~${fmtInt(info.lidar * 100)}% kwadratu; reszta z modelu globalnego</div>` : ''}
+    ${!error && (info.min > 45 || info.mb > 800) ? `<div class="areaform__warn">Duże zadanie – wypiekanie potrwa ok. ${fmtMin(info.min)} i zajmie ~${mb(info.mb)}. Rozważ mniejszy kwadrat lub niższą rozdzielczość.</div>` : ''}
     ${error ? `<div class="areaform__error">${escapeHtml(error)}</div>` : '<div class="areaform__ok">Gotowe do pobrania</div>'}`;
     create.disabled = !!error || !SERVER_MODE;
   }
@@ -413,7 +462,7 @@ export class MapsManager {
       const bar = card?.querySelector<HTMLElement>('.mcard__bar i');
       if (bar) bar.style.width = `${(job.progress * 100).toFixed(1)}%`;
       const label = card?.querySelector<HTMLElement>('[data-joblabel]');
-      if (label) label.textContent = `${job.label} · ${fmtInt(job.progress * 100)}%`;
+      if (label) label.textContent = `${job.label} · ${fmtInt(job.progress * 100)}%${job.res ? ` · LiDAR ${job.res} m` : ''} · ${fmtDuration(job.elapsed ?? 0)}${job.eta != null ? ` · zostało ~${fmtDuration(job.eta)}` : ''}`;
     }
     this.renderSelection();
   }
@@ -429,8 +478,14 @@ export class MapsManager {
       this.zoomAt((w + east) / 2, (s + n) / 2, zoom === '1' ? 0.65 : 1.45);
       return;
     }
-    const q = t.closest<HTMLElement>('[data-quality]')?.dataset.quality as Quality | undefined;
-    if (q && !t.closest<HTMLButtonElement>('button')?.disabled) { this.quality = q; this.renderSelection(); return; }
+    const qb = t.closest<HTMLElement>('[data-quality]');
+    const q = qb?.dataset.quality as Quality | undefined;
+    if (q && !t.closest<HTMLButtonElement>('button')?.disabled) {
+      this.quality = q;
+      if (qb?.dataset.res) this.res = Number(qb.dataset.res) as LidarRes;
+      this.renderSelection();
+      return;
+    }
     if (t.closest('[data-savetoken]')) {
       const value = this.el.querySelector<HTMLInputElement>('[data-token]')?.value ?? '';
       try { localStorage.setItem(TOKEN_KEY, value); } catch { /* brak localStorage */ }
@@ -438,7 +493,7 @@ export class MapsManager {
     }
     if (t.closest('[data-create]') && this.selection) {
       const name = this.el.querySelector<HTMLInputElement>('[data-name]')?.value.trim() ?? '';
-      const result = await this.call('POST', 'api/areas', { name, bbox: this.selection, quality: this.quality });
+      const result = await this.call('POST', 'api/areas', { name, bbox: this.selection, quality: this.quality, res: this.res });
       if (result) { this.selection = null; const input = this.el.querySelector<HTMLInputElement>('[data-name]'); if (input) input.value = ''; await this.refresh(); this.renderMap(); }
       return;
     }

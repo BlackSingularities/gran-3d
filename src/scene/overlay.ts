@@ -21,6 +21,7 @@ interface Label {
 }
 
 const GLYPH: Record<string, string> = {
+  place: '<svg class="poi__glyph poi__glyph--place" viewBox="0 0 10 10"><circle cx="5" cy="5" r="3" fill="#fff6e6" stroke="#111" stroke-width="1.4"/></svg>',
   peak: '<svg class="poi__glyph" viewBox="0 0 10 9"><path d="M5 0.5 L9.5 8.5 H0.5 Z" fill="#fffaf0" stroke="#111" stroke-width="0.8"/></svg>',
   saddle: '<svg class="poi__glyph" viewBox="0 0 10 9"><path d="M0.5 3 C3 8, 7 8, 9.5 3" fill="none" stroke="#fffaf0" stroke-width="1.6"/></svg>',
   hut: '<svg class="poi__glyph" viewBox="0 0 10 9" style="width:12px;height:11px"><path d="M1 8.5 V4 L5 0.8 L9 4 V8.5 Z" fill="#ff5a36" stroke="#fff" stroke-width="0.9"/></svg>',
@@ -48,14 +49,14 @@ export class Overlay {
     this.labels = pois
       .filter((p) => p.n && p.t !== 'viewpoint')
       .sort((a, b) => b.prom - a.prom)
-      .slice(0, 900)
+      .slice(0, 1500)
       .map((poi) => ({ poi, el: null, shown: false }));
   }
 
   private makeEl(p: Poi) {
     const el = document.createElement('div');
-    el.className = `poi poi--${p.t}`;
-    const ele = p.t === 'lake' || p.t === 'cave' || p.t === 'waterfall' ? '' : `<span class="poi__ele">${fmtInt(p.ele)}</span>`;
+    el.className = `poi poi--${p.t}${p.k ? ` poi--k-${p.k}` : ''}`;
+    const ele = p.t === 'lake' || p.t === 'cave' || p.t === 'waterfall' || p.t === 'place' ? '' : `<span class="poi__ele">${fmtInt(p.ele)}</span>`;
     el.innerHTML = `<span class="poi__name">${p.n}</span>${ele}<span class="poi__stem"></span>${GLYPH[p.t] ?? ''}`;
     el.addEventListener('click', (e) => {
       e.stopPropagation();

@@ -673,6 +673,7 @@ input[type='date'] {
 .areaform__label input { display: block; width: 100%; margin-top: 6px; padding: 9px 10px; color: var(--paper); background: rgba(0,0,0,.25); border: 1px solid var(--hair-2); border-radius: 9px; outline: none; text-transform: none; letter-spacing: 0; font-family: var(--sans); font-size: 12.5px; }
 .areaform__label input:focus { border-color: var(--teal); }
 .qualitypick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.areaform__warn { margin-top: 8px; padding: 8px 10px; border-radius: 9px; font-size: 11.5px; color: var(--warn); border: 1px solid rgba(247, 201, 72, 0.35); background: rgba(247, 201, 72, 0.07); }
 .qualitypick button { padding: 9px; text-align: left; border: 1px solid var(--hair); border-radius: 10px; background: rgba(255,255,255,.025); }
 .qualitypick button.is-on { border-color: var(--signal); background: var(--signal-dim); }
 .qualitypick button:disabled { opacity: .32; cursor: not-allowed; }
@@ -743,3 +744,41 @@ input[type='date'] {
 }
 /* znaczniki informacyjne nie przechwytują kliknięć – klik trafia w teren */
 .marker--passive, .marker--passive * { pointer-events: none !important; }
+
+/* ---------- pasek wypiekania ---------- */
+.jobpill {
+  position: absolute; left: 50%; bottom: 18px; z-index: 40; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+  display: flex; align-items: center; gap: 12px; min-width: 380px; max-width: min(620px, 90vw); padding: 9px 16px 11px 10px; overflow: hidden;
+  border-radius: 16px; background: var(--glass-2); border: 1px solid var(--hair-2); backdrop-filter: blur(16px); box-shadow: var(--shadow);
+  text-align: left; transition: opacity 0.3s, transform 0.3s, bottom 0.35s;
+}
+.jobpill.is-on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.jobpill:hover { border-color: var(--teal); }
+#app.has-profile .jobpill { bottom: calc(16px + var(--profile-h) + 12px); }
+.jobpill__ring {
+  --p: 0; flex: none; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
+  background: conic-gradient(var(--signal) calc(var(--p) * 1%), var(--ink-4) 0);
+}
+.jobpill__ring i { width: 34px; height: 34px; border-radius: 50%; background: var(--ink-1); display: grid; place-items: center; font-style: normal; font-family: var(--mono); font-size: 10.5px; color: var(--paper); }
+.jobpill__ring.is-ok { background: var(--teal); color: var(--ink-0); font-weight: 700; }
+.jobpill__ring.is-bad { background: var(--signal); color: #fff; font-weight: 700; }
+.jobpill__main { flex: 1; min-width: 0; }
+.jobpill__main b { display: block; font-family: var(--display); font-size: 14px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jobpill__main small, .jobpill__time small { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--paper-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jobpill__time { flex: none; text-align: right; }
+.jobpill__time b { display: block; font-family: var(--mono); font-size: 13px; color: var(--teal); font-weight: 600; }
+.jobpill__bar { position: absolute; left: 0; bottom: 0; height: 3px; background: linear-gradient(90deg, var(--signal), var(--brass)); transition: width 0.8s; }
+.jobpill.is-done { border-color: var(--teal); }
+.jobpill.is-err { border-color: var(--signal); }
+
+/* ---------- miejscowości ---------- */
+.poi--place .poi__name {
+  font-family: var(--sans); font-style: normal; font-weight: 600; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #fff4e2; text-shadow: 0 0 2px rgba(0,0,0,0.95), 0 1px 5px rgba(0,0,0,0.9), 0 0 12px rgba(0,0,0,0.55);
+}
+.poi--place .poi__stem { height: 5px; }
+.poi--k-town .poi__name { font-size: 13px; letter-spacing: 0.1em; }
+.poi--k-city .poi__name { font-size: 16px; font-weight: 700; letter-spacing: 0.12em; }
+.poi--k-hamlet .poi__name { font-size: 10px; font-weight: 500; text-transform: none; letter-spacing: 0.02em; color: #e9e1d0; }
+.poi__glyph--place { width: 7px; height: 7px; margin-top: -1px; }
+.poi--k-town .poi__glyph--place, .poi--k-city .poi__glyph--place { width: 9px; height: 9px; }
