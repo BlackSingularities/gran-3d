@@ -346,7 +346,7 @@ export class Panel {
     const a = this.app, s = a.store.state;
     const ref = s.ref!;
     const dem = a.region!.dem;
-    const tol = s.lens === 'band' ? s.bandTol : 15;
+    const tol = s.lens === 'band' && s.bandTol ? s.bandTol : 15;
     let inBand = 0, above = 0;
     const d = dem.data;
     for (let i = 0; i < d.length; i += 2) {
@@ -361,8 +361,8 @@ export class Panel {
       .sort((x, y) => x.dist - y.dist)
       .slice(0, 14);
     return `
-      <div class="row row--between"><span class="kicker">${s.lens === 'band' ? 'Ta sama wysokość' : 'Poziomica przez punkt'}</span><button class="btn btn--ghost btn--icon" data-act="clear-ref" title="Odepnij (Esc)">${ICON.x}</button></div>
-      <div class="big" style="margin-top:6px">${fmtInt(ref.e)}<small>m n.p.m.${s.lens === 'band' ? ` ± ${s.bandTol} m` : ''}</small></div>
+      <div class="row row--between"><span class="kicker">${s.lens === 'band' && s.bandTol ? 'Ta sama wysokość' : 'Poziomica przez punkt'}</span><button class="btn btn--ghost btn--icon" data-act="clear-ref" title="Odepnij (Esc)">${ICON.x}</button></div>
+      <div class="big" style="margin-top:6px">${fmtInt(ref.e)}<small>m n.p.m.${s.lens === 'band' && s.bandTol ? ` ± ${s.bandTol} m` : ''}</small></div>
       <div class="note" style="font-family:var(--mono)">${fmtCoords(ref.lon, ref.lat)}</div>
       <div class="stats" style="margin-top:14px">
         <div class="stat"><div class="stat__v">${fmt1((inBand / n) * 100)}<small>%</small></div><div class="stat__k">terenu w pasie ±${tol} m</div></div>

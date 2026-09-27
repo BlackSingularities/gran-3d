@@ -372,7 +372,7 @@ input[type='date'] {
   content: ''; position: absolute; right: 5px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--brass); box-shadow: 0 0 0 2px var(--ink-1);
 }
 .flyout {
-  position: absolute; left: calc(100% + 12px); top: 50%; transform: translate(-6px, -50%); min-width: 268px; padding: 11px 12px 12px; border-radius: 13px;
+  position: absolute; left: calc(100% + 12px); top: 50%; transform: translate(-6px, -50%); min-width: 318px; padding: 11px 12px 12px; border-radius: 13px;
   background: var(--glass-2); border: 1px solid var(--hair-2); backdrop-filter: blur(16px); box-shadow: var(--shadow);
   opacity: 0; pointer-events: none; transition: opacity 0.15s, transform 0.15s; z-index: 30;
 }

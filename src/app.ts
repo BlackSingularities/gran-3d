@@ -800,7 +800,8 @@ export class App {
     const u = this.terrain.material.uniforms;
     const ids: Record<Lens, number> = { none: 0, iso: 1, band: 2, rel: 3, vis: 4 };
     const src = s.ref ?? (this.cursor ? { x: this.cursor.x, z: this.cursor.z, e: this.cursor.e } : null);
-    u.uLens.value = ids[s.lens];
+    // ta sama wysokość z szerokością 0 = pojedyncza poziomica
+    u.uLens.value = s.lens === 'band' && s.bandTol === 0 ? 1 : ids[s.lens];
     u.uLensOn.value = src && s.lens !== 'none' && !s.panorama ? 1 : 0;
     if (src) u.uRef.value.set(src.x, src.z, src.e);
     u.uRelRange.value = s.relRange;
@@ -1107,7 +1108,7 @@ export class App {
       m.hidden = s.tool !== 'route' && s.tool !== 'explore';
     });
     // przypięta soczewka – znacznik tylko przy zmianie (applyLens woła to przy każdym ruchu myszy)
-    const lensLabel: Record<string, string> = { iso: 'poziomica', band: `±${s.bandTol} m`, rel: 'poziom 0' };
+    const lensLabel: Record<string, string> = { iso: 'poziomica', band: s.bandTol ? `±${s.bandTol} m` : 'poziomica', rel: 'poziom 0' };
     const refKey = s.ref && lensLabel[s.lens] ? `${s.lens}:${s.ref.x}:${s.ref.z}:${s.bandTol}` : '';
     if (refKey !== this.refKey) {
       this.refKey = refKey;
