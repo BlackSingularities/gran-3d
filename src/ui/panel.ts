@@ -102,7 +102,7 @@ export class Panel {
     for (const e of a.graph!.edges) for (const ri of e.routes) rlen.set(ri, (rlen.get(ri) ?? 0) + e.len2);
     const routes = [...rlen.entries()]
       .map(([i, l]) => ({ i, l, r: a.graph!.routes[i] }))
-      .filter((x) => x.r && (x.r.ref || (x.r.name && !/^Szlak d+$/.test(x.r.name))) && x.l > 1500)
+      .filter((x) => x.r && (x.r.ref || (x.r.name && !/^Szlak \d+$/.test(x.r.name))) && x.l > 1500)
       .sort((x, y) => y.l - x.l);
     const notable = [...peaks].sort((x, y) => y.prom - x.prom).slice(0, 9);
     const gpx = a.store.state.gpx;
