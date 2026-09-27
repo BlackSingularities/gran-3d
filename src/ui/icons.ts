@@ -1,0 +1,61 @@
+const s = (d: string, extra = '') =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" ${extra}>${d}</svg>`;
+
+export const ICON = {
+  explore: s('<path d="M3 19 L9 9 L13 14 L16 9 L21 19 Z"/><path d="M8 6.5 A1.5 1.5 0 1 0 8 6.49" />'),
+  route: s('<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8 17 C 14 17, 9 7, 16 7" stroke-dasharray="2.2 2.4"/>'),
+  relative: s('<path d="M3 20 L8 11 L12 15 L16 8 L21 20"/><path d="M2 13.5 H22" stroke-dasharray="1.5 2"/><path d="M16 4 V8"/><path d="M14.5 5.5 L16 4 L17.5 5.5"/>'),
+  viewshed: s('<path d="M2 12 C 5 6.5, 19 6.5, 22 12 C 19 17.5, 5 17.5, 2 12 Z"/><circle cx="12" cy="12" r="3"/>'),
+  measure: s('<path d="M4 17 L17 4 L20 7 L7 20 Z"/><path d="M7.5 13.5 L9 15 M10 11 L12 13 M12.5 8.5 L14 10 M15 6 L17 8"/>'),
+  layers: s('<path d="M12 3 L21 8 L12 13 L3 8 Z"/><path d="M3 12.5 L12 17.5 L21 12.5"/><path d="M3 16.5 L12 21.5 L21 16.5"/>'),
+  help: s('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5 A2.6 2.6 0 1 1 12 12.6 V14"/><circle cx="12" cy="17.2" r="0.4" fill="currentColor"/>'),
+  camera: s('<path d="M4 8 H8 L9.5 5.5 H14.5 L16 8 H20 V19 H4 Z"/><circle cx="12" cy="13" r="3.4"/>'),
+  gpx: s('<path d="M12 4 V15"/><path d="M8 11 L12 15 L16 11"/><path d="M4 19 H20"/>'),
+  upload: s('<path d="M12 15 V4"/><path d="M8 8 L12 4 L16 8"/><path d="M4 19 H20"/>'),
+  link: s('<path d="M10 14 L14 10"/><path d="M8.5 11.5 L6.5 13.5 A3 3 0 0 0 10.5 17.5 L12.5 15.5"/><path d="M15.5 12.5 L17.5 10.5 A3 3 0 0 0 13.5 6.5 L11.5 8.5"/>'),
+  play: s('<path d="M8 5 L19 12 L8 19 Z" fill="currentColor"/>'),
+  pause: s('<path d="M8 5 V19 M16 5 V19" stroke-width="2.6"/>'),
+  swap: s('<path d="M7 4 V20"/><path d="M4 7 L7 4 L10 7"/><path d="M17 20 V4"/><path d="M14 17 L17 20 L20 17"/>'),
+  trash: s('<path d="M5 7 H19"/><path d="M9 7 V4.5 H15 V7"/><path d="M7 7 L8 20 H16 L17 7"/>'),
+  x: s('<path d="M6 6 L18 18 M18 6 L6 18"/>'),
+  pin: s('<path d="M12 21 C 12 21, 5 14, 5 9.5 A7 7 0 0 1 19 9.5 C 19 14, 12 21, 12 21 Z"/><circle cx="12" cy="9.5" r="2.4"/>'),
+  flag: s('<path d="M5 21 V4"/><path d="M5 4 H17 L14.5 8 L17 12 H5"/>'),
+  plus: s('<path d="M12 5 V19 M5 12 H19"/>'),
+  eye: s('<path d="M2 12 C 5 6.5, 19 6.5, 22 12 C 19 17.5, 5 17.5, 2 12 Z"/><circle cx="12" cy="12" r="3"/>'),
+  person: s('<circle cx="12" cy="5" r="2"/><path d="M12 8 V14 M12 14 L9 21 M12 14 L15 21 M8 11 H16"/>'),
+  copy: s('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8 V5 A1 1 0 0 0 15 4 H5 A1 1 0 0 0 4 5 V15 A1 1 0 0 0 5 16 H8"/>'),
+  target: s('<circle cx="12" cy="12" r="7"/><path d="M12 2 V6 M12 18 V22 M2 12 H6 M18 12 H22"/>'),
+  sun: s('<circle cx="12" cy="12" r="4"/><path d="M12 2 V4 M12 20 V22 M2 12 H4 M20 12 H22 M4.9 4.9 L6.3 6.3 M17.7 17.7 L19.1 19.1 M4.9 19.1 L6.3 17.7 M17.7 6.3 L19.1 4.9"/>'),
+  fly: s('<path d="M3 17 C 7 17, 8 9, 12 9 C 16 9, 17 13, 21 13"/><path d="M17 5 L21 7 L17 9"/>'),
+  peak: s('<path d="M3 19 L10 7 L14 13 L16 10 L21 19 Z"/>'),
+  hut: s('<path d="M4 11 L12 4 L20 11"/><path d="M6 10 V20 H18 V10"/><path d="M10 20 V15 H14 V20"/>'),
+  lake: s('<path d="M3 14 C 5 12, 7 12, 9 14 S 13 16, 15 14 S 19 12, 21 14"/><path d="M3 18 C 5 16, 7 16, 9 18 S 13 20, 15 18 S 19 16, 21 18"/>'),
+  saddle: s('<path d="M3 17 C 7 7, 10 14, 12 14 C 14 14, 17 7, 21 17"/>'),
+  trail: s('<path d="M4 20 C 8 14, 6 9, 12 8 C 17 7, 16 4, 20 3"/>'),
+  north: s('<path d="M12 3 L16 19 L12 16 L8 19 Z"/>'),
+  expand: s('<path d="M4 9 V4 H9 M15 4 H20 V9 M20 15 V20 H15 M9 20 H4 V15"/>'),
+  chevronDown: s('<path d="M6 9 L12 15 L18 9"/>'),
+  reset: s('<path d="M4 12 A8 8 0 1 0 7 5.8"/><path d="M4 4 V9 H9"/>'),
+};
+
+export const POI_ICON: Record<string, string> = {
+  peak: ICON.peak,
+  saddle: ICON.saddle,
+  hut: ICON.hut,
+  shelter: ICON.hut,
+  lake: ICON.lake,
+  waterfall: ICON.lake,
+  cave: ICON.pin,
+  viewpoint: ICON.eye,
+};
+
+export const POI_TYPE_PL: Record<string, string> = {
+  peak: 'szczyt',
+  saddle: 'przełęcz',
+  hut: 'schronisko',
+  shelter: 'wiata / bacówka',
+  lake: 'staw / jezioro',
+  waterfall: 'wodospad',
+  cave: 'jaskinia',
+  viewpoint: 'punkt widokowy',
+};

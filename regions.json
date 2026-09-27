@@ -1,0 +1,42 @@
+[
+  {
+    "id": "tatry",
+    "name": "Tatry",
+    "subtitle": "Tatry Zachodnie, Wysokie i Bielskie",
+    "bbox": [19.70, 49.12, 20.30, 49.33],
+    "zoom": 12,
+    "home": { "lon": 20.03, "lat": 49.215, "heading": 170, "pitch": 52, "distance": 26000 }
+  },
+  {
+    "id": "karkonosze",
+    "name": "Karkonosze",
+    "subtitle": "Śnieżka, Kocioł Wielkiego Stawu, Szrenica",
+    "bbox": [15.45, 50.68, 15.85, 50.83],
+    "zoom": 12,
+    "home": { "lon": 15.66, "lat": 50.755, "heading": 160, "pitch": 50, "distance": 22000 }
+  },
+  {
+    "id": "pieniny",
+    "name": "Pieniny",
+    "subtitle": "Trzy Korony, Sokolica, Przełom Dunajca",
+    "bbox": [20.25, 49.36, 20.55, 49.46],
+    "zoom": 13,
+    "home": { "lon": 20.40, "lat": 49.41, "heading": 180, "pitch": 48, "distance": 13000 }
+  },
+  {
+    "id": "babia-gora",
+    "name": "Babia Góra",
+    "subtitle": "Królowa Beskidów i Pasmo Policy",
+    "bbox": [19.43, 49.52, 19.62, 49.62],
+    "zoom": 13,
+    "home": { "lon": 19.53, "lat": 49.573, "heading": 175, "pitch": 46, "distance": 11000 }
+  },
+  {
+    "id": "bieszczady",
+    "name": "Bieszczady",
+    "subtitle": "Połoniny Wetlińska i Caryńska, Tarnica",
+    "bbox": [22.40, 49.02, 22.85, 49.25],
+    "zoom": 12,
+    "home": { "lon": 22.60, "lat": 49.12, "heading": 150, "pitch": 50, "distance": 26000 }
+  }
+]
