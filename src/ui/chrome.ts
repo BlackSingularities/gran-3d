@@ -197,7 +197,6 @@ export class Chrome {
     };
     const paramLabel: Record<string, string> = { band: 'szerokość pasa', rel: 'zakres barw', vis: 'wysokość obserwatora' };
     dock.innerHTML =
-      `<div class="lensrail__label">Soczewka</div>` +
       LENSES.map((l) => {
         const on = s.lens === l.id;
         const status = on
