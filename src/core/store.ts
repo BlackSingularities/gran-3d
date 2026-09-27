@@ -1,3 +1,4 @@
+import type { Gfx } from './gfx';
 import type { Route, Snap } from './graph';
 
 export type Tool = 'explore' | 'route' | 'measure';
@@ -36,6 +37,7 @@ export interface State {
   snow: boolean;
   lens: Lens;
   bandTol: number;
+  gfx: Gfx;
   exag: number;
   day: string;
   hour: number;

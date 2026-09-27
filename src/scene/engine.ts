@@ -31,8 +31,14 @@ export class Engine {
   panorama = false;
   private savedView: View | null = null;
   // adaptacyjna rozdzielczość: przy wolnych klatkach obniżamy gęstość pikseli
+  /** docelowa gęstość pikseli (ustawienie jakości) */
   private maxPR = Math.min(window.devicePixelRatio, 2);
   private pr = this.maxPR;
+  adaptive = true;
+  fpsCap = 0;
+  /** średni czas klatki [s] – do wyświetlania wydajności */
+  get frameTime() { return this.ema; }
+  get pixelRatio() { return this.pr; }
   private ema = 1 / 60;
   private lastRender = 0;
   private lastAdjust = 0;
@@ -133,13 +139,16 @@ export class Engine {
     if (this.dem && !this.panorama) this.keepAboveGround();
     if (!before.equals(this.camera.position)) this.dirty = true;
     for (const cb of this.frameCbs) cb(dt);
+    if (this.dirty && this.fpsCap && now - this.lastRender < 1000 / this.fpsCap - 2) return;
     if (this.dirty) {
       this.updateClipping();
       if (this.moving > 0 && this.lastRender) {
         this.ema = this.ema * 0.9 + ((now - this.lastRender) / 1000) * 0.1;
-        if (now - this.lastAdjust > 1200) {
-          if (this.ema > 1 / 32 && this.pr > 0.6) this.setPR(this.pr - 0.2);
-          else if (this.ema < 1 / 55 && this.pr < this.maxPR) this.setPR(Math.min(this.maxPR, this.pr + 0.1));
+        const target = this.fpsCap ? 1 / (this.fpsCap - 3) : 1 / 32;
+        if (this.adaptive && now - this.lastAdjust > 1200) {
+          const floor = Math.max(0.25, this.maxPR * 0.5);
+          if (this.ema > target && this.pr > floor + 0.01) this.setPR(Math.max(floor, this.pr - 0.15));
+          else if (this.ema < target * 0.6 && this.pr < this.maxPR) this.setPR(Math.min(this.maxPR, this.pr + 0.1));
         }
       }
       this.lastRender = now;
@@ -148,6 +157,13 @@ export class Engine {
       this.moving = 3;
     } else if (this.moving > 0) this.moving--;
   };
+
+  /** Skala rozdzielczości renderu (0,25–1 gęstości pikseli ekranu). */
+  setRenderScale(scale: number, adaptive: boolean) {
+    this.maxPR = Math.max(0.2, Math.min(window.devicePixelRatio, 2) * scale);
+    this.adaptive = adaptive;
+    this.setPR(this.maxPR);
+  }
 
   private setPR(pr: number) {
     this.pr = pr;

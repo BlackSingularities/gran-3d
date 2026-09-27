@@ -43,7 +43,10 @@ app.listeners.push(() => {
 });
 app.engine.onFrame(() => {
   if (!app.region) return;
-  if (++statTick % 20 === 0) chrome.updateTileStat();
+  if (++statTick % 20 === 0) {
+    chrome.updateTileStat();
+    panel.syncPerf();
+  }
   if (app.engine.isMoving) {
     chrome.update();
     if (++scaleTick % 6 === 0) chrome.updateScale();

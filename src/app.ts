@@ -3,6 +3,7 @@ import { routeFromPolyline, TrailGraph, type Route } from './core/graph';
 import { bearing, clamp, curvatureDrop, DEG, fmtDist, fmtEle, fmtSigned, haversine } from './core/geo';
 import { download, parseGpx, routeToGpx } from './core/gpx';
 import { timeModel } from './core/metrics';
+import { loadGfx, saveGfx } from './core/gfx';
 import { loadRegion, REGIONS, regionForPoint, type LoadedRegion, type Poi } from './core/region';
 import { Store, todayWarsaw, type Lens, type MeasurePoint, type State, type Tool, type Waypoint } from './core/store';
 import { seasonalSnowline, sunPosition, sunVector, warsawDate } from './core/sun';
@@ -105,6 +106,7 @@ export class App {
       snow: true,
       lens: 'none',
       bandTol: 10,
+      gfx: loadGfx(),
       exag: 1.4,
       day: todayWarsaw(),
       hour: 11.5,
@@ -224,6 +226,7 @@ export class App {
     this.satProgress = 0;
     this.applyStyle();
     this.applyLayers();
+    this.applyGfx(null);
     this.updateSun();
 
     const h = def.home;
@@ -262,6 +265,7 @@ export class App {
       this.terrain.material.uniforms.uExag.value = s.exag;
       this.refreshMarkers();
     }
+    if (ch.has('gfx')) this.applyGfx();
     if (ch.has('day') || ch.has('hour')) this.updateSun();
     if (ch.has('timeKind') || ch.has('pace')) {
       timeModel.kind = s.timeKind;
@@ -300,6 +304,31 @@ export class App {
     }
     this.engine.dirty = true;
   }
+
+  /** Ustawienia jakości renderowania → silnik, kafle, etykiety. */
+  applyGfx(prev = this.lastGfx) {
+    const g = this.store.state.gfx;
+    this.engine.setRenderScale(g.scale, g.adaptive);
+    this.engine.fpsCap = g.fps;
+    this.overlay.density = g.labels;
+    if (this.terrain) this.terrain.material.uniforms.uNoiseAmt.value = g.detail ? 1 : 0;
+    const t = this.tiles;
+    if (t) {
+      t.quality = g.lod;
+      t.maxLevel = g.maxLevel;
+      t.setMeshDetail(g.mesh);
+      t.setNoise(g.detail ? 1 : 0);
+      if (prev && (prev.ortho !== g.ortho || prev.maxLevel !== g.maxLevel)) {
+        t.orthoMax = g.ortho;
+        t.resetOrtho();
+      }
+      t.orthoMax = g.ortho;
+    }
+    saveGfx(g);
+    this.lastGfx = { ...g };
+    this.engine.dirty = true;
+  }
+  private lastGfx: import('./core/gfx').Gfx | null = null;
 
   applyLayers() {
     const s = this.store.state;

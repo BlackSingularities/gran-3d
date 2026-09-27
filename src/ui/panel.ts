@@ -2,6 +2,7 @@ import type { App } from '../app';
 import { escapeHtml, trailHex } from '../app';
 import { compassDir, fmt1, fmtCoords, fmtDecimal, fmtDist, fmtEle, fmtInt, fmtSigned, fmtTime, haversine } from '../core/geo';
 import { DIFFICULTY, SAC_LABEL, TIME_MODEL_LABEL } from '../core/metrics';
+import { GFX_PRESETS, GFX_PRESET_LABEL, type Gfx, type GfxPreset } from '../core/gfx';
 import type { Poi } from '../core/region';
 import type { Style } from '../core/store';
 import { fmtHour, sunPosition, sunTimes, warsawDate } from '../core/sun';
@@ -45,7 +46,7 @@ export class Panel {
     const sel = a.selection;
     return JSON.stringify([
       this.tab, s.regionId, s.tool, s.routeMode, s.routing, s.activeRoute, s.style, s.contours, s.trails, s.labels, s.shadows, s.grid, s.snow, s.lens, s.bandTol, a.lensPinned,
-      s.day, s.flying, s.panorama, s.vsEye, s.timeKind, s.pace, s.profileOpen,
+      s.day, s.flying, s.panorama, s.vsEye, s.timeKind, s.pace, s.profileOpen, s.gfx.preset, s.gfx.maxLevel, s.gfx.mesh, s.gfx.ortho, s.gfx.detail, s.gfx.fps, s.gfx.adaptive,
       sel ? [sel.kind, sel.poi?.id, sel.point?.x, sel.routeIdx] : null,
       s.waypoints.map((w) => w.id + (w.label ?? '')),
       s.routes.map((r) => r.id + r.labels.join()),
@@ -452,7 +453,6 @@ export class Panel {
           ${toggle('snow', 'Śnieg sezonowy')}
           ${toggle('grid', 'Siatka 1 km')}
         </div>
-        ${a.tiles ? `<div class="slider"><label>Szczegółowość terenu LiDAR</label><output id="o-q">${fmt1(a.tiles.quality)}×</output><input type="range" min="0.5" max="2" step="0.1" value="${a.tiles.quality}" data-range="quality"></div>` : ''}
         <div class="slider"><label>Przewyższenie pionowe</label><output id="o-exag">×${fmt1(s.exag)}</output><input type="range" min="1" max="3" step="0.1" value="${s.exag}" data-range="exag"></div>
       </div>
       <div class="section">
@@ -469,10 +469,50 @@ export class Panel {
         </div>
         <p class="note" id="o-sun"></p>
       </div>
+      ${this.gfxSection()}
       <div class="section">
         <div class="section__title"><span class="kicker">Źródła danych</span></div>
         <p class="note" style="margin-top:0">${a.tiles ? `Model terenu: <b>LiDAR</b> – NMT <b>GUGiK</b> (PL)${a.region!.def.hd?.lidar.includes('cz') ? ' i DMR 5G <b>ČÚZK</b> (CZ)' : ''}, kafle do ~${a.tiles.maxZ >= 15 ? 3 : 6} m; poza zasięgiem – <b>Terrarium</b>. Ortofoto: <b>GUGiK</b>, <b>ZBGIS</b>, <b>ČÚZK</b>.` : `Model terenu: <b>Terrarium</b> (Mapzen / AWS Open Data; SRTM, EU‑DEM), siatka ~${fmtInt(dem.mpp)} m.`} Szlaki, szczyty, schroniska: <b>© OpenStreetMap</b> (ODbL). Obraz satelitarny: <b>Sentinel‑2 cloudless 2020 © EOX</b> (CC BY‑NC‑SA 4.0). Czas przejścia wg reguły <b>PTTK</b> (15 min/km + 1 min/10 m podejścia) lub normy <b>DIN 33466</b>; punkty <b>GOT PTTK</b> wg reguły 1 pkt/km + 1 pkt/100 m podejścia.</p>
       </div>`;
+  }
+
+  private gfxSection() {
+    const a = this.app;
+    const g = a.store.state.gfx;
+    const presets = (Object.keys(GFX_PRESETS) as GfxPreset[])
+      .map((p) => `<button data-gp="${p}" class="${g.preset === p ? 'is-on' : ''}">${GFX_PRESET_LABEL[p]}</button>`)
+      .join('');
+    const segs = (k: string, opts: [number, string][], cur: number) =>
+      `<div class="seg seg--sm">${opts.map(([v, l]) => `<button data-gfxs="${k}:${v}" class="${cur === v ? 'is-on' : ''}">${l}</button>`).join('')}</div>`;
+    const t = a.tiles;
+    const full = t ? (t.maxZ >= 15 ? '3 m' : '6 m') : '';
+    const tg = (k: string, label: string, on: boolean) => `<button class="toggle ${on ? 'is-on' : ''}" data-gfxt="${k}"><i></i>${label}</button>`;
+    return `
+      <div class="section">
+        <div class="section__title"><span class="kicker">Jakość renderowania${g.preset === 'custom' ? ' · własna' : ''}</span><span class="kicker" id="o-perf" style="color:var(--teal)"></span></div>
+        <div class="seg">${presets}</div>
+        <div class="slider"><label>Rozdzielczość renderu</label><output>${fmtInt(g.scale * 100)}%</output><input type="range" min="0.25" max="1" step="0.05" value="${g.scale}" data-gfx="scale"></div>
+        ${t ? `<div class="slider"><label>Zasięg szczegółów terenu</label><output>${fmt1(g.lod)}×</output><input type="range" min="0.3" max="2.5" step="0.1" value="${g.lod}" data-gfx="lod"></div>
+        <div class="gfxrow"><span>Najdrobniejszy LiDAR</span>${segs('maxLevel', [[0, full], ...(t.maxZ >= 15 ? [[14, '6 m'] as [number, string]] : []), [13, '12 m'], [12, '25 m']], g.maxLevel >= t.maxZ ? 0 : g.maxLevel)}</div>` : ''}
+        <div class="gfxrow"><span>Gęstość siatki kafla</span>${segs('mesh', [[32, '32'], [64, '64'], [128, '128']], g.mesh)}</div>
+        <div class="gfxrow"><span>Zdjęcia lotnicze</span>${segs('ortho', [[256, '256'], [512, '512'], [1024, '1024 px']], g.ortho)}</div>
+        <div class="slider"><label>Gęstość etykiet</label><output>${fmt1(g.labels)}×</output><input type="range" min="0.3" max="1.6" step="0.1" value="${g.labels}" data-gfx="labels"></div>
+        <div class="toggles" style="margin-top:4px">
+          ${tg('adaptive', 'Auto‑obniżanie', g.adaptive)}
+          ${tg('fps', 'Limit 30 kl./s', g.fps === 30)}
+          ${tg('detail', 'Mikrorzeźba skał', g.detail)}
+        </div>
+        <p class="note">Niższa rozdzielczość renderu i rzadsza siatka najbardziej odciążają kartę graficzną; limit poziomu LiDAR i mniejsze zdjęcia zmniejszają też transfer danych. Ustawienia są zapamiętywane w tej przeglądarce.</p>
+      </div>`;
+  }
+
+  /** Odświeża licznik wydajności w sekcji jakości (bez przebudowy panelu). */
+  syncPerf() {
+    const el = this.body.querySelector('#o-perf');
+    if (!el) return;
+    const e = this.app.engine;
+    const c = e.renderer.domElement;
+    el.textContent = `${fmtInt(Math.min(240, 1 / Math.max(e.frameTime, 1 / 240)))} kl./s · ${c.width}×${c.height}`;
   }
 
   private styleLegend(st: Style) {
@@ -536,13 +576,47 @@ export class Panel {
         const v = Number(el.value);
         if (k === 'exag') { a.store.set({ exag: v }); b.querySelector('#o-exag')!.textContent = `×${fmt1(v)}`; }
         if (k === 'relRange') { a.store.set({ relRange: v }); b.querySelector('#o-range')!.textContent = `±${fmtInt(v)} m`; }
-        if (k === 'quality' && a.tiles) { a.tiles.quality = v; a.engine.dirty = true; b.querySelector('#o-q')!.textContent = `${fmt1(v)}×`; }
         if (k === 'maxSlope') { a.store.set({ maxSlope: v }); b.querySelector('#o-slope')!.textContent = `${v}°`; }
       });
       el.addEventListener('change', () => {
         if (el.dataset.range === 'maxSlope') a.scheduleRoute(0);
         if (el.dataset.range === 'relRange') this.render(true);
       });
+    });
+    // jakość renderowania
+    b.querySelectorAll<HTMLElement>('[data-gp]').forEach((el) =>
+      el.addEventListener('click', () => {
+        const p = el.dataset.gp as GfxPreset;
+        a.store.set({ gfx: { preset: p, ...GFX_PRESETS[p] } });
+      })
+    );
+    b.querySelectorAll<HTMLElement>('[data-gfxs]').forEach((el) =>
+      el.addEventListener('click', () => {
+        const [k, v] = el.dataset.gfxs!.split(':');
+        a.store.set({ gfx: { ...a.store.state.gfx, [k]: Number(v), preset: 'custom' } as Gfx });
+      })
+    );
+    b.querySelectorAll<HTMLElement>('[data-gfxt]').forEach((el) =>
+      el.addEventListener('click', () => {
+        const k = el.dataset.gfxt as 'adaptive' | 'detail' | 'fps';
+        const g = a.store.state.gfx;
+        const v = k === 'fps' ? (g.fps ? 0 : 30) : !g[k];
+        a.store.set({ gfx: { ...g, [k]: v, preset: 'custom' } as Gfx });
+      })
+    );
+    b.querySelectorAll<HTMLInputElement>('[data-gfx]').forEach((el) => {
+      const paint = () => el.style.setProperty('--p', `${((Number(el.value) - Number(el.min)) / (Number(el.max) - Number(el.min))) * 100}%`);
+      paint();
+      const k = el.dataset.gfx as 'scale' | 'lod' | 'labels';
+      const out = el.parentElement!.querySelector('output')!;
+      el.addEventListener('input', () => {
+        paint();
+        const v = Number(el.value);
+        out.textContent = k === 'scale' ? `${fmtInt(v * 100)}%` : `${fmt1(v)}×`;
+        // w trakcie przeciągania bez zmiany presetu – panel się nie przebudowuje
+        a.store.set({ gfx: { ...a.store.state.gfx, [k]: v } });
+      });
+      el.addEventListener('change', () => a.store.set({ gfx: { ...a.store.state.gfx, preset: 'custom' } }));
     });
     const date = b.querySelector<HTMLInputElement>('[data-date]');
     date?.addEventListener('change', () => date.value && a.store.set({ day: date.value }));

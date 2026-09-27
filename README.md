@@ -41,6 +41,8 @@ npm run build      # statyczna wersja w dist/ (działa z dowolnego hostingu plik
 - **Panorama** z dowolnego miejsca (kamera na wysokości oczu, etykiety z odległościami).
 
 ### Interfejs
+**Jakość renderowania** (zakładka „Mapa i światło”): presety od minimalnej do ultra oraz rozdzielczość renderu 25–100%, zasięg szczegółów, limit poziomu LiDAR (3/6/12/25 m), gęstość siatki kafli, rozdzielczość zdjęć lotniczych, gęstość etykiet, automatyczne obniżanie rozdzielczości i limit 30 kl./s – z licznikiem wydajności na żywo.
+
 Wyszukiwarka (`/`) szczytów, schronisk, przełęczy i szlaków (także po kolorze), menu kontekstowe pod prawym przyciskiem, skróty klawiszowe (`?`), kompas, podziałka, odczyt kursora (współrzędne, wysokość, nachylenie, ekspozycja), adaptacyjna rozdzielczość renderowania.
 
 ## Dane

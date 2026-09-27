@@ -35,6 +35,7 @@ export class Overlay {
   private labels: Label[] = [];
   private markers = new Set<Marker>();
   enabled = true;
+  density = 1;
   onPoiClick: (p: Poi) => void = () => {};
   onPoiHover: (p: Poi | null) => void = () => {};
   private frame = 0;
@@ -102,7 +103,7 @@ export class Overlay {
     const W = this.root.clientWidth, H = this.root.clientHeight;
     const cam = this.engine.camera.position;
     const pano = this.engine.panorama;
-    const maxLabels = Math.round(Math.min(70, (W * H) / (pano ? 16000 : 26000)));
+    const maxLabels = Math.round(Math.min(90, ((W * H) / (pano ? 16000 : 26000)) * this.density));
     const placed: [number, number, number, number][] = [];
     const exag = this.engine.exag;
     // punktacja: ważność ↓ z odległością

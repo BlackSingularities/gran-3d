@@ -15,7 +15,6 @@ export interface TileIndex {
 }
 
 const S = 259;
-const SEG = 128;
 const WM = 20037508.342789244;
 
 const ORTHO_URL: Record<string, (bb: string, n: number) => string> = {
@@ -77,7 +76,13 @@ export class TileTerrain {
   onChange: () => void = () => {};
   /** jakość: mnożnik odległości podziału (większy = więcej szczegółów) */
   quality = 1;
-
+  /** limit najdrobniejszego poziomu (0 = pełny) */
+  maxLevel = 0;
+  /** rozdzielczość ortofoto na najdrobniejszym poziomie */
+  orthoMax: 256 | 512 | 1024 = 1024;
+  private seg = 128;
+  /** mnożnik mikrorzeźby wspólny dla wszystkich kafli */
+  noiseScale = 1;
   constructor(
     private dem: Dem,
     readonly index: TileIndex,
@@ -130,7 +135,19 @@ export class TileTerrain {
   }
 
   /** Wspólna siatka 129×129 z fartuchem maskującym szczeliny między poziomami. */
+  /** Zmiana gęstości siatki kafli (32/64/128 podziałów na bok). */
+  setMeshDetail(seg: number) {
+    if (seg === this.seg) return;
+    this.seg = seg;
+    const old = this.geo;
+    this.geo = this.buildGeometry();
+    for (const n of this.nodes.values()) if (n.mesh) n.mesh.geometry = this.geo;
+    old.dispose();
+    this.onChange();
+  }
+
   private buildGeometry() {
+    const SEG = this.seg;
     const N = SEG + 1;
     const tpos: number[] = [];
     const skirt: number[] = [];
@@ -230,6 +247,7 @@ export class TileTerrain {
     this.m4.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.m4);
     const cam = camera.position;
+    const lim = this.maxLevel ? Math.min(this.maxLevel, this.index.maxZ) : this.index.maxZ;
     const K = 2.1 * this.quality * Math.max(0.6, viewH / 900) * (38 / camera.fov);
     const render = new Set<TNode>();
     const visit = (n: TNode) => {
@@ -237,7 +255,7 @@ export class TileTerrain {
       if (!this.frustum.intersectsBox(box)) return;
       n.used = this.frame;
       const d = box.distanceToPoint(cam);
-      const kids = d < K * n.size ? this.children(n) : null;
+      const kids = d < K * n.size && n.z < lim ? this.children(n) : null;
       if (kids) {
         let ok = true;
         for (const k of kids) {
@@ -290,7 +308,7 @@ export class TileTerrain {
         uOrtho: { value: this.blank },
         uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) },
         uOrthoOn: { value: 0 },
-        uNoiseAmt: { value: THREE.MathUtils.clamp(1 - fine * 0.35, 0.3, 1) },
+        uNoiseAmt: { value: THREE.MathUtils.clamp(1 - fine * 0.35, 0.3, 1) * this.noiseScale },
       },
     });
     n.mesh = new THREE.Mesh(this.geo, n.mat);
@@ -343,7 +361,8 @@ export class TileTerrain {
   private async loadOrtho(n: TNode) {
     n.orthoState = 1;
     this.orthoInflight++;
-    const size = n.z >= this.index.maxZ ? 1024 : 512;
+    const lim = this.maxLevel ? Math.min(this.maxLevel, this.index.maxZ) : this.index.maxZ;
+    const size = n.z >= lim ? this.orthoMax : Math.min(512, this.orthoMax);
     const tiles = 256 * 2 ** n.z;
     const mx0 = ((n.x * 256) / tiles) * 2 * WM - WM, mx1 = (((n.x + 1) * 256) / tiles) * 2 * WM - WM;
     const my0 = WM - (((n.y + 1) * 256) / tiles) * 2 * WM, my1 = WM - ((n.y * 256) / tiles) * 2 * WM;
@@ -382,6 +401,29 @@ export class TileTerrain {
     }
     this.orthoInflight--;
     this.pumpOrtho();
+    this.onChange();
+  }
+
+  setNoise(scale: number) {
+    this.noiseScale = scale;
+    for (const n of this.nodes.values()) {
+      if (!n.mat) continue;
+      const fine = n.z - (this.index.maxZ - 2);
+      n.mat.uniforms.uNoiseAmt.value = THREE.MathUtils.clamp(1 - fine * 0.35, 0.3, 1) * scale;
+    }
+    this.onChange();
+  }
+
+  /** Porzuca wczytane zdjęcia (np. po zmianie ich rozdzielczości). */
+  resetOrtho() {
+    for (const n of this.nodes.values()) {
+      if (n.ortho) {
+        (n.ortho.image as ImageBitmap)?.close?.();
+        n.ortho.dispose();
+      }
+      n.ortho = null;
+      n.orthoState = 0;
+    }
     this.onChange();
   }
 
