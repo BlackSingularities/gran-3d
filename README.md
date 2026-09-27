@@ -2,15 +2,43 @@
 
 Trójwymiarowy atlas polskich gór działający w całości w przeglądarce. Łączy rzeczywisty numeryczny model terenu z siecią znakowanych szlaków z OpenStreetMap i dokłada do tego narzędzia analityczne: wysokość względną, wyznaczanie tras z wariantami, pole widoczności, linię wzroku, cienie o dowolnej porze dnia i przelot kamery nad trasą.
 
-Regiony: **Tatry**, **Karkonosze**, **Pieniny**, **Babia Góra**, **Bieszczady**. Aplikacja nie korzysta z globalnej bazy terenu: dla każdego pasma dane są wycinane raz i zapisywane w repozytorium (`public/data/<region>/`).
+Aplikacja jest przeznaczona do **samodzielnego hostowania**. Repozytorium nie zawiera żadnych danych gór — jest w nim tylko **katalog pasm** (`public/catalog.json`: Tatry, Pieniny, Gorce, Babia Góra, Beskidy Żywiecki, Śląski, Mały, Sądecki i Niski, Bieszczady, Karkonosze, Góry Izerskie, Stołowe, Sowie i Masyw Śnieżnika). W aplikacji otwierasz **menedżer map** (przycisk „Mapy” na szynie narzędzi, klawisz `D` albo „Pobierz więcej pasm…” w menu regionów), wybierasz pasma i poziom szczegółów, a serwer pobiera dane bezpośrednio ze źródeł i przygotowuje je w tle. W menu regionów widać tylko pobrane pasma.
 
 ## Uruchomienie
 
 ```bash
 npm install
-npm run dev        # http://localhost:5190
-npm run build      # statyczna wersja w dist/ (działa z dowolnego hostingu plików)
+npm run dev              # tryb deweloperski: http://localhost:5190
 ```
+
+Produkcyjnie:
+
+```bash
+npm run build
+npm start                # serwer + aplikacja + menedżer map na porcie 5190
+```
+
+albo w kontenerze:
+
+```bash
+docker compose up -d     # dane pasm trafiają do wolumenu gran-data
+```
+
+| zmienna | domyślnie | znaczenie |
+| --- | --- | --- |
+| `PORT`, `HOST` | `5190`, `0.0.0.0` | adres serwera |
+| `GRAN_DATA_DIR` | `./data` | katalog pobranych pasm |
+| `GRAN_CACHE_DIR` | `./.cache` | bufor pobranych kafli i odpowiedzi |
+| `GRAN_ADMIN_TOKEN` | — | hasło wymagane do pobierania i usuwania pasm (zalecane na publicznym serwerze) |
+| `GRAN_KEEP_CACHE` | — | `1` = nie usuwaj dużych plików LiDAR z bufora po instalacji |
+
+Poziomy pakietów:
+- **Podstawowy** (kilka MB): model terenu ~25 m (Terrarium), szlaki, szczyty, schroniska i pokrycie terenu z OpenStreetMap – wystarcza do tras i wszystkich analiz.
+- **LiDAR** (kilkanaście–kilkadziesiąt MB): dodatkowo kafle terenu 3–6 m z NMT GUGiK (Polska) i DMR 5G ČÚZK (Czechy). Pobieranie trwa kilka–kilkanaście minut.
+
+Nowe pasmo dodasz, dopisując wpis do `public/catalog.json` (prostokąt `bbox`, poziom `zoom`, źródła `hd.lidar` / `hd.ortho`, piętra roślinności `biome`).
+
+Bez serwera (np. hosting statyczny) aplikacja też działa: wtedy pokazuje pasma, których dane leżą w `data/` obok zbudowanej aplikacji (`npm run bake:all`).
 
 ## Funkcje
 
@@ -47,7 +75,7 @@ Wyszukiwarka (`/`) szczytów, schronisk, przełęczy i szlaków (także po kolor
 
 ## Dane
 
-Dane są przygotowane skryptem `scripts/bake.mjs` i zapisane w repozytorium:
+Dane pasma (w `data/<pasmo>/`) przygotowują skrypty `scripts/bake.mjs` i `scripts/bake-hd.mjs` – uruchamiane przez menedżer map albo ręcznie:
 
 | plik | zawartość | źródło |
 | --- | --- | --- |
@@ -63,7 +91,7 @@ Obraz satelitarny ładowany na żądanie: **Sentinel‑2 cloudless 2020 © EOX I
 
 Ortofoto (ładowane na żądanie z usług WMS/ArcGIS): **© GUGiK** (geoportal.gov.pl), **© ÚGKK SR** (ZBGIS), **© ČÚZK**.
 
-Odświeżenie danych (np. po zmianach w OSM) albo dodanie regionu w `regions.json`:
+Ręczne przygotowanie lub odświeżenie danych (np. po zmianach w OSM):
 
 ```bash
 npm run bake:all        # OSM + LiDAR dla wszystkich regionów

@@ -1,7 +1,7 @@
 import type { App } from '../app';
 import { escapeHtml, trailHex } from '../app';
 import { bearing, compassDir, DEG, fmt1, fmtCoords, fmtDecimal, fmtDist, fmtEle, fmtInt, fmtSigned, fmtTime, haversine } from '../core/geo';
-import { REGIONS } from '../core/region';
+import { CATALOG, REGIONS } from '../core/region';
 import type { Lens, MeasurePoint, Tool } from '../core/store';
 import { ALT_COLORS } from '../scene/routes';
 import { TRAIL_NAME_PL } from '../scene/trails';
@@ -58,7 +58,7 @@ export class Chrome {
   private paletteIdx = 0;
   private paletteItems: { kind: 'poi' | 'route'; id: number }[] = [];
 
-  constructor(private app: App, private switchRegion: (id: string) => void) {
+  constructor(private app: App, private switchRegion: (id: string) => void, private openMaps: () => void = () => {}) {
     this.buildRail();
     this.buildLensDock();
     this.buildRegionMenu();
@@ -91,11 +91,13 @@ export class Chrome {
       `<div class="rail__sep"></div>
        <button class="tool" data-act="layers" aria-label="Mapa i światło">${ICON.layers}<span class="tool__tip">Mapa i światło<kbd>M</kbd></span></button>
        <button class="tool" data-act="search" aria-label="Szukaj">${ICON.target}<span class="tool__tip">Szukaj<kbd>/</kbd></span></button>
+       <button class="tool" data-act="maps" aria-label="Mapy">${ICON.gpx}<span class="tool__tip">Pobierz mapy / zarządzaj<kbd>D</kbd></span></button>
        <button class="tool" data-act="help" aria-label="Pomoc">${ICON.help}<span class="tool__tip">Skróty i pomoc<kbd>?</kbd></span></button>`;
     rail.querySelectorAll<HTMLElement>('[data-tool]').forEach((b) => b.addEventListener('click', () => this.app.setTool(b.dataset.tool as Tool)));
     rail.querySelector('[data-act="layers"]')!.addEventListener('click', () => this.openMapTab());
     rail.querySelector('[data-act="search"]')!.addEventListener('click', () => this.openPalette());
     rail.querySelector('[data-act="help"]')!.addEventListener('click', () => ($('help').hidden = false));
+    rail.querySelector('[data-act="maps"]')!.addEventListener('click', () => this.openMaps());
     $('search-btn').addEventListener('click', () => this.openPalette());
   }
 
@@ -120,16 +122,27 @@ export class Chrome {
   private renderRegionMenu() {
     const menu = $('region-menu');
     const cur = this.app.store.state.regionId;
-    menu.innerHTML = REGIONS.map((r) => {
-      const [pn, pe] = REGION_MAX[r.id] ?? ['', 0];
-      return `<button class="menu__item ${r.id === cur ? 'is-on' : ''}" data-region="${r.id}">${silhouette(r.id, pe)}<span><span class="menu__name">${r.name}</span><br><span class="menu__sub">${r.subtitle}</span></span><span class="menu__max">${fmtInt(pe)} m<small>${pn}</small></span></button>`;
-    }).join('');
+    menu.innerHTML =
+      REGIONS.map((r) => {
+        const [pn, pe] = r.peak ? [r.peak.name, r.peak.ele] : REGION_MAX[r.id] ?? ['', 0];
+        return `<button class="menu__item ${r.id === cur ? 'is-on' : ''}" data-region="${r.id}">${silhouette(r.id, pe)}<span><span class="menu__name">${r.name}</span><br><span class="menu__sub">${r.subtitle}</span></span><span class="menu__max">${fmtInt(pe)} m<small>${pn}</small></span></button>`;
+      }).join('') +
+      `<button class="menu__more" data-maps>${ICON.gpx}<span><b>Pobierz więcej pasm…</b><small>${CATALOG.length - REGIONS.length} dostępnych do pobrania · zarządzanie mapami</small></span></button>`;
+    menu.querySelector('[data-maps]')!.addEventListener('click', () => {
+      menu.hidden = true;
+      this.openMaps();
+    });
     menu.querySelectorAll<HTMLElement>('[data-region]').forEach((b) =>
       b.addEventListener('click', () => {
         menu.hidden = true;
         if (b.dataset.region !== cur) this.switchRegion(b.dataset.region!);
       })
     );
+  }
+
+  /** Lista pobranych pasm się zmieniła (menedżer map). */
+  refreshRegions() {
+    if (!$('region-menu').hidden) this.renderRegionMenu();
   }
 
   // ------------------------------------------------------------- aktualizacje
@@ -545,6 +558,7 @@ export class Chrome {
         case '/': e.preventDefault(); this.openPalette(); break;
         case '?': $('help').hidden = !$('help').hidden; break;
         case 'm': this.openMapTab(); break;
+        case 'd': this.openMaps(); break;
         case 'p': a.store.set({ panelOpen: !s.panelOpen }); break;
         case 't': a.store.set({ trails: !s.trails }); break;
         case 'l': a.store.set({ labels: !s.labels }); break;
@@ -585,7 +599,7 @@ export class Chrome {
       ['<kbd>T</kbd> <kbd>L</kbd> <kbd>C</kbd>', 'szlaki · nazwy · poziomice'], ['klik z soczewką / <kbd>Esc</kbd>', 'przypnij / odepnij soczewkę'], ['<kbd>+</kbd> <kbd>−</kbd>', 'przewyższenie terenu'],
       ['<kbd>[</kbd> <kbd>]</kbd>', 'pora dnia −/+ 30 min'], ['<kbd>F</kbd>', 'przelot nad trasą'], ['<kbd>N</kbd>', 'północ u góry'],
       ['<kbd>V</kbd>', 'widok z góry / ukośny'], ['<kbd>R</kbd>', 'widok początkowy regionu'], ['<kbd>G</kbd>', 'eksport GPX'],
-      ['<kbd>S</kbd>', 'zrzut ekranu PNG'], ['<kbd>⌫</kbd>', 'usuń ostatni punkt'], ['<kbd>Esc</kbd>', 'anuluj / wyjdź'],
+      ['<kbd>S</kbd>', 'zrzut ekranu PNG'], ['<kbd>D</kbd>', 'pobieranie i zarządzanie mapami'], ['<kbd>⌫</kbd>', 'usuń ostatni punkt'], ['<kbd>Esc</kbd>', 'anuluj / wyjdź'],
       ['lewy przycisk', 'przesuwanie'], ['prawy przycisk', 'obrót / nachylenie · menu analiz (klik)'], ['dwuklik', 'przybliż do punktu'],
     ];
     $('help').innerHTML = `<div class="help__box grain">

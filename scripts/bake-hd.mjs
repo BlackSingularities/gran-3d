@@ -13,12 +13,11 @@ import { PNG } from 'pngjs';
 import { fromArrayBuffer } from 'geotiff';
 import { toPuwg } from './lib/puwg.mjs';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1')), '..');
-const CACHE = path.join(ROOT, '.cache');
-const OUT = path.join(ROOT, 'public', 'data');
+import { CACHE_DIR as CACHE, DATA_DIR as OUT, progress, selectRegions } from './lib/common.mjs';
 const UA = 'gran-trail-atlas/1.0 (https://github.com/BlackSingularities/gran-3d)';
-const regions = JSON.parse(fs.readFileSync(path.join(ROOT, 'regions.json'), 'utf8'));
-const only = process.argv[2];
+const regions = selectRegions(process.argv);
+const CLEAN = process.argv.includes('--clean-cache') || process.env.GRAN_CLEAN_CACHE === '1';
+const bigFiles = [];
 fs.mkdirSync(CACHE, { recursive: true });
 
 const lon2px = (lon, z) => ((lon + 180) / 360) * 256 * 2 ** z;
@@ -126,13 +125,16 @@ async function lidarPL(region, frame, F, M) {
     const be0 = e0 + cx * res, be1 = be0 + w * res;
     const bn1 = n1 - cy * res, bn0 = bn1 - h * res;
     const url = `https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMT/GRID1/WCS/DigitalTerrainModelFormatTIFF?SERVICE=WCS&VERSION=1.0.0&REQUEST=GetCoverage&COVERAGE=DTM_PL-KRON86-NH_TIFF&CRS=EPSG:2180&FORMAT=image/tiff&INTERPOLATION=bilinear&BBOX=${be0},${bn0},${be1},${bn1}&WIDTH=${w}&HEIGHT=${h}`;
-    const t = await readTiff(await fetchCached(url, `nmt-pl-${res}-${be0}-${bn0}-${w}x${h}.tif`));
+    const fname = `nmt-pl-${res}-${be0}-${bn0}-${w}x${h}.tif`;
+    bigFiles.push(fname);
+    const t = await readTiff(await fetchCached(url, fname));
     for (let y = 0; y < h; y++) {
       const src = t.data.subarray(y * t.w, y * t.w + w);
       grid.set(src, (cy + y) * GW + cx);
     }
     done++;
     process.stdout.write(`\r   PL: ${done}/${jobs.length}   `);
+    progress((done / jobs.length) * 0.55, `LiDAR GUGiK: ${done}/${jobs.length} fragmentów`);
   });
   process.stdout.write('\n');
   // przeliczenie do siatki Web Mercator (próbki w narożnikach pikseli zf)
@@ -171,7 +173,9 @@ async function lidarCZ(region, frame, F, M) {
     const X = frame.X0 + cx - 0.5, Y = frame.Y0 + cy - 0.5;
     const bb = [px2mx(X, frame.zf), py2my(Y + h, frame.zf), px2mx(X + w, frame.zf), py2my(Y, frame.zf)].map((v) => v.toFixed(3)).join(',');
     const url = `https://ags.cuzk.gov.cz/arcgis/rest/services/3D/dmr5g_wm/ImageServer/exportImage?bbox=${bb}&bboxSR=3857&imageSR=3857&size=${w},${h}&format=tiff&pixelType=F32&interpolation=RSP_BilinearInterpolation&noData=-9999&f=image`;
-    const t = await readTiff(await fetchCached(url, `dmr5g-${frame.zf}-${X}-${Y}-${w}x${h}.tif`));
+    const fname = `dmr5g-${frame.zf}-${X}-${Y}-${w}x${h}.tif`;
+    bigFiles.push(fname);
+    const t = await readTiff(await fetchCached(url, fname));
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const v = t.data[y * t.w + x];
       const idx = (cy + y) * frame.W + cx + x;
@@ -179,6 +183,7 @@ async function lidarCZ(region, frame, F, M) {
     }
     done++;
     process.stdout.write(`\r   CZ: ${done}/${jobs.length}   `);
+    progress((done / jobs.length) * 0.3, `LiDAR ČÚZK: ${done}/${jobs.length} fragmentów`);
   });
   process.stdout.write('\n');
   log(`CZ: pokrycie ${((covered / (frame.W * frame.H)) * 100).toFixed(1)}% siatki`);
@@ -264,7 +269,6 @@ function encodeTile(level, tx, ty) {
 
 // ---------------------------------------------------------------- główny przebieg
 for (const region of regions) {
-  if (only && region.id !== only) continue;
   const hd = region.hd;
   if (!hd) continue;
   console.log(`\n▲ ${region.name} (HD z${hd.zoom}, LiDAR: ${hd.lidar.join(', ')})`);
@@ -282,7 +286,9 @@ for (const region of regions) {
     if (src === 'pl') await lidarPL(region, frame, F, M);
     if (src === 'cz') await lidarCZ(region, frame, F, M);
   }
+  progress(0.6, 'Model globalny (tło)');
   const coarse = await coarseSampler(region, frame);
+  progress(0.65, 'Łączenie danych');
 
   // Łączenie LiDAR z tłem. Poza pokryciem LiDAR dodajemy do tła poprawkę (LiDAR − tło)
   // wygładzoną splotem znormalizowanym – grań na granicy państw nie „opada” do modelu zgrubnego.
@@ -311,6 +317,7 @@ for (const region of regions) {
     }
   }
 
+  progress(0.72, 'Piramida kafli');
   // piramida poziomów
   const levels = {};
   levels[hd.zoom] = { data: F, mask: M, W: frame.W, H: frame.H, X0: frame.X0, Y0: frame.Y0 };
@@ -376,6 +383,7 @@ for (const region of regions) {
       count++;
     }
     log(`z${z}: ${L.list.length} kafli`);
+    progress(0.75 + ((z - zr + 1) / (hd.zoom - zr + 1)) * 0.18, `Kafle poziomu ${z}`);
   }
   fs.writeFileSync(path.join(tdir, 'index.json'), JSON.stringify(index));
   log(`kafle: ${count}, ${(bytes / 1024 / 1024).toFixed(1)} MB`);
@@ -429,4 +437,7 @@ for (const region of regions) {
   fs.writeFileSync(path.join(dir, 'pois.json'), JSON.stringify(pois));
   const peak = pois.find((p) => p.t === 'peak');
   if (peak) log(`kontrola: ${peak.n} OSM ${peak.e} m / model HD ${peak.d} m`);
+  fs.writeFileSync(path.join(dir, 'install.json'), JSON.stringify({ level: 'hd', date: new Date().toISOString() }));
+  if (CLEAN) for (const f of bigFiles.splice(0)) fs.rmSync(path.join(CACHE, f), { force: true });
+  progress(1, 'Gotowe');
 }

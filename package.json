@@ -5,23 +5,24 @@
   "description": "GRAŃ — atlas szlaków górskich 3D: teren, wysokości względne, trasowanie i analizy widoczności",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server/index.mjs --dev",
+    "start": "node server/index.mjs",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
+    "preview": "npm run build && npm start",
     "typecheck": "tsc --noEmit",
     "bake": "node scripts/bake.mjs",
     "bake:hd": "node scripts/bake-hd.mjs",
     "bake:all": "node scripts/bake.mjs && node scripts/bake-hd.mjs"
   },
   "dependencies": {
-    "three": "^0.186.1"
+    "three": "^0.186.1",
+    "pngjs": "^7.0.0",
+    "geotiff": "^3.0.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.3",
     "@types/pngjs": "^6.0.5",
     "@types/three": "^0.186.0",
-    "geotiff": "^3.0.5",
-    "pngjs": "^7.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
   }

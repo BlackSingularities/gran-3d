@@ -6,14 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PNG } from 'pngjs';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1')), '..');
-const CACHE = path.join(ROOT, '.cache');
-const OUT = path.join(ROOT, 'public', 'data');
+import { CACHE_DIR as CACHE, DATA_DIR as OUT, progress, selectRegions } from './lib/common.mjs';
 const UA = 'gran-trail-atlas/1.0 (https://github.com/BlackSingularities/gran-3d)';
 const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 
-const regions = JSON.parse(fs.readFileSync(path.join(ROOT, 'regions.json'), 'utf8'));
-const only = process.argv[2];
+const regions = selectRegions(process.argv);
 
 fs.mkdirSync(CACHE, { recursive: true });
 
@@ -436,14 +433,19 @@ out geom;`;
 
 // ---------- główna pętla ----------
 for (const region of regions) {
-  if (only && region.id !== only) continue;
   console.log(`\n▲ ${region.name}`);
+  progress(0.02, 'Model terenu (Terrarium)');
   const dem = await bakeDem(region);
+  progress(0.3, 'Szlaki i punkty z OpenStreetMap');
   const osm = await bakeOsm(region, dem);
+  progress(0.6, 'Pokrycie terenu z OpenStreetMap');
   await new Promise((r) => setTimeout(r, 1500));
   const land = await bakeLandcover(region, { ...dem, width: dem.width, height: dem.height });
+  progress(0.92, 'Zapis danych');
   const dir = path.join(OUT, region.id);
   fs.mkdirSync(dir, { recursive: true });
+  // podstawowy pakiet zastępuje ewentualne kafle LiDAR (inny model analityczny)
+  fs.rmSync(path.join(dir, 'tiles'), { recursive: true, force: true });
   fs.writeFileSync(path.join(dir, 'dem.bin'), Buffer.from(dem.q.buffer));
   fs.writeFileSync(
     path.join(dir, 'meta.json'),
@@ -464,6 +466,8 @@ for (const region of regions) {
   fs.writeFileSync(path.join(dir, 'trails.json'), JSON.stringify(osm.trails));
   fs.writeFileSync(path.join(dir, 'pois.json'), JSON.stringify(osm.pois));
   fs.writeFileSync(path.join(dir, 'landcover.png'), land);
+  fs.writeFileSync(path.join(dir, 'install.json'), JSON.stringify({ level: 'base', date: new Date().toISOString() }));
+  progress(1, 'Gotowe');
   const size = (f) => (fs.statSync(path.join(dir, f)).size / 1024 / 1024).toFixed(2) + ' MB';
   console.log(`  zapisano: dem ${size('dem.bin')}, szlaki ${size('trails.json')}, punkty ${size('pois.json')}, pokrycie ${size('landcover.png')}`);
   await new Promise((r) => setTimeout(r, 2000));

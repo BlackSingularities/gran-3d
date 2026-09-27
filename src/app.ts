@@ -95,7 +95,7 @@ export class App {
   constructor() {
     const params = this.readHash();
     this.store = new Store({
-      regionId: params.region ?? 'tatry',
+      regionId: params.region ?? REGIONS[0]?.id ?? '',
       tool: 'explore',
       style: 'terrain',
       contours: true,

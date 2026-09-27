@@ -1,7 +1,8 @@
 import './style.css';
 import { App } from './app';
-import { REGIONS } from './core/region';
+import { initCatalog, REGIONS } from './core/region';
 import { Chrome, drawLoaderTopo } from './ui/chrome';
+import { MapsManager } from './ui/maps';
 import { Panel } from './ui/panel';
 
 const loader = document.getElementById('loader')!;
@@ -10,11 +11,17 @@ const step = document.getElementById('loader-step')!;
 const regionLabel = document.getElementById('loader-region')!;
 drawLoaderTopo();
 
+// katalog pasm i lista pobranych (z serwera albo z plików)
+step.textContent = 'Katalog pasm';
+await initCatalog();
+
 const app = new App();
 const panel = new Panel(app);
+const maps = new MapsManager();
 
 async function switchRegion(id: string) {
   const def = REGIONS.find((r) => r.id === id) ?? REGIONS[0];
+  if (!def) return;
   regionLabel.textContent = def.name;
   loader.classList.remove('is-done');
   fill.style.width = '0%';
@@ -32,8 +39,21 @@ async function switchRegion(id: string) {
   panel.render(true);
 }
 
-const chrome = new Chrome(app, (id) => void switchRegion(id));
+const chrome = new Chrome(app, (id) => void switchRegion(id), () => maps.open(false));
 app.switchRegion = switchRegion;
+
+// menedżer map: nowe pasmo gotowe → otwórz (pierwsze) albo zaproponuj przejście
+maps.onChange = () => chrome.refreshRegions();
+maps.onInstalled = (id, first) => {
+  if (first || !app.region) {
+    maps.close();
+    void switchRegion(id).then(() => chrome.updateScale());
+    return;
+  }
+  const r = REGIONS.find((x) => x.id === id);
+  if (r) app.toast(`Pobrano pasmo: ${r.name} – jest już w menu regionów.`);
+};
+maps.onOpen = (id) => void switchRegion(id).then(() => chrome.updateScale());
 
 let scaleTick = 0;
 let statTick = 0;
@@ -59,7 +79,13 @@ app.store.on((s, ch) => {
 });
 document.getElementById('app')!.classList.toggle('panel-closed', !app.store.state.panelOpen);
 
-void switchRegion(app.store.state.regionId).then(() => chrome.updateScale());
+if (REGIONS.length) {
+  void switchRegion(app.store.state.regionId).then(() => chrome.updateScale());
+} else {
+  // brak pobranych pasm – ekran wyboru zamiast mapy
+  loader.classList.add('is-done');
+  maps.open(true);
+}
 
 // dostęp diagnostyczny z konsoli
 (window as unknown as { gran: App }).gran = app;

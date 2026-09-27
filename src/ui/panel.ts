@@ -24,7 +24,7 @@ const DIFF_HTML = (d: number) =>
   `<span class="diff d${d}">${[0, 1, 2, 3].map((i) => `<i class="${i <= d ? 'on' : ''}"></i>`).join('')}</span>`;
 
 export class Panel {
-  tab: 'tool' | 'map' = 'tool';
+  tab: 'tool' | 'map' | 'gfx' = 'tool';
   private key = '';
   private body: HTMLElement;
   private playTimer = 0;
@@ -33,7 +33,7 @@ export class Panel {
     this.body = document.getElementById('panel-body')!;
     document.querySelectorAll<HTMLButtonElement>('.panel__tabs [data-tab]').forEach((b) =>
       b.addEventListener('click', () => {
-        this.tab = b.dataset.tab as 'tool' | 'map';
+        this.tab = b.dataset.tab as 'tool' | 'map' | 'gfx';
         document.querySelectorAll('.panel__tabs [data-tab]').forEach((x) => x.classList.toggle('is-on', x === b));
         this.render(true);
       })
@@ -63,7 +63,7 @@ export class Panel {
     if (!force && k === this.key) return;
     this.key = k;
     const scroll = this.body.scrollTop;
-    this.body.innerHTML = this.tab === 'map' ? this.mapTab() : this.toolTab();
+    this.body.innerHTML = this.tab === 'map' ? this.mapTab() : this.tab === 'gfx' ? this.gfxTab() : this.toolTab();
     this.body.scrollTop = scroll;
     this.bind();
   }
@@ -468,8 +468,13 @@ export class Panel {
           </div>
         </div>
         <p class="note" id="o-sun"></p>
-      </div>
-      ${this.gfxSection()}
+      </div>`;
+  }
+
+  private gfxTab() {
+    const a = this.app;
+    const dem = a.region!.dem;
+    return `${this.gfxSection()}
       <div class="section">
         <div class="section__title"><span class="kicker">Źródła danych</span></div>
         <p class="note" style="margin-top:0">${a.tiles ? `Model terenu: <b>LiDAR</b> – NMT <b>GUGiK</b> (PL)${a.region!.def.hd?.lidar.includes('cz') ? ' i DMR 5G <b>ČÚZK</b> (CZ)' : ''}, kafle do ~${a.tiles.maxZ >= 15 ? 3 : 6} m; poza zasięgiem – <b>Terrarium</b>. Ortofoto: <b>GUGiK</b>, <b>ZBGIS</b>, <b>ČÚZK</b>.` : `Model terenu: <b>Terrarium</b> (Mapzen / AWS Open Data; SRTM, EU‑DEM), siatka ~${fmtInt(dem.mpp)} m.`} Szlaki, szczyty, schroniska: <b>© OpenStreetMap</b> (ODbL). Obraz satelitarny: <b>Sentinel‑2 cloudless 2020 © EOX</b> (CC BY‑NC‑SA 4.0). Czas przejścia wg reguły <b>PTTK</b> (15 min/km + 1 min/10 m podejścia) lub normy <b>DIN 33466</b>; punkty <b>GOT PTTK</b> wg reguły 1 pkt/km + 1 pkt/100 m podejścia.</p>

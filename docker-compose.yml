@@ -1,0 +1,14 @@
+services:
+  gran:
+    build: .
+    ports:
+      - "5190:5190"
+    volumes:
+      - gran-data:/data
+    environment:
+      TZ: Europe/Warsaw
+      # odkomentuj, aby pobieranie i usuwanie pasm wymagało hasła
+      # GRAN_ADMIN_TOKEN: "zmien-mnie"
+    restart: unless-stopped
+volumes:
+  gran-data:

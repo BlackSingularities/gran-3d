@@ -1,4 +1,3 @@
-import regionsJson from '../../regions.json';
 import { Dem, type DemMeta } from './dem';
 import type { TileIndex } from '../scene/tiles';
 
@@ -6,8 +5,12 @@ export interface RegionDef {
   id: string;
   name: string;
   subtitle: string;
+  group?: string;
+  countries?: string[];
   bbox: [number, number, number, number];
   zoom: number;
+  peak?: { name: string; ele: number };
+  biome?: Biome;
   home: { lon: number; lat: number; heading: number; pitch: number; distance: number };
   hd?: { zoom: number; lidar: string[]; ortho: string[] };
 }
@@ -19,15 +22,75 @@ export interface Biome {
   rock: number; // od tej wysokości dominują skały i piargi
 }
 
-export const BIOMES: Record<string, Biome> = {
-  tatry: { forest: 1500, shrub: 1820, rock: 2150 },
-  karkonosze: { forest: 1250, shrub: 1450, rock: 1560 },
-  pieniny: { forest: 1400, shrub: 1500, rock: 1600 },
-  'babia-gora': { forest: 1330, shrub: 1620, rock: 1690 },
-  bieszczady: { forest: 1120, shrub: 1180, rock: 1500 },
-};
+const DEFAULT_BIOME: Biome = { forest: 1300, shrub: 1450, rock: 1600 };
 
-export const REGIONS = regionsJson as unknown as RegionDef[];
+export interface RegionStatus {
+  id: string;
+  installed: boolean;
+  level?: 'base' | 'hd';
+  bytes?: number;
+  date?: string | null;
+}
+
+/** Pełny katalog pasm (definicje) i lista pobranych – ustawiane przez initCatalog(). */
+export let CATALOG: RegionDef[] = [];
+export let REGIONS: RegionDef[] = [];
+export let STATUS = new Map<string, RegionStatus>();
+/** czy działa serwer z menedżerem map (self-hosting), czy tylko pliki statyczne */
+export let SERVER_MODE = false;
+
+/** Szerokość/długość regionu w km i powierzchnia. */
+export function regionArea(r: RegionDef) {
+  const [w, s, e, n] = r.bbox;
+  const lat = ((s + n) / 2) * (Math.PI / 180);
+  const wk = (e - w) * 111.32 * Math.cos(lat), hk = (n - s) * 110.57;
+  return { wk, hk, km2: wk * hk };
+}
+
+function withDefaults(r: RegionDef): RegionDef {
+  if (r.home) return r;
+  const { wk, hk } = regionArea(r);
+  return {
+    ...r,
+    home: { lon: (r.bbox[0] + r.bbox[2]) / 2, lat: (r.bbox[1] + r.bbox[3]) / 2, heading: 170, pitch: 50, distance: Math.max(wk, hk) * 1000 * 0.95 },
+  };
+}
+
+/** Wczytuje katalog pasm i stan instalacji (z API serwera albo – bez serwera – sprawdzając pliki). */
+export async function initCatalog() {
+  const base = import.meta.env.BASE_URL;
+  const cat = (await (await fetch(`${base}catalog.json`, { cache: 'no-cache' })).json()) as { regions: RegionDef[] };
+  CATALOG = cat.regions.map(withDefaults);
+  const status = new Map<string, RegionStatus>();
+  let server = false;
+  try {
+    const r = await fetch(`${base}api/status`, { cache: 'no-store' });
+    if (r.ok && (r.headers.get('content-type') ?? '').includes('json')) {
+      const j = (await r.json()) as { regions: RegionStatus[] };
+      for (const st of j.regions) status.set(st.id, st);
+      server = true;
+    }
+  } catch {
+    server = false;
+  }
+  if (!server) {
+    await Promise.all(
+      CATALOG.map(async (r) => {
+        try {
+          const res = await fetch(`${base}data/${r.id}/meta.json`, { cache: 'no-cache' });
+          const ok = res.ok && (res.headers.get('content-type') ?? '').includes('json');
+          status.set(r.id, { id: r.id, installed: ok });
+        } catch {
+          status.set(r.id, { id: r.id, installed: false });
+        }
+      })
+    );
+  }
+  STATUS = status;
+  SERVER_MODE = server;
+  REGIONS = CATALOG.filter((r) => status.get(r.id)?.installed);
+  return { catalog: CATALOG, installed: REGIONS, server };
+}
 
 export interface RawTrails {
   nodes: [number, number, number][];
@@ -121,7 +184,7 @@ export async function loadRegion(def: RegionDef, onProgress: (f: number, label: 
       tiles = null;
     }
   }
-  return { def, biome: BIOMES[def.id] ?? BIOMES.tatry, dem, trails, pois, tiles };
+  return { def, biome: def.biome ?? DEFAULT_BIOME, dem, trails, pois, tiles };
 }
 
 /**
