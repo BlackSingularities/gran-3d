@@ -370,6 +370,10 @@ input[type='date'] {
 }
 .lensitem { position: relative; }
 .lens-btn.is-on { background: var(--teal); color: var(--ink-0); }
+.lens-btn--cursor.is-on { background: var(--paper); color: var(--ink-1); }
+.lens-btn--cursor.is-on::before { background: var(--paper) !important; }
+.lensrail__sep { height: 1px; margin: 3px 6px; background: var(--hair); }
+#app.lens-active .poi { pointer-events: none; }
 .lens-btn.is-on::before { background: var(--teal) !important; }
 .lens-btn.is-pinned::after {
   content: ''; position: absolute; right: 5px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--brass); box-shadow: 0 0 0 2px var(--ink-1);
@@ -611,6 +615,7 @@ input[type='date'] {
   #leftcol #rail { flex: 1; }
   .lensrail { flex-direction: row; width: auto; }
   .lensrail__label { display: none; }
+  .lensrail__sep { width: 1px; height: auto; margin: 6px 3px; }
   .flyout { left: 50%; top: auto; bottom: calc(100% + 12px); transform: translate(-50%, 6px); }
   .lensitem:hover .flyout { transform: translate(-50%, 0); }
   .rail__sep { width: 1px; height: auto; margin: 6px 3px; }

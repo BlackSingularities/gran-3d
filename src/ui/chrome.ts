@@ -173,7 +173,8 @@ export class Chrome {
       const t = (e.target as HTMLElement).closest<HTMLElement>('[data-lens],[data-lp],[data-unpin]');
       if (!t) return;
       const a = this.app;
-      if (t.dataset.lens) a.setLens(t.dataset.lens as Lens);
+      if (t.dataset.lens === 'none') { if (a.store.state.lens !== 'none') a.setLens(a.store.state.lens); }
+      else if (t.dataset.lens) a.setLens(t.dataset.lens as Lens);
       else if (t.dataset.unpin != null) a.unpinLens();
       else if (t.dataset.lp) {
         const [k, v] = t.dataset.lp.split(':');
@@ -208,7 +209,12 @@ export class Chrome {
       vis: [1.7, 10, 30, 100].map((v) => chip('eye', v, v === 1.7 ? 'oczy 1,7 m' : `+${v} m`, s.vsEye)).join(''),
     };
     const paramLabel: Record<string, string> = { band: 'poziomica lub szerokość pasa', rel: 'zakres barw', vis: 'wysokość obserwatora' };
+    const none = s.lens === 'none';
     dock.innerHTML =
+      `<div class="lensitem">
+        <button class="tool lens-btn lens-btn--cursor ${none ? 'is-on' : ''}" data-lens="none" aria-label="Kursor">${ICON.cursor}</button>
+        <div class="flyout"><div class="flyout__head"><b>Kursor</b><kbd>Esc</kbd></div><div class="flyout__hint">zwykła mysz: kliknięcie zaznacza szczyty, szlaki i punkty terenu; soczewki wyłączone</div></div>
+      </div><div class="lensrail__sep"></div>` +
       LENSES.map((l) => {
         const on = s.lens === l.id;
         const status = on

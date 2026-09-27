@@ -282,6 +282,11 @@ export class App {
       this.updateProfile();
     }
     if (['ref', 'relRange', 'lens', 'bandTol', 'viewshed'].some((k) => ch.has(k as keyof State))) this.applyLens();
+    if (ch.has('lens')) {
+      // aktywna soczewka: mapa reaguje tylko na nią – bez zaznaczania szlaków i nazw
+      document.getElementById('app')!.classList.toggle('lens-active', s.lens !== 'none');
+      if (s.lens !== 'none') { this.setHoverEdge(null, 0, 0); this.clearSelection(); }
+    }
     if (ch.has('tool')) this.onTool(s.tool);
     if (ch.has('measure')) this.applyMeasure();
     if (ch.has('profileOpen')) document.getElementById('app')!.classList.toggle('has-profile', s.profileOpen && !!this.profileTrack);
@@ -490,7 +495,7 @@ export class App {
     u.uCursor.value.set(p.x, p.z, p.y, this.engine.panorama ? 0 : 1);
     // podświetlenie szlaku pod kursorem
     const tool = this.store.state.tool;
-    if (this.graph && this.store.state.trails && (tool === 'explore' || tool === 'route') && !this.engine.panorama) {
+    if (this.graph && this.store.state.trails && (tool === 'route' || (tool === 'explore' && this.store.state.lens === 'none')) && !this.engine.panorama) {
       const mpp = this.engine.metersPerPixel() ?? 20;
       const snap = this.graph.snap(p.x, p.z, clamp(mpp * 9, 15, 400));
       this.setHoverEdge(snap ? snap.edge : null, e.clientX, e.clientY);
