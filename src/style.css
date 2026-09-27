@@ -143,12 +143,12 @@ input, .note, .metric__v, .ctx__head span { -webkit-user-select: text; user-sele
 
 /* ---------- panel ---------- */
 #panel {
-  position: absolute; top: 16px; right: 16px; bottom: 16px; width: var(--panel-w); z-index: 17; display: flex; flex-direction: column;
-  border-radius: 20px; background: var(--glass); border: 1px solid var(--hair); backdrop-filter: blur(16px) saturate(1.15);
+  position: absolute; top: 0; right: 0; bottom: 0; width: var(--panel-w); z-index: 17; display: flex; flex-direction: column;
+  border-radius: 0; background: var(--glass-2); border: 0; border-left: 1px solid var(--hair-2); backdrop-filter: blur(16px) saturate(1.15);
   box-shadow: var(--shadow); transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s;
 }
-#app.panel-closed #panel { transform: translateX(calc(100% + 24px)); opacity: 0; pointer-events: none; }
-.panel__tabs { display: flex; gap: 4px; padding: 8px 8px 0; border-bottom: 1px solid var(--hair); }
+#app.panel-closed #panel { transform: translateX(100%); opacity: 0; pointer-events: none; }
+.panel__tabs { display: flex; gap: 4px; padding: 12px 10px 0; border-bottom: 1px solid var(--hair); }
 .panel__tabs button[data-tab] {
   position: relative; padding: 9px 12px 11px; font-size: 12px; letter-spacing: 0.04em; color: var(--paper-3); transition: color 0.15s;
 }
@@ -332,7 +332,7 @@ input[type='date'] {
 
 /* ---------- profil wysokości ---------- */
 .profile {
-  position: absolute; left: calc(16px + var(--rail-w) + 12px); right: calc(var(--panel-w) + 16px + 12px); bottom: 16px; height: var(--profile-h);
+  position: absolute; left: calc(16px + var(--rail-w) + 12px); right: calc(var(--panel-w) + 12px); bottom: 16px; height: var(--profile-h);
   z-index: 16; display: flex; flex-direction: column; border-radius: 18px; background: var(--glass); border: 1px solid var(--hair);
   backdrop-filter: blur(14px) saturate(1.1); box-shadow: var(--shadow); transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s, right 0.35s;
 }
@@ -369,7 +369,7 @@ input[type='date'] {
 .readout .down { color: #8fd3ff; }
 
 /* ---------- kompas i podziałka ---------- */
-#hud { position: absolute; right: calc(var(--panel-w) + 16px + 12px); bottom: 16px; z-index: 15; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; transition: right 0.35s, bottom 0.35s; }
+#hud { position: absolute; right: calc(var(--panel-w) + 12px); bottom: 16px; z-index: 15; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; transition: right 0.35s, bottom 0.35s; }
 #app.panel-closed #hud { right: 16px; }
 #app.has-profile #hud { bottom: calc(16px + var(--profile-h) + 10px); }
 .compass { width: 64px; height: 64px; border-radius: 50%; background: var(--glass); border: 1px solid var(--hair); backdrop-filter: blur(14px); box-shadow: var(--shadow); position: relative; }
@@ -546,14 +546,14 @@ input[type='date'] {
   .searchbar { display: none; }
 }
 @media (max-width: 760px) {
-  :root { --panel-w: calc(100vw - 32px); --profile-h: 170px; --rail-w: 54px; }
+  :root { --panel-w: calc(100vw - 24px); --profile-h: 170px; --rail-w: 54px; }
   #mast { left: 12px; top: 12px; right: 12px; }
   .brand__word { display: none; }
   .region { min-width: 0; flex: 1; }
   #rail { flex-direction: row; top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; justify-content: space-between; overflow-x: auto; }
   .tool__tip { display: none; }
   .rail__sep { width: 1px; height: auto; margin: 6px 3px; }
-  #panel { top: auto; height: 52vh; bottom: 84px; left: 12px; right: 12px; width: auto; }
+  #panel { top: auto; height: 52vh; bottom: 84px; left: 12px; right: 12px; width: auto; border-radius: 20px; border: 1px solid var(--hair-2); }
   .profile { left: 12px; right: 12px !important; bottom: 84px; }
   .readout { display: none; }
   #hud { right: 12px !important; top: 80px; bottom: auto !important; }
