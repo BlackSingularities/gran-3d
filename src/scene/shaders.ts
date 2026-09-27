@@ -517,20 +517,57 @@ varying float vDist;
 void main() {
   #include <logdepthbuf_fragment>
   float depth = vTop - vY;
-  float s = vXZ.x + vXZ.y;
-  float wob = (fbm(vec2(s / 900.0, vY / 300.0)) - 0.5) * 60.0;
-  float layer = (vY + wob) / 55.0;
+  float along = vXZ.x + vXZ.y;
+
+  // Warstwy nie są idealnie poziome: szerokie fałdy, lokalne pofalowanie
+  // oraz przesunięcia bloków dają efekt naturalnego przekroju skalnego.
+  float fold = (fbm(vec2(along / 1800.0, 1.7)) - 0.5) * 150.0
+             + sin(along / 720.0) * 22.0;
+  float faultAxis = along + vY * 0.22 + (fbm(vec2(along / 900.0, vY / 700.0)) - 0.5) * 150.0;
+  float faultCell = floor((faultAxis + 24000.0) / 2600.0);
+  float faultShift = (hash12(vec2(faultCell, 6.2)) - 0.5) * 105.0;
+  float rockY = vY + fold + faultShift;
+  float layer = rockY / 58.0 + sin(rockY / 185.0) * 0.42
+              + (fbm(vec2(rockY / 330.0, along / 1350.0)) - 0.5) * 0.34;
   float band = fract(layer);
   float id = floor(layer);
-  vec3 c1 = pow(vec3(0.42, 0.33, 0.25), vec3(2.2));
-  vec3 c2 = pow(vec3(0.55, 0.46, 0.36), vec3(2.2));
-  vec3 c3 = pow(vec3(0.30, 0.25, 0.22), vec3(2.2));
-  vec3 col = mix(c1, c2, hash12(vec2(id, 3.0)));
-  col = mix(col, c3, step(0.8, hash12(vec2(id, 9.0))));
-  col *= 0.8 + 0.2 * smoothstep(0.0, 0.08, band) * (1.0 - smoothstep(0.92, 1.0, band));
-  // gleba przy krawędzi
-  col = mix(pow(vec3(0.20, 0.16, 0.11), vec3(2.2)), col, smoothstep(0.0, 25.0, depth));
-  col *= mix(0.35, 1.0, smoothstep(uBase, uBase + 800.0, vY));
+  // Kilka cienkich ław tworzy jedną formację; jej miąższość zmienia się
+  // powoli, dzięki czemu przekrój nie wygląda jak równy stos desek.
+  float formation = floor(layer * 0.38 + sin(layer * 0.23) * 0.62);
+  float kind = hash12(vec2(formation, 3.0));
+
+  vec3 limestone = pow(vec3(0.48, 0.47, 0.43), vec3(2.2));
+  vec3 sandstone = pow(vec3(0.49, 0.38, 0.28), vec3(2.2));
+  vec3 shale = pow(vec3(0.27, 0.29, 0.30), vec3(2.2));
+  vec3 marl = pow(vec3(0.39, 0.41, 0.38), vec3(2.2));
+  vec3 col = mix(limestone, sandstone, smoothstep(0.18, 0.62, kind));
+  col = mix(col, shale, smoothstep(0.72, 0.9, kind));
+  col = mix(col, marl, 0.22 * hash12(vec2(id, 17.0)));
+
+  // Ciemniejsze styki, drobne laminacje i ziarnistość skały.
+  float contactWeight = 0.45 + 0.55 * hash12(vec2(id, 29.0));
+  float contact = smoothstep(0.02, 0.1 + 0.05 * contactWeight, band)
+                * (1.0 - smoothstep(0.9 - 0.04 * contactWeight, 0.99, band));
+  float lamina = 0.5 + 0.5 * sin(rockY * 0.34 + fbm(vec2(along / 130.0, rockY / 95.0)) * 5.0);
+  float grain = hash12(floor(vec2(along * 0.28, vY * 0.28)));
+  col *= (0.74 + 0.26 * mix(1.0, contact, contactWeight)) * (0.91 + 0.055 * lamina + 0.07 * grain);
+
+  // Uskoki oraz miejscowe pionowe spękania przecinające osady.
+  float faultPos = fract((faultAxis + 24000.0) / 2600.0);
+  float faultLine = 1.0 - smoothstep(0.0, 0.012, min(faultPos, 1.0 - faultPos));
+  float crackCoord = fract(along / 430.0 + fbm(vec2(vY / 210.0, along / 760.0)) * 0.24);
+  float crack = 1.0 - smoothstep(0.008, 0.028, min(crackCoord, 1.0 - crackCoord));
+  col *= 1.0 - faultLine * 0.34 - crack * 0.11 * smoothstep(45.0, 180.0, depth);
+
+  // Próchniczna gleba i zwietrzelina tuż pod powierzchnią terenu.
+  float soilNoise = fbm(vec2(along / 42.0, vY / 28.0));
+  float soilDepth = depth + (soilNoise - 0.5) * 15.0;
+  vec3 soil = pow(vec3(0.22, 0.17, 0.115), vec3(2.2)) * (0.78 + soilNoise * 0.34);
+  col = mix(soil, col, smoothstep(7.0, 38.0, soilDepth));
+
+  // Skała staje się chłodniejsza i ciemniejsza w głębi bryły.
+  col *= 1.0 - 0.34 * smoothstep(90.0, 650.0, depth);
+  col *= 0.9 + 0.1 * smoothstep(uBase, uBase + 700.0, vY);
   col *= uLight;
   float fog = 1.0 - exp(-pow(vDist * uFogDensity, 1.35));
   col = mix(col, uFogColor, clamp(fog, 0.0, 0.92));
