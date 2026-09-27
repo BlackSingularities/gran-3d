@@ -397,7 +397,41 @@ export class Engine {
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, this.camera);
     const o = ray.ray.origin, d = ray.ray.direction;
+    if (this.fineHeight) return this.rayGlobal(o, d);
     return this.dem.raycast(o.x, o.y, o.z, d.x, d.y, d.z, this.exag, this.fineHeight ? (x, z) => this.heightAt(x, z) : undefined);
+  }
+
+  /** Przecięcie promienia z terenem globalnym (kafle), bez ograniczenia do sektora. */
+  private rayGlobal(o: THREE.Vector3, d: THREE.Vector3) {
+    const ex = this.exag;
+    const H = (x: number, z: number) => this.heightAt(x, z) * ex;
+    const top = 9000 * ex;
+    let t = 0;
+    if (o.y > top) {
+      if (d.y >= 0) return null;
+      t = (o.y - top) / -d.y;
+    }
+    let prev = t;
+    for (let i = 0; i < 3000; i++) {
+      const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
+      const gap = y - H(x, z);
+      if (gap <= 0) {
+        let lo = prev, hi = t;
+        for (let k = 0; k < 24; k++) {
+          const m = (lo + hi) / 2;
+          if (o.y + d.y * m - H(o.x + d.x * m, o.z + d.z * m) > 0) lo = m;
+          else hi = m;
+        }
+        const px = o.x + d.x * hi, pz = o.z + d.z * hi;
+        return { x: px, y: this.heightAt(px, pz), z: pz };
+      }
+      if (d.y >= 0 && y > top) return null;
+      prev = t;
+      // krok proporcjonalny do odległości od gruntu (i od kamery – dokładność maleje z dystansem)
+      t += Math.max(gap * 0.5, 1 + t * 0.002);
+      if (t > 3e6) return null;
+    }
+    return null;
   }
 
   private v = new THREE.Vector3();
