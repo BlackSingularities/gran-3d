@@ -78,7 +78,7 @@ input, .note, .metric__v, .ctx__head span { -webkit-user-select: text; user-sele
   color: var(--paper); text-decoration: none; background: var(--glass); border: 1px solid var(--hair);
   backdrop-filter: blur(14px); box-shadow: var(--shadow);
 }
-.brand svg { width: 34px; height: 22px; }
+.brand__mark { width: 38px; height: 30px; object-fit: contain; flex: none; }
 .brand__word { font-family: var(--display); font-size: 25px; font-weight: 700; letter-spacing: -0.035em; line-height: 1; }
 .region {
   position: relative; display: grid; grid-template-columns: auto 16px; grid-template-rows: auto auto; column-gap: 12px;
@@ -579,6 +579,7 @@ input[type='date'] {
 .loader__topo path.idx { stroke: rgba(217,181,111,0.35); stroke-width: 1.4; }
 .loader__topo path { stroke-dasharray: 2400; stroke-dashoffset: 2400; animation: draw 3.4s cubic-bezier(0.3, 0.6, 0.2, 1) forwards; }
 .loader__inner { position: relative; text-align: center; }
+.loader__mark { width: 96px; height: 96px; object-fit: contain; margin: 0 auto 16px; animation: rise 0.8s both; filter: drop-shadow(0 12px 24px rgba(0,0,0,0.28)); }
 .loader__kicker { font-family: var(--mono); font-size: 11px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--paper-3); animation: rise 0.9s 0.1s both; }
 .loader__word { font-family: var(--display); font-size: clamp(80px, 14vw, 180px); font-weight: 800; line-height: 0.9; letter-spacing: -0.06em; animation: rise 1.1s 0.2s both; }
 .loader__region { font-family: var(--display); font-size: 20px; font-weight: 500; letter-spacing: -0.01em; color: var(--brass); min-height: 30px; margin-top: 8px; animation: rise 1.1s 0.35s both; }

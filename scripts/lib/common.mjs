@@ -15,8 +15,14 @@ export function progress(f, label) {
 /** Wybrane regiony z argumentów wiersza poleceń (brak = wszystkie). */
 export function selectRegions(argv) {
   const ids = argv.slice(2).filter((a) => !a.startsWith('-'));
-  const list = ids.length ? CATALOG.filter((r) => ids.includes(r.id)) : CATALOG;
-  const missing = ids.filter((id) => !CATALOG.some((r) => r.id === id));
-  if (missing.length) throw new Error(`Nieznane pasma: ${missing.join(', ')}`);
+  // obszar użytkownika (data/<id>/region.json) albo pasmo z katalogu propozycji
+  const byId = (id) => {
+    const f = path.join(DATA_DIR, id, 'region.json');
+    if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'));
+    return CATALOG.find((r) => r.id === id);
+  };
+  const list = ids.length ? ids.map(byId) : CATALOG;
+  const missing = ids.filter((_, i) => !list[i]);
+  if (missing.length) throw new Error(`Nieznane obszary: ${missing.join(', ')}`);
   return list;
 }

@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>GRAŃ — atlas szlaków 3D</title>
     <meta name="description" content="Trójwymiarowy atlas polskich gór: rzeczywisty teren, szlaki PTTK, wysokości względne, trasy z alternatywami, widoczność i cienie o dowolnej porze dnia." />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230c1114'/%3E%3Cpath d='M6 48 L22 24 L30 34 L40 14 L58 48 Z' fill='none' stroke='%23efe7d6' stroke-width='4' stroke-linejoin='round'/%3E%3Cpath d='M34 26 L40 14 L46 26' fill='none' stroke='%23ff5a36' stroke-width='4' stroke-linejoin='round'/%3E%3C/svg%3E" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/brand/favicon-48.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/brand/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -21,7 +24,7 @@
 
       <header id="mast">
         <a class="brand" href="#" title="GRAŃ — atlas szlaków 3D">
-          <svg viewBox="0 0 64 40" aria-hidden="true"><path d="M2 36 L18 13 L26 22 L37 3 L62 36" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/><path d="M31 13 L37 3 L43 13" fill="none" stroke="var(--signal)" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+          <img class="brand__mark" src="/brand/logo-mark.png" alt="" width="44" height="36" />
           <span class="brand__word">Grań</span>
         </a>
         <button id="region-btn" class="region" aria-haspopup="menu">
@@ -73,6 +76,7 @@
       <div id="loader" class="loader">
         <svg id="loader-topo" class="loader__topo" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice"></svg>
         <div class="loader__inner">
+          <img class="loader__mark" src="/brand/logo-mark.png" alt="" width="104" height="104" />
           <div class="loader__kicker">atlas szlaków 3D</div>
           <div class="loader__word">Grań</div>
           <div class="loader__region" id="loader-region"></div>

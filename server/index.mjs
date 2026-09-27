@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { CACHE_DIR, DATA_DIR, ROOT } from '../scripts/lib/common.mjs';
+import { LIMITS, deriveRegion, slug, validate } from '../scripts/lib/area.mjs';
 
 const DEV = process.argv.includes('--dev');
 const PORT = Number(process.env.PORT || 5190);
@@ -36,7 +37,7 @@ const MIME = {
 
 const catalog = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'catalog.json'), 'utf8')).regions;
 
-// ------------------------------------------------------------------ stan pasm
+// ------------------------------------------------------------------ obszary (katalogi w data/)
 const sizeCache = new Map();
 function dirSize(dir) {
   let total = 0;
@@ -46,15 +47,39 @@ function dirSize(dir) {
   }
   return total;
 }
-function regionStatus(id) {
-  const dir = path.join(DATA_DIR, id);
-  const installed = fs.existsSync(path.join(dir, 'meta.json')) && fs.existsSync(path.join(dir, 'trails.json'));
-  if (!installed) return { id, installed: false };
-  let info = {};
-  try { info = JSON.parse(fs.readFileSync(path.join(dir, 'install.json'), 'utf8')); } catch { /* starsze instalacje */ }
-  const level = info.level ?? (fs.existsSync(path.join(dir, 'tiles', 'index.json')) ? 'hd' : 'base');
-  if (!sizeCache.has(id)) sizeCache.set(id, dirSize(dir));
-  return { id, installed: true, level, date: info.date ?? null, bytes: sizeCache.get(id) };
+
+const readJson = (f) => {
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; }
+};
+
+/** Starsze instalacje (pasma z katalogu) → region.json w nowym formacie. */
+function migrate() {
+  for (const e of fs.readdirSync(DATA_DIR, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name.startsWith('.')) continue;
+    const dir = path.join(DATA_DIR, e.name);
+    if (fs.existsSync(path.join(dir, 'region.json')) || !fs.existsSync(path.join(dir, 'meta.json'))) continue;
+    const preset = catalog().find((r) => r.id === e.name);
+    if (!preset) continue;
+    const hd = fs.existsSync(path.join(dir, 'tiles', 'index.json'));
+    const def = { ...preset, quality: hd ? 'high' : 'normal', created: new Date().toISOString() };
+    if (!hd) delete def.hd;
+    fs.writeFileSync(path.join(dir, 'region.json'), JSON.stringify(def, null, 2));
+  }
+}
+
+function listAreas() {
+  const out = [];
+  for (const e of fs.readdirSync(DATA_DIR, { withFileTypes: true })) {
+    if (!e.isDirectory() || e.name.startsWith('.')) continue;
+    const dir = path.join(DATA_DIR, e.name);
+    const def = readJson(path.join(dir, 'region.json'));
+    if (!def) continue;
+    const installed = fs.existsSync(path.join(dir, 'meta.json')) && fs.existsSync(path.join(dir, 'trails.json')) && fs.existsSync(path.join(dir, 'install.json'));
+    const info = readJson(path.join(dir, 'install.json')) ?? {};
+    if (installed && !sizeCache.has(e.name)) sizeCache.set(e.name, dirSize(dir));
+    out.push({ def, id: def.id, installed, level: info.level ?? null, date: info.date ?? def.created ?? null, bytes: installed ? sizeCache.get(e.name) : 0 });
+  }
+  return out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
 
 // ------------------------------------------------------------------ kolejka zadań
@@ -66,9 +91,10 @@ function publicJob(j) {
 }
 
 function enqueue(id, level) {
-  if (current?.id === id || queue.some((j) => j.id === id)) return;
+  if (current?.id === id || queue.some((j) => j.id === id)) return false;
   queue.push({ id, level, state: 'queued', progress: 0, label: 'W kolejce', log: [] });
   void runNext();
+  return true;
 }
 
 function runStep(job, script, from, to) {
@@ -112,7 +138,7 @@ async function runNext() {
   current = queue.shift();
   const job = current;
   job.state = 'running';
-  const def = catalog().find((r) => r.id === job.id);
+  const def = readJson(path.join(DATA_DIR, job.id, 'region.json'));
   const hd = job.level === 'hd' && def?.hd;
   try {
     await runStep(job, 'bake.mjs', 0, hd ? 0.3 : 1);
@@ -123,6 +149,8 @@ async function runNext() {
   } catch (e) {
     job.state = 'error';
     job.error = e.message;
+    // nieudany lub anulowany nowy obszar – bez danych nie ma sensu go trzymać
+    if (!fs.existsSync(path.join(DATA_DIR, job.id, 'install.json'))) fs.rmSync(path.join(DATA_DIR, job.id), { recursive: true, force: true });
     console.error(`[gran] ${job.id}: ${e.message}`);
   }
   sizeCache.delete(job.id);
@@ -157,24 +185,51 @@ async function api(req, res, url) {
   if (url.pathname === '/api/status' && req.method === 'GET') {
     return send(res, 200, {
       admin: !!TOKEN,
-      regions: catalog().map((r) => regionStatus(r.id)),
+      limits: LIMITS,
+      regions: listAreas(),
+      presets: catalog(),
       job: publicJob(current),
       queue: queue.map((j) => ({ id: j.id, level: j.level })),
       last: publicJob(lastFinished),
     });
   }
   if (req.method !== 'GET' && !authorized(req)) return send(res, 401, { error: 'Wymagane hasło administratora.' });
+  // Zgodność z menedżerem gotowych pasm: zapisujemy preset jako obszar,
+  // a następnie uruchamiamy tę samą kolejkę co dla obszarów użytkownika.
   if (url.pathname === '/api/install' && req.method === 'POST') {
     const { id, level } = await readBody(req);
-    const def = catalog().find((r) => r.id === id);
-    if (!def) return send(res, 404, { error: 'Nieznane pasmo.' });
-    enqueue(id, level === 'hd' && def.hd ? 'hd' : 'base');
+    const preset = catalog().find((r) => r.id === id);
+    if (!preset) return send(res, 404, { error: 'Nieznane pasmo.' });
+    const dir = path.join(DATA_DIR, id);
+    const existing = readJson(path.join(dir, 'region.json'));
+    const high = level === 'hd' && !!preset.hd;
+    const def = { ...preset, ...existing, quality: high ? 'high' : (existing?.quality ?? 'normal'), created: existing?.created ?? new Date().toISOString() };
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'region.json'), JSON.stringify(def, null, 2));
+    enqueue(id, high ? 'hd' : 'base');
     return send(res, 202, { ok: true });
+  }
+  if (url.pathname === '/api/areas' && req.method === 'POST') {
+    const { name, bbox, quality } = await readBody(req);
+    const q = quality === 'high' ? 'high' : 'normal';
+    const err = validate(bbox, q);
+    if (err) return send(res, 400, { error: err });
+    if (current || queue.length) return send(res, 409, { error: 'Trwa pobieranie innego obszaru – poczekaj na jego koniec.' });
+    const clean = String(name ?? '').trim().slice(0, 60);
+    const id = slug(clean);
+    const def = deriveRegion({ id, name: clean, bbox, quality: q });
+    fs.mkdirSync(path.join(DATA_DIR, id), { recursive: true });
+    fs.writeFileSync(path.join(DATA_DIR, id, 'region.json'), JSON.stringify(def, null, 2));
+    enqueue(id, def.hd ? 'hd' : 'base');
+    return send(res, 202, { ok: true, id });
   }
   if (url.pathname === '/api/cancel' && req.method === 'POST') {
     const { id } = await readBody(req);
     const qi = queue.findIndex((j) => j.id === id);
-    if (qi >= 0) queue.splice(qi, 1);
+    if (qi >= 0) {
+      queue.splice(qi, 1);
+      if (!fs.existsSync(path.join(DATA_DIR, id, 'install.json'))) fs.rmSync(path.join(DATA_DIR, id), { recursive: true, force: true });
+    }
     if (current?.id === id && current.child) {
       current.cancelled = true;
       current.child.kill();
@@ -182,8 +237,17 @@ async function api(req, res, url) {
     return send(res, 200, { ok: true });
   }
   const m = url.pathname.match(/^\/api\/regions\/([a-z0-9-]+)$/);
+  if (m && req.method === 'PATCH') {
+    const f = path.join(DATA_DIR, m[1], 'region.json');
+    const def = readJson(f);
+    if (!def) return send(res, 404, { error: 'Nie znaleziono obszaru.' });
+    const { name } = await readBody(req);
+    if (typeof name === 'string' && name.trim()) def.name = name.trim().slice(0, 60);
+    fs.writeFileSync(f, JSON.stringify(def, null, 2));
+    return send(res, 200, { ok: true });
+  }
   if (m && req.method === 'DELETE') {
-    if (current?.id === m[1]) return send(res, 409, { error: 'Pasmo jest właśnie pobierane.' });
+    if (current?.id === m[1]) return send(res, 409, { error: 'Obszar jest właśnie pobierany.' });
     fs.rmSync(path.join(DATA_DIR, m[1]), { recursive: true, force: true });
     sizeCache.delete(m[1]);
     return send(res, 200, { ok: true });
@@ -238,11 +302,12 @@ if (DEV) {
   process.exit(1);
 }
 
+migrate();
 server.listen(PORT, HOST, () => {
-  const installed = catalog().filter((r) => regionStatus(r.id).installed).map((r) => r.name);
+  const installed = listAreas().filter((r) => r.installed).map((r) => r.def.name);
   console.log(`\n  ▲ GRAŃ ${DEV ? '(dev)' : ''} → http://localhost:${PORT}`);
   console.log(`  dane: ${DATA_DIR}`);
-  console.log(`  pobrane pasma: ${installed.length ? installed.join(', ') : 'brak – wybierz je w aplikacji'}`);
+  console.log(`  pobrane obszary: ${installed.length ? installed.join(', ') : 'brak – wybierz je na mapie w aplikacji'}`);
   if (TOKEN) console.log('  menedżer map chroniony hasłem (GRAN_ADMIN_TOKEN)');
   console.log('');
 });

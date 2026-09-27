@@ -467,6 +467,17 @@ for (const region of regions) {
   fs.writeFileSync(path.join(dir, 'pois.json'), JSON.stringify(osm.pois));
   fs.writeFileSync(path.join(dir, 'landcover.png'), land);
   fs.writeFileSync(path.join(dir, 'install.json'), JSON.stringify({ level: 'base', date: new Date().toISOString() }));
+  // obszar użytkownika: najwyższe szczyty jako opis (i nazwa, jeśli nie podano)
+  const rf = path.join(dir, 'region.json');
+  if (fs.existsSync(rf)) {
+    const def = JSON.parse(fs.readFileSync(rf, 'utf8'));
+    const peaks = osm.pois.filter((p) => p.t === 'peak' && p.n).sort((a, b) => (b.e ?? b.d) - (a.e ?? a.d));
+    const names = [...new Set(peaks.map((p) => p.n))].slice(0, 3);
+    if (peaks[0]) def.peak = { name: peaks[0].n, ele: Math.round(peaks[0].e ?? peaks[0].d) };
+    if (!def.subtitle) def.subtitle = names.length ? names.join(', ') : 'obszar bez nazwanych szczytów';
+    if (!def.name) def.name = peaks[0] ? `Okolice: ${peaks[0].n}` : 'Nowy obszar';
+    fs.writeFileSync(rf, JSON.stringify(def, null, 2));
+  }
   progress(1, 'Gotowe');
   const size = (f) => (fs.statSync(path.join(dir, f)).size / 1024 / 1024).toFixed(2) + ' MB';
   console.log(`  zapisano: dem ${size('dem.bin')}, szlaki ${size('trails.json')}, punkty ${size('pois.json')}, pokrycie ${size('landcover.png')}`);
