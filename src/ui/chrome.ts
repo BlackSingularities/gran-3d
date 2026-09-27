@@ -148,10 +148,15 @@ export class Chrome {
 
   // ------------------------------------------------------------- soczewka kursora
   private buildLensDock() {
+    // lewa kolumna: szyna narzędzi + osobny panel soczewki pod nią
+    const col = document.createElement('div');
+    col.id = 'leftcol';
+    $('app').appendChild(col);
+    col.appendChild($('rail'));
     const dock = document.createElement('div');
     dock.id = 'lensdock';
-    dock.className = 'lensdock';
-    $('app').appendChild(dock);
+    dock.className = 'lensrail';
+    col.appendChild(dock);
     dock.addEventListener('click', (e) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>('[data-lens],[data-lp],[data-unpin]');
       if (!t) return;
@@ -161,6 +166,7 @@ export class Chrome {
       else if (t.dataset.lp) {
         const [k, v] = t.dataset.lp.split(':');
         const n = Number(v);
+        const lens = ({ band: 'band', rel: 'rel', eye: 'vis' } as Record<string, Lens>)[k];
         if (k === 'band') a.store.set({ bandTol: n });
         if (k === 'rel') a.store.set({ relRange: n });
         if (k === 'eye') {
@@ -168,6 +174,9 @@ export class Chrome {
           const vs = a.store.state.viewshed;
           if (vs) void a.runViewshed(vs.point.x, vs.point.z);
         }
+        // wybór parametru włącza też odpowiednią soczewkę
+        if (a.store.state.lens !== lens) a.setLens(lens);
+        else a.applyLens();
       }
     });
   }
@@ -175,20 +184,37 @@ export class Chrome {
   private updateLensDock() {
     const a = this.app, s = a.store.state;
     const dock = $('lensdock');
-    const lens = LENSES.find((l) => l.id === s.lens);
-    const key = [s.lens, s.bandTol, s.relRange, s.vsEye, a.lensPinned, s.panorama].join('|');
+    const pinned = a.lensPinned;
+    const key = [s.lens, s.bandTol, s.relRange, s.vsEye, pinned, s.panorama].join('|');
     if (dock.dataset.k === key) return;
     dock.dataset.k = key;
     const chip = (k: string, v: number, label: string, cur: number) => `<button class="lens__chip ${cur === v ? 'is-on' : ''}" data-lp="${k}:${v}">${label}</button>`;
-    let params = '';
-    if (s.lens === 'band') params = [5, 10, 25, 50].map((v) => chip('band', v, `±${v} m`, s.bandTol)).join('');
-    if (s.lens === 'rel') params = [200, 500, 1000].map((v) => chip('rel', v, `±${v} m`, s.relRange)).join('');
-    if (s.lens === 'vis') params = [1.7, 10, 30, 100].map((v) => chip('eye', v, v === 1.7 ? 'oczy' : `+${v} m`, s.vsEye)).join('');
-    dock.classList.toggle('is-active', !!lens);
-    dock.innerHTML = `
-      <span class="lens__title">Soczewka</span>
-      ${LENSES.map((l) => `<button class="lens__btn ${s.lens === l.id ? 'is-on' : ''}" data-lens="${l.id}" title="${l.name} (${l.key})">${l.icon}<span>${l.short}</span><kbd>${l.key}</kbd></button>`).join('')}
-      ${lens ? `<span class="lens__sep"></span>${params}${a.lensPinned ? `<button class="lens__chip lens__pin" data-unpin title="Odepnij (Esc)">${ICON.pin} przypięta ✕</button>` : '<span class="lens__live">na żywo</span>'}` : ''}`;
+    const params: Record<string, string> = {
+      iso: '',
+      band: [5, 10, 25, 50].map((v) => chip('band', v, `±${v} m`, s.bandTol)).join(''),
+      rel: [200, 500, 1000].map((v) => chip('rel', v, `±${v} m`, s.relRange)).join(''),
+      vis: [1.7, 10, 30, 100].map((v) => chip('eye', v, v === 1.7 ? 'oczy 1,7 m' : `+${v} m`, s.vsEye)).join(''),
+    };
+    const paramLabel: Record<string, string> = { band: 'szerokość pasa', rel: 'zakres barw', vis: 'wysokość obserwatora' };
+    dock.innerHTML =
+      `<div class="lensrail__label">Soczewka</div>` +
+      LENSES.map((l) => {
+        const on = s.lens === l.id;
+        const status = on
+          ? pinned
+            ? `<button class="lens__chip lens__pin" data-unpin title="Odepnij (Esc)">${ICON.pin} przypięta · odepnij</button>`
+            : '<span class="lens__live">na żywo · kliknij mapę, by przypiąć</span>'
+          : '';
+        return `<div class="lensitem">
+          <button class="tool lens-btn ${on ? 'is-on' : ''} ${on && pinned ? 'is-pinned' : ''}" data-lens="${l.id}" aria-label="${l.name}">${l.icon}</button>
+          <div class="flyout">
+            <div class="flyout__head"><b>${l.name}</b><kbd>${l.key}</kbd></div>
+            <div class="flyout__hint">${l.hint}</div>
+            ${params[l.id] ? `<div class="flyout__k">${paramLabel[l.id]}</div><div class="flyout__chips">${params[l.id]}</div>` : ''}
+            ${status ? `<div class="flyout__status">${status}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
   }
 
   update() {
