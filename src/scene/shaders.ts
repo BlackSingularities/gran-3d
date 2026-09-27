@@ -61,6 +61,35 @@ void main() {
 }
 `;
 
+export const tileVertex = /* glsl */ `
+#include <common>
+#include <logdepthbuf_pars_vertex>
+attribute vec2 tpos;
+attribute float skirt;
+uniform highp sampler2D uTile;
+uniform vec4 uTileInfo;      // początek x, początek z, metry na próbkę, głębokość fartucha
+uniform float uMpp;
+uniform vec2 uSize;
+varying vec2 vGrid;
+varying vec3 vPos;
+varying vec3 vWorld;
+varying float vDist;
+varying vec2 vTexel;
+void main() {
+  float h = texelFetch(uTile, ivec2(tpos) + 1, 0).r - skirt * uTileInfo.w;
+  vec3 p = vec3(uTileInfo.x + tpos.x * uTileInfo.z, h, uTileInfo.y + tpos.y * uTileInfo.z);
+  vPos = p;
+  vTexel = tpos + 1.0;
+  vGrid = vec2(p.x / uMpp + (uSize.x - 1.0) * 0.5, p.z / uMpp + (uSize.y - 1.0) * 0.5);
+  vec4 wp = modelMatrix * vec4(p, 1.0);
+  vWorld = wp.xyz;
+  vec4 mv = viewMatrix * wp;
+  vDist = -mv.z;
+  gl_Position = projectionMatrix * mv;
+  #include <logdepthbuf_vertex>
+}
+`;
+
 export const terrainFragment = /* glsl */ `
 #include <common>
 #include <logdepthbuf_pars_fragment>
@@ -96,6 +125,28 @@ uniform float uAutumn;
 uniform vec3 uBiome;         // las, kosodrzewina, skały
 uniform sampler2D uLand;     // R woda, G las, B skały (255) / zarośla (~110)
 uniform float uLandOn;
+uniform float uNoiseAmt;
+#ifdef TILE
+uniform highp sampler2D uTile;
+uniform vec4 uTileInfo;
+uniform sampler2D uOrtho;
+uniform vec4 uOrthoRect;
+uniform float uOrthoOn;
+varying vec2 vTexel;
+float hTile(vec2 t) {
+  t = clamp(t, vec2(0.0), vec2(257.999));
+  ivec2 i = ivec2(floor(t));
+  vec2 f = t - vec2(i);
+  float a = texelFetch(uTile, i, 0).r;
+  float b = texelFetch(uTile, i + ivec2(1, 0), 0).r;
+  float c = texelFetch(uTile, i + ivec2(0, 1), 0).r;
+  float d = texelFetch(uTile, i + ivec2(1, 1), 0).r;
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+#define HS hTile
+#else
+#define HS hAt
+#endif
 
 varying vec2 vGrid;
 varying vec3 vPos;
@@ -133,13 +184,29 @@ float contourLine(float v, float interval, float width) {
 
 void main() {
   #include <logdepthbuf_fragment>
-  float elev = hAt(vGrid);
-  float hl = hAt(vGrid - vec2(1.0, 0.0)), hr = hAt(vGrid + vec2(1.0, 0.0));
-  float hu = hAt(vGrid - vec2(0.0, 1.0)), hd = hAt(vGrid + vec2(0.0, 1.0));
-  vec2 grad = vec2(hr - hl, hd - hu) / (2.0 * uMpp);
-  float slope = atan(length(grad));                 // rzeczywiste nachylenie [rad]
+#ifdef TILE
+  // kafle wystają poza obszar modelu – odcinamy je na krawędzi bryły
+  if (vGrid.x < -0.5 || vGrid.y < -0.5 || vGrid.x > uSize.x - 0.5 || vGrid.y > uSize.y - 0.5) discard;
+  vec2 P = vTexel;
+  float stepM = uTileInfo.z;
+#else
+  vec2 P = vGrid;
+  float stepM = uMpp;
+#endif
+  float elev = HS(P);
+  float hl = HS(P - vec2(1.0, 0.0)), hr = HS(P + vec2(1.0, 0.0));
+  float hu = HS(P - vec2(0.0, 1.0)), hd = HS(P + vec2(0.0, 1.0));
+  vec2 grad = vec2(hr - hl, hd - hu) / (2.0 * stepM);
+  // do klasyfikacji (skała/las/piarg) nachylenie uśrednione do ~12 m – spójne między poziomami kafli
+  vec2 gradC = grad;
+#ifdef TILE
+  float cs = max(1.0, 12.0 / stepM);
+  gradC = vec2(HS(P + vec2(cs, 0.0)) - HS(P - vec2(cs, 0.0)), HS(P + vec2(0.0, cs)) - HS(P - vec2(0.0, cs))) / (2.0 * cs * stepM);
+#endif
+  float slope = atan(length(gradC));                // nachylenie do klasyfikacji [rad]
+  float slopeFine = atan(length(grad));
   float slopeDeg = degrees(slope);
-  float aspect = atan(-grad.x, grad.y);             // azymut spadku [-pi, pi], 0 = N
+  float aspect = atan(-gradC.x, gradC.y);           // azymut spadku [-pi, pi], 0 = N
   float northness = cos(aspect);
   vec3 N = normalize(vec3(-grad.x * uExag, 1.0, -grad.y * uExag));
   vec2 uv = (vGrid + 0.5) / uSize;
@@ -155,13 +222,14 @@ void main() {
     float s = 2.0;
     vec2 p = wp / 16.0;
     float n0 = fbm3(p), nx = fbm3(p + vec2(s / 16.0, 0.0)), nz = fbm3(p + vec2(0.0, s / 16.0));
-    vec3 dn = vec3(-(nx - n0), 0.0, -(nz - n0)) * (0.6 + 2.2 * rockMask) * near;
+    vec3 dn = vec3(-(nx - n0), 0.0, -(nz - n0)) * (0.6 + 2.2 * rockMask) * near * uNoiseAmt;
     N = normalize(N + dn * 1.3);
   }
 
   vec3 landC = uLandOn > 0.5 ? texture(uLand, uv).rgb : vec3(0.0);
   float water = smoothstep(0.4, 0.62, landC.r);
   vec3 base;
+  float orthoA = 0.0;
   float lit = 1.0; // 1 = oświetlenie słoneczne, 0 = kartograficzne
   float snow = 0.0;
   if (uStyle == 0 || uStyle == 4) {
@@ -211,9 +279,18 @@ void main() {
       vec3 sat = texture(uSatTex, uv).rgb;
       base = srgb(sat) * 1.15;
     }
+#ifdef TILE
+    if (uStyle == 4 && uOrthoOn > 0.5) {
+      vec4 o = texture(uOrtho, uOrthoRect.xy + uOrthoRect.zw * ((vTexel - 1.0) / 256.0));
+      // rozjaśnienie głębokich cieni wypalonych w zdjęciu lotniczym
+      vec3 oc = pow(o.rgb, vec3(0.82)) * 1.04;
+      base = mix(base, srgb(oc), o.a);
+      orthoA = o.a;
+    }
+#endif
 
     // ---------- śnieg sezonowy ----------
-    if (uSnowOn > 0.5) {
+    if (uSnowOn > 0.5 && orthoA < 0.5) {
       float line = uSnowLine + northness * -140.0 + (nMid - 0.5) * 260.0;
       snow = smoothstep(line - 60.0, line + 80.0, elev) * (1.0 - smoothstep(0.85, 1.0, slope));
       // żleby i zacienione kotły trzymają śnieg dłużej
@@ -262,7 +339,11 @@ void main() {
     vec3 ambient = uSkyColor * sky * (0.35 + 0.65 * ao);
     // odbite światło od stoków naprzeciwko
     vec3 bounce = base * uSunColor * 0.08 * (1.0 - N.y) * ao;
-    col = base * (direct + ambient) + bounce;
+    vec3 light = direct + ambient;
+    // zdjęcie lotnicze ma własne cienie – nasze oświetlenie tylko częściowo
+    float flatL = dot(uSunColor, vec3(0.3, 0.59, 0.11)) * 0.28 + dot(uSkyColor, vec3(0.33)) * 0.95;
+    light = mix(light, vec3(flatL), 0.55 * orthoA);
+    col = base * light + bounce * (1.0 - orthoA);
     // połysk śniegu
     if (snow > 0.0) {
       vec3 V = normalize(cameraPosition - vWorld);
@@ -325,11 +406,12 @@ void main() {
   // ---------- poziomice ----------
   if (uContourOn > 0.5) {
     float ci = uContourInt;
-    float minor = contourLine(elev, ci, 0.55);
-    float major = contourLine(elev, ci * 5.0, 1.05);
+    bool realistic = uStyle == 0 || uStyle == 4;
+    float minor = realistic ? 0.0 : contourLine(elev, ci, 0.55);
+    float major = contourLine(elev, ci * 5.0, realistic ? 0.8 : 1.05);
     vec3 cc = (uStyle == 0 || uStyle == 4) ? vec3(0.96, 0.92, 0.82) : srgb(vec3(0.55, 0.33, 0.16));
-    float ca = ((uStyle == 0 || uStyle == 4) ? 0.1 : 0.5) * (1.0 - water);
-    col = mix(col, (uStyle == 0 || uStyle == 4) ? col * 0.55 + cc * 0.2 : cc * 0.9, clamp(minor * ca + major * (ca + 0.2), 0.0, 1.0));
+    float ca = (realistic ? 0.0 : 0.5) * (1.0 - water);
+    col = mix(col, realistic ? col * 0.6 + cc * 0.12 : cc * 0.9, clamp(minor * ca + major * (realistic ? 0.35 : ca + 0.2), 0.0, 1.0));
   }
 
   // ---------- siatka kilometrowa ----------

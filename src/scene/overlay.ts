@@ -10,6 +10,8 @@ export interface Marker {
   /** czy przygaszać, gdy zasłonięty przez teren */
   dimOccluded?: boolean;
   hidden?: boolean;
+  /** wysokość nad terenem; gdy podana – znacznik przyklejony do powierzchni */
+  lift?: number;
 }
 
 interface Label {
@@ -78,14 +80,15 @@ export class Overlay {
   }
 
   private place(m: Marker) {
-    const p = m.hidden ? null : this.engine.project(m.x, m.e, m.z);
+    const e = m.lift != null ? this.engine.heightAt(m.x, m.z) + m.lift : m.e;
+    const p = m.hidden ? null : this.engine.project(m.x, e, m.z);
     if (!p) {
       m.el.style.display = 'none';
       return;
     }
     m.el.style.display = '';
     m.el.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px)`;
-    if (m.dimOccluded) m.el.classList.toggle('is-behind', this.engine.occluded(m.x, m.e, m.z, 20));
+    if (m.dimOccluded) m.el.classList.toggle('is-behind', this.engine.occluded(m.x, e, m.z, 20));
   }
 
   update(force = false) {
@@ -105,6 +108,7 @@ export class Overlay {
     // punktacja: ważność ↓ z odległością
     const scored = this.labels.map((l) => {
       const d = Math.hypot(l.poi.x - cam.x, l.poi.z - cam.z, l.poi.d * exag - cam.y);
+      if (d < 20000) l.poi.d = this.engine.heightAt(l.poi.x, l.poi.z);
       return { l, d, s: l.poi.prom / (1 + d / (pano ? 9000 : 22000)) };
     });
     scored.sort((a, b) => b.s - a.s);

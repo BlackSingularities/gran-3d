@@ -375,6 +375,13 @@ input[type='date'] {
 #app.has-profile #hud { bottom: calc(16px + var(--profile-h) + 10px); }
 .compass { width: 64px; height: 64px; border-radius: 50%; background: var(--glass); border: 1px solid var(--hair); backdrop-filter: blur(14px); box-shadow: var(--shadow); position: relative; }
 .compass svg { width: 100%; height: 100%; display: block; }
+.tilestat {
+  display: flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 999px; font-family: var(--mono); font-size: 10.5px;
+  background: var(--glass); border: 1px solid var(--hair); backdrop-filter: blur(12px); color: var(--paper-2); transition: opacity 0.4s;
+}
+.tilestat:empty { opacity: 0; padding: 0; border: 0; }
+.tilestat b { color: var(--teal); font-weight: 600; }
+.tilestat .spinner { width: 10px; height: 10px; border-width: 1.5px; }
 .scalebar { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-family: var(--mono); font-size: 10.5px; color: var(--paper); text-shadow: 0 1px 3px #000; }
 .scalebar__bar { height: 6px; border: 1.5px solid var(--paper); border-top: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.6); transition: width 0.2s; }
 
@@ -536,7 +543,7 @@ input[type='date'] {
 @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 4px rgba(217,181,111,0.3); } 50% { box-shadow: 0 0 0 10px rgba(217,181,111,0); } }
 
 /* wejście interfejsu po wczytaniu */
-#app.is-ready #mast, #app.is-ready #rail, #app.is-ready #panel, #app.is-ready .searchbar { animation: rise 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+#app.is-ready #mast, #app.is-ready #rail, #app.is-ready #panel, #app.is-ready .searchbar { animation: rise 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 #app.is-ready #rail { animation-delay: 0.1s; }
 #app.is-ready .searchbar { animation-name: fadein; animation-delay: 0.2s; }
 #app.is-ready #panel { animation-delay: 0.25s; }

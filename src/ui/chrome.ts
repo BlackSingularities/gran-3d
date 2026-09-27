@@ -65,7 +65,7 @@ export class Chrome {
     app.openCtx = (x, y, p) => this.openCtx(x, y, p);
     $('compass').addEventListener('click', () => app.engine.flyTo({ heading: 0 }, 800));
     $('attrib').innerHTML =
-      'Teren: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">Terrarium/AWS</a> · Szlaki: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · Sentinel‑2 cloudless © EOX';
+      'LiDAR i ortofoto: © <a href="https://www.geoportal.gov.pl" target="_blank" rel="noopener">GUGiK</a>, © ČÚZK, © ÚGKK SR · Teren: Terrarium/AWS · Szlaki: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · Sentinel‑2 © EOX';
     const open = document.createElement('button');
     open.id = 'panel-open';
     open.innerHTML = `${ICON.layers} Panel`;
@@ -129,9 +129,22 @@ export class Chrome {
   }
 
   // ------------------------------------------------------------- aktualizacje
+  updateTileStat() {
+    const a = this.app;
+    const el = $('tilestat');
+    const t = a.tiles;
+    if (!t) { el.innerHTML = ''; return; }
+    const n = t.loading, o = a.store.state.style === 'satellite' ? t.orthoLoading : 0;
+    const html = n + o > 0
+      ? `<span class="spinner"></span>LiDAR <b>${t.maxZ >= 15 ? '3 m' : '6 m'}</b> · doczytywanie ${n ? `${n} kafli` : ''}${n && o ? ', ' : ''}${o ? `${o} zdjęć` : ''}`
+      : `LiDAR <b>${t.maxZ >= 15 ? '3 m' : '6 m'}</b>`;
+    if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; }
+  }
+
   update() {
     const a = this.app, s = a.store.state;
     if (!a.region) return;
+    this.updateTileStat();
     $('region-name').textContent = a.region.def.name;
     $('region-sub').textContent = `${fmtInt(a.region.dem.min)}–${fmtInt(a.region.dem.max)} m · ${fmtInt(a.graph?.totalKm ?? 0)} km szlaków`;
     document.querySelectorAll<HTMLElement>('#rail [data-tool]').forEach((b) => b.classList.toggle('is-on', b.dataset.tool === s.tool));

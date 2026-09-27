@@ -12,7 +12,7 @@ import { GRADE_COLORS, GRADE_LABELS } from './profile';
 
 const STYLES: { id: Style; name: string; sw: string }[] = [
   { id: 'terrain', name: 'Teren', sw: 'linear-gradient(135deg,#1f3322 0%,#44512c 40%,#8a8577 70%,#e9edf2 100%)' },
-  { id: 'satellite', name: 'Sentinel‑2', sw: 'linear-gradient(135deg,#27361f,#4b5433 45%,#7c7a6c 75%,#c9ccd0)' },
+  { id: 'satellite', name: 'Ortofoto', sw: 'linear-gradient(135deg,#27361f,#4b5433 45%,#7c7a6c 75%,#c9ccd0)' },
   { id: 'paper', name: 'Mapa', sw: 'linear-gradient(135deg,#cfe2bb 0%,#dfe8cf 45%,#f5f0e3 70%,#cfccc7 100%)' },
   { id: 'hypso', name: 'Hipsometria', sw: 'linear-gradient(135deg,#6a9f68,#c2d184 30%,#efc985 55%,#b67a4f 80%,#f4f4f6)' },
   { id: 'slope', name: 'Nachylenie', sw: 'linear-gradient(135deg,#efeee8 20%,#fcdc4d 40%,#f98f1f 55%,#e0302a 70%,#a13389 85%,#542e76)' },
@@ -406,7 +406,7 @@ export class Panel {
     return `
       <div class="kicker">Styl terenu</div>
       <div class="styles" style="margin-top:10px">${STYLES.map((st) => `<button class="style-card ${s.style === st.id ? 'is-on' : ''}" style="--sw:${st.sw}" data-style="${st.id}"><span>${st.name}</span></button>`).join('')}</div>
-      ${s.style === 'satellite' && a.satProgress < 1 ? `<p class="note"><span class="spinner"></span> Wczytywanie mozaiki Sentinel‑2… ${fmtInt(a.satProgress * 100)}%</p>` : ''}
+      ${s.style === 'satellite' ? `<p class="note">${a.tiles ? 'Zdjęcia lotnicze GUGiK / ZBGIS / ČÚZK doczytywane kaflami wokół kamery (do ~0,8 m/px); w tle mozaika Sentinel‑2.' : 'Mozaika satelitarna Sentinel‑2 (10 m).'}${a.satProgress < 1 ? ` <span class="spinner"></span> ${fmtInt(a.satProgress * 100)}%` : ''}</p>` : ''}
       ${legend}
       <div class="section">
         <div class="section__title"><span class="kicker">Warstwy</span></div>
@@ -419,6 +419,7 @@ export class Panel {
           ${toggle('grid', 'Siatka 1 km')}
           ${toggle('cursorIso', 'Poziomica kursora', 'I')}
         </div>
+        ${a.tiles ? `<div class="slider"><label>Szczegółowość terenu LiDAR</label><output id="o-q">${fmt1(a.tiles.quality)}×</output><input type="range" min="0.5" max="2" step="0.1" value="${a.tiles.quality}" data-range="quality"></div>` : ''}
         <div class="slider"><label>Przewyższenie pionowe</label><output id="o-exag">×${fmt1(s.exag)}</output><input type="range" min="1" max="3" step="0.1" value="${s.exag}" data-range="exag"></div>
       </div>
       <div class="section">
@@ -437,7 +438,7 @@ export class Panel {
       </div>
       <div class="section">
         <div class="section__title"><span class="kicker">Źródła danych</span></div>
-        <p class="note" style="margin-top:0">Model terenu: <b>Terrarium</b> (Mapzen / AWS Open Data; SRTM, EU‑DEM), siatka ~${fmtInt(dem.mpp)} m. Szlaki, szczyty, schroniska: <b>© OpenStreetMap</b> (ODbL). Obraz satelitarny: <b>Sentinel‑2 cloudless 2020 © EOX</b> (CC BY‑NC‑SA 4.0). Czas przejścia wg reguły <b>PTTK</b> (15 min/km + 1 min/10 m podejścia) lub normy <b>DIN 33466</b>; punkty <b>GOT PTTK</b> wg reguły 1 pkt/km + 1 pkt/100 m podejścia.</p>
+        <p class="note" style="margin-top:0">${a.tiles ? `Model terenu: <b>LiDAR</b> – NMT <b>GUGiK</b> (PL)${a.region!.def.hd?.lidar.includes('cz') ? ' i DMR 5G <b>ČÚZK</b> (CZ)' : ''}, kafle do ~${a.tiles.maxZ >= 15 ? 3 : 6} m; poza zasięgiem – <b>Terrarium</b>. Ortofoto: <b>GUGiK</b>, <b>ZBGIS</b>, <b>ČÚZK</b>.` : `Model terenu: <b>Terrarium</b> (Mapzen / AWS Open Data; SRTM, EU‑DEM), siatka ~${fmtInt(dem.mpp)} m.`} Szlaki, szczyty, schroniska: <b>© OpenStreetMap</b> (ODbL). Obraz satelitarny: <b>Sentinel‑2 cloudless 2020 © EOX</b> (CC BY‑NC‑SA 4.0). Czas przejścia wg reguły <b>PTTK</b> (15 min/km + 1 min/10 m podejścia) lub normy <b>DIN 33466</b>; punkty <b>GOT PTTK</b> wg reguły 1 pkt/km + 1 pkt/100 m podejścia.</p>
       </div>`;
   }
 
@@ -502,6 +503,7 @@ export class Panel {
         const v = Number(el.value);
         if (k === 'exag') { a.store.set({ exag: v }); b.querySelector('#o-exag')!.textContent = `×${fmt1(v)}`; }
         if (k === 'relRange') { a.store.set({ relRange: v }); b.querySelector('#o-range')!.textContent = `±${fmtInt(v)} m`; }
+        if (k === 'quality' && a.tiles) { a.tiles.quality = v; a.engine.dirty = true; b.querySelector('#o-q')!.textContent = `${fmt1(v)}×`; }
         if (k === 'maxSlope') { a.store.set({ maxSlope: v }); b.querySelector('#o-slope')!.textContent = `${v}°`; }
       });
       el.addEventListener('change', () => {

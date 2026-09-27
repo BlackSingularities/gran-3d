@@ -15,7 +15,9 @@ npm run build      # statyczna wersja w dist/ (działa z dowolnego hostingu plik
 ## Funkcje
 
 ### Teren
-- Siatka pełnej rozdzielczości modelu (Tatry: 1749×937 węzłów, ~25 m), normalne liczone w shaderze bezpośrednio z tekstury wysokości.
+- **Model LiDAR ~3 m** (Tatry, Pieniny, Babia Góra) i **~6 m** (Karkonosze, Bieszczady) z darmowych danych krajowych: **NMT GUGiK** (Polska, lotnicze skanowanie laserowe) i **DMR 5G ČÚZK** (Czechy). Poza ich zasięgiem (Słowacja, Ukraina) – model globalny z płynnym przejściem na granicy.
+- **Teren kaflowy z poziomami szczegółowości** (drzewo czwórkowe Web Mercator, kafle 259×259 z ramką, fartuchy maskujące szczeliny), doczytywany w wątkach roboczych wokół kamery; suwak szczegółowości w zakładce „Mapa i światło”.
+- **Ortofotomapa** z usług krajowych składana na każdy kafel: **GUGiK** (PL), **ZBGIS** (SK), **ČÚZK** (CZ) – do ~0,8 m/px; w tle mozaika Sentinel‑2.
 - **Realistyczne cieniowanie**: piętra roślinności (regiel, kosodrzewina, hale, turnie) zależne od wysokości, nachylenia i ekspozycji; **rzeczywiste pokrycie terenu z OSM** (stawy, lasy, kosodrzewina, piargi) wypiekane do maski rastrowej; mikrorzeźba proceduralna na skałach; odbicia nieba i odblaski słońca na wodzie.
 - **Słońce według daty i godziny** (algorytm NOAA), **cienie rzucane** liczone na GPU przez śledzenie promieni w modelu wysokości, okluzja nieba (sky‑view factor), perspektywa powietrzna.
 - **Sezonowość**: granica śniegu zależna od daty (dłużej na stokach północnych i w żlebach), barwy jesieni w reglu dolnym.
@@ -54,12 +56,19 @@ Dane są przygotowane skryptem `scripts/bake.mjs` i zapisane w repozytorium:
 
 Obraz satelitarny ładowany na żądanie: **Sentinel‑2 cloudless 2020 © EOX IT Services** (CC BY‑NC‑SA 4.0), dane Copernicus.
 
+| `tiles/{z}/{x}/{y}.png` + `tiles/index.json` | piramida kafli wysokości HD (RGB: `(R·65536 + G·256 + B)/10 − 1000` m) | **NMT GUGiK** (LiDAR, geoportal.gov.pl), **DMR 5G © ČÚZK**, Terrarium |
+
+Ortofoto (ładowane na żądanie z usług WMS/ArcGIS): **© GUGiK** (geoportal.gov.pl), **© ÚGKK SR** (ZBGIS), **© ČÚZK**.
+
 Odświeżenie danych (np. po zmianach w OSM) albo dodanie regionu w `regions.json`:
 
 ```bash
-npm run bake            # wszystkie regiony
-npm run bake -- tatry   # jeden region
+npm run bake:all        # OSM + LiDAR dla wszystkich regionów
+npm run bake -- tatry   # etap 1: teren globalny, szlaki, punkty, pokrycie terenu
+npm run bake:hd -- tatry  # etap 2: LiDAR → piramida kafli, model analityczny i wysokości szlaków
 ```
+
+Etap 2 pobiera setki MB danych LiDAR (GUGiK udostępnia NMT w układzie PUWG‑1992 – przeliczenie do Web Mercatora jest w `scripts/lib/puwg.mjs`). Słowacki DMR 5.0 nie ma publicznej usługi z surowymi wysokościami (tylko wysyłka na dysku), dlatego słowacka strona gór korzysta z modelu globalnego.
 
 Pobrane kafle i odpowiedzi Overpass są buforowane w `.cache/`.
 

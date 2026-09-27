@@ -1,5 +1,6 @@
 import regionsJson from '../../regions.json';
 import { Dem, type DemMeta } from './dem';
+import type { TileIndex } from '../scene/tiles';
 
 export interface RegionDef {
   id: string;
@@ -8,6 +9,7 @@ export interface RegionDef {
   bbox: [number, number, number, number];
   zoom: number;
   home: { lon: number; lat: number; heading: number; pitch: number; distance: number };
+  hd?: { zoom: number; lidar: string[]; ortho: string[] };
 }
 
 /** Piętra roślinności (m n.p.m.) – sterują realistycznym cieniowaniem terenu. */
@@ -25,7 +27,7 @@ export const BIOMES: Record<string, Biome> = {
   bieszczady: { forest: 1120, shrub: 1180, rock: 1500 },
 };
 
-export const REGIONS = regionsJson as RegionDef[];
+export const REGIONS = regionsJson as unknown as RegionDef[];
 
 export interface RawTrails {
   nodes: [number, number, number][];
@@ -68,6 +70,7 @@ export interface LoadedRegion {
   dem: Dem;
   trails: RawTrails;
   pois: Poi[];
+  tiles: TileIndex | null;
 }
 
 async function fetchWithProgress(url: string, onProgress: (f: number) => void) {
@@ -108,7 +111,17 @@ export async function loadRegion(def: RegionDef, onProgress: (f: number, label: 
     return { ...p, x, z, ele: p.e ?? p.d, prom: 0, id };
   });
   computeProminence(pois, dem);
-  return { def, biome: BIOMES[def.id] ?? BIOMES.tatry, dem, trails, pois };
+  // piramida kafli LiDAR (opcjonalna – powstaje skryptem bake-hd)
+  let tiles: TileIndex | null = null;
+  if (def.hd) {
+    try {
+      const r = await fetch(base + 'tiles/index.json');
+      if (r.ok && (r.headers.get('content-type') ?? '').includes('json')) tiles = await r.json();
+    } catch {
+      tiles = null;
+    }
+  }
+  return { def, biome: BIOMES[def.id] ?? BIOMES.tatry, dem, trails, pois, tiles };
 }
 
 /**

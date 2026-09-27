@@ -475,7 +475,8 @@ export function routeFromPolyline(
   pts: { lon: number; lat: number; e?: number }[],
   kind: Route['kind'],
   label: string,
-  timeFactor = 1
+  timeFactor = 1,
+  height?: (lon: number, lat: number) => number
 ): Route {
   const tr = newTrack(pts.length);
   pts.forEach((p, i) => {
@@ -484,7 +485,7 @@ export function routeFromPolyline(
     const [x, z] = dem.lonLatToWorld(p.lon, p.lat);
     tr.x[i] = x;
     tr.z[i] = z;
-    tr.e[i] = p.e ?? dem.sampleLonLat(p.lon, p.lat);
+    tr.e[i] = p.e ?? (height ? height(p.lon, p.lat) : dem.sampleLonLat(p.lon, p.lat));
     tr.color[i] = colorIndex(kind === 'terrain' ? 'offtrail' : 'purple');
     tr.sac[i] = kind === 'terrain' ? 2 : 1;
   });

@@ -20,6 +20,8 @@ export class Engine {
   readonly controls: MapControls;
   readonly world = new THREE.Group();
   dem: Dem | null = null;
+  /** dokładniejsze źródło wysokości (kafle LiDAR), gdy dostępne */
+  fineHeight: ((x: number, z: number) => number | null) | null = null;
   exag = 1.4;
   private frameCbs: ((dt: number) => void)[] = [];
   private anim: ((t: number) => boolean) | null = null;
@@ -105,8 +107,15 @@ export class Engine {
     this.frameCbs.push(cb);
   }
 
+  /** Wysokość terenu (m n.p.m.) – z kafli LiDAR, a gdy ich brak – z modelu analitycznego. */
+  heightAt(x: number, z: number) {
+    const f = this.fineHeight?.(x, z);
+    if (f != null) return f;
+    return this.dem ? this.dem.sampleWorld(x, z) : 0;
+  }
+
   groundY(x: number, z: number) {
-    return this.dem ? this.dem.sampleWorld(x, z) * this.exag : 0;
+    return this.heightAt(x, z) * this.exag;
   }
 
   private loop = () => {
@@ -263,8 +272,12 @@ export class Engine {
     // oko nad najwyższym z sąsiednich węzłów siatki – trójkąty mogą leżeć wyżej niż interpolacja dwuliniowa
     const dem = this.dem!;
     const gx = Math.floor(dem.xToGx(x)), gy = Math.floor(dem.zToGy(z));
-    let top = dem.sampleWorld(x, z);
-    for (let j = 0; j <= 1; j++) for (let i = 0; i <= 1; i++) top = Math.max(top, dem.at(gx + i, gy + j));
+    let top = this.heightAt(x, z);
+    if (this.fineHeight) {
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) top = Math.max(top, this.heightAt(x + i * 2, z + j * 2));
+    } else {
+      for (let j = 0; j <= 1; j++) for (let i = 0; i <= 1; i++) top = Math.max(top, dem.at(gx + i, gy + j));
+    }
     const eye = (top + 2) * this.exag;
     const h = heading * DEG;
     const pos = new THREE.Vector3(x, eye, z);
@@ -309,7 +322,7 @@ export class Engine {
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, this.camera);
     const o = ray.ray.origin, d = ray.ray.direction;
-    return this.dem.raycast(o.x, o.y, o.z, d.x, d.y, d.z, this.exag);
+    return this.dem.raycast(o.x, o.y, o.z, d.x, d.y, d.z, this.exag, this.fineHeight ? (x, z) => this.heightAt(x, z) : undefined);
   }
 
   private v = new THREE.Vector3();

@@ -10,6 +10,7 @@ import { Engine } from './scene/engine';
 import { Overlay, type Marker } from './scene/overlay';
 import { ALT_COLORS, RouteLayer } from './scene/routes';
 import { STYLE_ID, TerrainLayer } from './scene/terrain';
+import { TileTerrain } from './scene/tiles';
 import { TrailsLayer } from './scene/trails';
 import { Profile } from './ui/profile';
 
@@ -63,6 +64,13 @@ export class App {
   private reqId = 0;
   private pending = new Map<number, (d: any) => void>();
   cursor: CursorInfo | null = null;
+  tiles: TileTerrain | null = null;
+  /** wysokość terenu (m n.p.m.) w punkcie świata / geograficznym – z kafli LiDAR, jeśli są */
+  hW = (x: number, z: number) => this.engine.heightAt(x, z);
+  hLL = (lon: number, lat: number) => {
+    const [x, z] = this.region!.dem.lonLatToWorld(lon, lat);
+    return this.engine.heightAt(x, z);
+  };
   selection: Selection | null = null;
   hoverEdge: number | null = null;
   private wpMarkers = new Map<string, Marker>();
@@ -158,6 +166,12 @@ export class App {
       this.engine.world.remove(this.terrain.mesh, this.terrain.walls);
       this.terrain.dispose();
     }
+    if (this.tiles) {
+      this.engine.world.remove(this.tiles.group);
+      this.tiles.dispose();
+      this.tiles = null;
+      this.engine.fineHeight = null;
+    }
     if (this.trails) {
       this.engine.world.remove(this.trails.group);
       this.trails.dispose();
@@ -171,7 +185,24 @@ export class App {
 
     this.region = data;
     this.engine.setDem(data.dem);
-    this.terrain = new TerrainLayer(this.engine.renderer, data.dem, data.biome);
+    this.terrain = new TerrainLayer(this.engine.renderer, data.dem, data.biome, !data.tiles);
+    if (data.tiles) {
+      // teren LiDAR: kafle z poziomami szczegółowości
+      const tiles = new TileTerrain(
+        data.dem,
+        data.tiles,
+        `${import.meta.env.BASE_URL}data/${def.id}/tiles/`,
+        this.terrain.material.uniforms,
+        def.hd?.ortho ?? [],
+        Math.min(8, this.engine.renderer.capabilities.getMaxAnisotropy())
+      );
+      tiles.onChange = () => (this.engine.dirty = true);
+      this.tiles = tiles;
+      this.engine.world.add(tiles.group);
+      this.engine.fineHeight = (x, z) => tiles.heightAt(x, z);
+      onProgress(0.9, 'Kafle LiDAR');
+      await tiles.whenReady();
+    }
     this.engine.world.add(this.terrain.mesh, this.terrain.walls);
     this.terrain.onChange = () => (this.engine.dirty = true);
     this.terrain.loadLandcover(`${import.meta.env.BASE_URL}data/${def.id}/landcover.png`);
@@ -232,7 +263,7 @@ export class App {
       timeModel.kind = s.timeKind;
       timeModel.pace = s.pace;
       this.scheduleRoute(0);
-      if (s.gpx) this.store.set({ gpx: routeFromPolyline(this.region!.dem, Array.from({ length: s.gpx.track.n }, (_, i) => ({ lon: s.gpx!.track.lon[i], lat: s.gpx!.track.lat[i] })), 'gpx', s.gpx.labels[0]) });
+      if (s.gpx) this.store.set({ gpx: routeFromPolyline(this.region!.dem, Array.from({ length: s.gpx.track.n }, (_, i) => ({ lon: s.gpx!.track.lon[i], lat: s.gpx!.track.lat[i] })), 'gpx', s.gpx.labels[0], 1, this.hLL) });
     }
     if (ch.has('routes') || ch.has('activeRoute')) {
       this.routesLayer.setRoutes(s.routes, s.activeRoute);
@@ -255,6 +286,7 @@ export class App {
   applyStyle() {
     const s = this.store.state;
     this.terrain!.setStyle(STYLE_ID[s.style]);
+    this.tiles?.setOrtho(s.style === 'satellite');
     if (s.style === 'satellite') {
       this.terrain!.loadSatellite((f) => {
         this.satProgress = f;
@@ -326,6 +358,11 @@ export class App {
   // ---------------------------------------------------------------- pętla
   private frame(dt: number) {
     if (!this.terrain) return;
+    if (this.tiles) {
+      const cam = this.engine.camera;
+      cam.updateMatrixWorld();
+      if (this.tiles.update(cam, this.engine.exag, this.engine.canvas.clientHeight)) this.engine.dirty = true;
+    }
     const view = this.engine.view;
     const d = view.distance;
     const u = this.terrain.material.uniforms;
@@ -399,7 +436,7 @@ export class App {
   pointFromWorld(x: number, z: number): MeasurePoint {
     const dem = this.region!.dem;
     const [lon, lat] = dem.worldToLonLat(x, z);
-    return { x, z, e: dem.sampleWorld(x, z), lon, lat };
+    return { x, z, e: this.engine.heightAt(x, z), lon, lat };
   }
 
   private onMove(e: PointerEvent) {
@@ -496,7 +533,7 @@ export class App {
 
   selectPoint(x: number, z: number) {
     this.selection = { kind: 'point', point: this.pointFromWorld(x, z) };
-    this.setSelMarker(x, z, this.region!.dem.sampleWorld(x, z));
+    this.setSelMarker(x, z, this.engine.heightAt(x, z));
     this.changed();
   }
 
@@ -554,7 +591,7 @@ export class App {
     const el = document.createElement('div');
     el.className = 'marker';
     el.innerHTML = '<div class="marker-foot"></div>';
-    this.selMarker = this.overlay.add({ el, x, z, e });
+    this.selMarker = this.overlay.add({ el, x, z, e, lift: 0 });
   }
 
   // ---------------------------------------------------------------- narzędzia
@@ -583,7 +620,7 @@ export class App {
     }
     const px = snap ? snap.x : x, pz = snap ? snap.z : z;
     const [lon, lat] = dem.worldToLonLat(px, pz);
-    const wp: Waypoint = { id: Math.random().toString(36).slice(2, 8), x: px, z: pz, lon, lat, e: dem.sampleWorld(px, pz), snap, label: this.nearbyName(px, pz) };
+    const wp: Waypoint = { id: Math.random().toString(36).slice(2, 8), x: px, z: pz, lon, lat, e: this.engine.heightAt(px, pz), snap, label: this.nearbyName(px, pz) };
     const list = [...s.waypoints];
     if (index == null) list.push(wp); else list.splice(index, 0, wp);
     this.store.set({ waypoints: list, tool: 'route' });
@@ -598,10 +635,10 @@ export class App {
     if (s.routeMode === 'trails' && !snap) return;
     const px = snap ? snap.x : x, pz = snap ? snap.z : z;
     const [lon, lat] = dem.worldToLonLat(px, pz);
-    const list = s.waypoints.map((w) => (w.id === id ? { ...w, x: px, z: pz, lon, lat, e: dem.sampleWorld(px, pz), snap, label: final ? this.nearbyName(px, pz) : w.label } : w));
+    const list = s.waypoints.map((w) => (w.id === id ? { ...w, x: px, z: pz, lon, lat, e: this.engine.heightAt(px, pz), snap, label: final ? this.nearbyName(px, pz) : w.label } : w));
     this.store.set({ waypoints: list });
     const m = this.wpMarkers.get(id);
-    if (m) { m.x = px; m.z = pz; m.e = dem.sampleWorld(px, pz); }
+    if (m) { m.x = px; m.z = pz; m.e = this.engine.heightAt(px, pz); }
     if (final || s.routeMode === 'trails') this.scheduleRoute(final ? 0 : 60);
   }
 
@@ -690,7 +727,7 @@ export class App {
           pts.push({ lon: dem.gxToLon(gx), lat: dem.gyToLat(gy) });
         }
       }
-      const terrain = routeFromPolyline(dem, densify(pts, dem), 'terrain', 'Przez teren', 1.3);
+      const terrain = routeFromPolyline(dem, densify(pts, dem), 'terrain', 'Przez teren', 1.3, this.hLL);
       const routes: Route[] = [terrain];
       // porównanie ze szlakiem, jeśli punkty leżą blisko sieci
       const snaps = s.waypoints.map((w) => this.graph!.snap(w.x, w.z, 450));
@@ -822,7 +859,7 @@ export class App {
     let surf = 0, horiz = 0;
     for (let i = 0; i < preview.length - 1; i++) {
       const a = preview[i], b = preview[i + 1];
-      const pr = dem.profile(a.x, a.z, b.x, b.z);
+      const pr = dem.profile(a.x, a.z, b.x, b.z, undefined, this.hW);
       for (let k = 0; k < pr.d.length; k++) {
         if (i > 0 && k === 0) continue;
         const f = pr.len > 0 ? pr.d[k] / pr.len : 0;
@@ -837,7 +874,7 @@ export class App {
     let visible: boolean | null = null;
     if (preview.length >= 2) {
       const eye = 1.7;
-      const pr = dem.profile(A.x, A.z, B.x, B.z);
+      const pr = dem.profile(A.x, A.z, B.x, B.z, undefined, this.hW);
       visible = true;
       const h0 = A.e + eye, h1 = B.e + eye;
       for (let k = 1; k < pr.d.length - 1; k++) {
@@ -862,13 +899,13 @@ export class App {
       const el = document.createElement('div');
       el.className = 'marker';
       el.innerHTML = `<div class="mpt" title="Punkt ${i + 1}"></div>`;
-      this.mMarkers.push(this.overlay.add({ el, x: p.x, z: p.z, e: p.e }));
+      this.mMarkers.push(this.overlay.add({ el, x: p.x, z: p.z, e: p.e, lift: 0 }));
     });
     if (preview.length >= 2) {
       const el = document.createElement('div');
       el.className = 'marker';
       el.innerHTML = `<div class="mlabel">${fmtDist(surf)} · ${fmtSigned(B.e - A.e)}</div>`;
-      this.mMarkers.push(this.overlay.add({ el, x: B.x, z: B.z, e: B.e }));
+      this.mMarkers.push(this.overlay.add({ el, x: B.x, z: B.z, e: B.e, lift: 0 }));
     }
     if (s.measure.length >= 2 && (!this.cursor || s.tool !== 'measure')) this.updateProfile();
     else if (s.measure.length >= 2) this.updateProfileThrottled();
@@ -925,14 +962,14 @@ export class App {
       const dense: { lon: number; lat: number }[] = [];
       const dem = this.region!.dem;
       for (let i = 0; i < pts.length - 1; i++) {
-        const pr = dem.profile(pts[i].x, pts[i].z, pts[i + 1].x, pts[i + 1].z);
+        const pr = dem.profile(pts[i].x, pts[i].z, pts[i + 1].x, pts[i + 1].z, undefined, this.hW);
         for (let k = i ? 1 : 0; k < pr.d.length; k++) {
           const f = pr.len > 0 ? pr.d[k] / pr.len : 0;
           const [lon, lat] = dem.worldToLonLat(pts[i].x + (pts[i + 1].x - pts[i].x) * f, pts[i].z + (pts[i + 1].z - pts[i].z) * f);
           dense.push({ lon, lat });
         }
       }
-      const r = routeFromPolyline(dem, dense, 'terrain', 'Pomiar');
+      const r = routeFromPolyline(dem, dense, 'terrain', 'Pomiar', 1, this.hLL);
       this.profileTrack = r;
       let blockedAt: number | null = null;
       if (pts.length === 2) {
@@ -976,7 +1013,7 @@ export class App {
       const el = document.createElement('div');
       el.className = 'marker';
       el.innerHTML = '<div class="hovermark"></div>';
-      this.hoverMarker = this.overlay.add({ el, x: t.x[i], z: t.z[i], e: t.e[i] });
+      this.hoverMarker = this.overlay.add({ el, x: t.x[i], z: t.z[i], e: t.e[i], lift: 6 });
     }
     this.hoverMarker.x = t.x[i];
     this.hoverMarker.z = t.z[i];
@@ -988,7 +1025,6 @@ export class App {
   refreshMarkers() {
     if (!this.region) return;
     const s = this.store.state;
-    const dem = this.region.dem;
     // punkty trasy
     const alive = new Set(s.waypoints.map((w) => w.id));
     for (const [id, m] of this.wpMarkers) if (!alive.has(id)) { this.overlay.remove(m); this.wpMarkers.delete(id); }
@@ -998,7 +1034,7 @@ export class App {
         const el = document.createElement('div');
         el.className = 'marker';
         el.innerHTML = '<div class="wpm"><span></span></div>';
-        m = this.overlay.add({ el, x: w.x, z: w.z, e: w.e, dimOccluded: true });
+        m = this.overlay.add({ el, x: w.x, z: w.z, e: w.e, dimOccluded: true, lift: 0 });
         this.wpMarkers.set(w.id, m);
         this.bindDrag(el, w.id);
       }
@@ -1006,7 +1042,7 @@ export class App {
       const pin = m.el.querySelector('.wpm')!;
       pin.className = `wpm ${i === 0 ? 'wpm--start' : last ? 'wpm--end' : ''}`;
       pin.querySelector('span')!.textContent = i === 0 ? 'A' : last ? 'B' : String(i);
-      m.x = w.x; m.z = w.z; m.e = dem.sampleWorld(w.x, w.z);
+      m.x = w.x; m.z = w.z; m.e = this.engine.heightAt(w.x, w.z);
       m.hidden = s.tool !== 'route' && s.tool !== 'explore';
     });
     // punkt odniesienia
@@ -1016,7 +1052,7 @@ export class App {
       const el = document.createElement('div');
       el.className = 'marker';
       el.innerHTML = `<div class="pin"><div class="pin__label"><b>${fmtEle(s.ref.e)}</b> poziom 0</div><div class="pin__stem"></div><div class="pin__dot"></div></div>`;
-      this.refMarker = this.overlay.add({ el, x: s.ref.x, z: s.ref.z, e: s.ref.e });
+      this.refMarker = this.overlay.add({ el, x: s.ref.x, z: s.ref.z, e: s.ref.e, lift: 0 });
     }
     this.overlay.remove(this.vsMarker);
     this.vsMarker = null;
@@ -1024,7 +1060,7 @@ export class App {
       const el = document.createElement('div');
       el.className = 'marker';
       el.innerHTML = `<div class="pin pin--eye"><div class="pin__label"><b>${fmtEle(s.viewshed.point.e)}</b> + ${s.viewshed.eye.toLocaleString('pl-PL')} m</div><div class="pin__stem"></div><div class="pin__dot"></div></div>`;
-      this.vsMarker = this.overlay.add({ el, x: s.viewshed.point.x, z: s.viewshed.point.z, e: s.viewshed.point.e });
+      this.vsMarker = this.overlay.add({ el, x: s.viewshed.point.x, z: s.viewshed.point.z, e: s.viewshed.point.e, lift: 0 });
     }
     this.overlay.update(true);
   }
@@ -1184,7 +1220,7 @@ export class App {
       const pts = gpx.points.filter((p) => dem.inside(...dem.lonLatToWorld(p.lon, p.lat), 1));
       if (pts.length < 2) throw new Error('Ślad nie mieści się w obszarze regionu.');
       // wysokości z modelu terenu – spójne z profilem; oryginalne GPS bywają zaszumione
-      const route = routeFromPolyline(dem, pts.map((p) => ({ lon: p.lon, lat: p.lat })), 'gpx', gpx.name);
+      const route = routeFromPolyline(dem, pts.map((p) => ({ lon: p.lon, lat: p.lat })), 'gpx', gpx.name, 1, this.hLL);
       this.store.set({ gpx: route, tool: 'explore' });
       this.fitRoute(route);
       this.toast(`Wczytano „${gpx.name}” — ${fmtDist(route.stats.len2)}.`);

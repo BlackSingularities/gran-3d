@@ -36,12 +36,14 @@ const chrome = new Chrome(app, (id) => void switchRegion(id));
 app.switchRegion = switchRegion;
 
 let scaleTick = 0;
+let statTick = 0;
 app.listeners.push(() => {
   panel.render();
   chrome.update();
 });
 app.engine.onFrame(() => {
   if (!app.region) return;
+  if (++statTick % 20 === 0) chrome.updateTileStat();
   if (app.engine.isMoving) {
     chrome.update();
     if (++scaleTick % 6 === 0) chrome.updateScale();

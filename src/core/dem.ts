@@ -118,7 +118,8 @@ export class Dem {
    * Przecięcie promienia (w przestrzeni sceny z przewyższeniem `exag`) z terenem.
    * Zwraca punkt w metrach świata (y = wysokość rzeczywista) lub null.
    */
-  raycast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, exag: number) {
+  raycast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, exag: number, fine?: (x: number, z: number) => number) {
+    const H = fine ?? ((x: number, z: number) => this.sampleWorld(x, z));
     const top = this.max * exag + 50;
     let t = 0;
     // przesunięcie startu do górnej płaszczyzny ograniczającej
@@ -138,7 +139,7 @@ export class Dem {
         t += Math.max(minStep, this.mpp * 4);
         continue;
       }
-      const ground = this.sample(gx, gy) * exag;
+      const ground = H(x, z) * exag;
       const gap = y - ground;
       if (gap <= 0) {
         // bisekcja między prevT i t
@@ -147,11 +148,11 @@ export class Dem {
         for (let k = 0; k < 18; k++) {
           const m = (lo + hi) / 2;
           const yy = oy + dy * m;
-          const g = this.sampleWorld(ox + dx * m, oz + dz * m) * exag;
+          const g = H(ox + dx * m, oz + dz * m) * exag;
           if (yy - g > 0) lo = m; else hi = m;
         }
         const hx = ox + dx * hi, hz = oz + dz * hi;
-        return { x: hx, z: hz, y: this.sampleWorld(hx, hz), t: hi };
+        return { x: hx, z: hz, y: H(hx, hz), t: hi };
       }
       prevT = t;
       prevGap = gap;
@@ -163,14 +164,15 @@ export class Dem {
   /**
    * Profil terenu wzdłuż odcinka (w metrach świata) – do linii wzroku i pomiarów.
    */
-  profile(x0: number, z0: number, x1: number, z1: number, step = this.mpp * 0.5) {
+  profile(x0: number, z0: number, x1: number, z1: number, step = this.mpp * 0.5, fine?: (x: number, z: number) => number) {
+    const H = fine ?? ((x: number, z: number) => this.sampleWorld(x, z));
     const len = Math.hypot(x1 - x0, z1 - z0);
     const n = Math.max(2, Math.ceil(len / step) + 1);
     const d = new Float32Array(n), e = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const f = i / (n - 1);
       d[i] = f * len;
-      e[i] = this.sampleWorld(x0 + (x1 - x0) * f, z0 + (z1 - z0) * f);
+      e[i] = H(x0 + (x1 - x0) * f, z0 + (z1 - z0) * f);
     }
     return { d, e, len };
   }

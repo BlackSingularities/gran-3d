@@ -23,7 +23,7 @@ export class TerrainLayer {
   private satAbort: AbortController | null = null;
   satProgress = 0;
 
-  constructor(private renderer: THREE.WebGLRenderer, readonly dem: Dem, biome: Biome) {
+  constructor(private renderer: THREE.WebGLRenderer, readonly dem: Dem, biome: Biome, buildMesh = true) {
     const { w, h } = dem;
     this.demTex = new THREE.DataTexture(dem.data, w, h, THREE.RedFormat, THREE.FloatType);
     this.demTex.minFilter = this.demTex.magFilter = THREE.NearestFilter;
@@ -93,10 +93,12 @@ export class TerrainLayer {
         uBiome: { value: new THREE.Vector3(biome.forest, biome.shrub, biome.rock) },
         uLand: { value: blank },
         uLandOn: { value: 0 },
+        uNoiseAmt: { value: 1 },
       },
     });
 
-    this.mesh = new THREE.Mesh(this.buildGeometry(), this.material);
+    this.mesh = new THREE.Mesh(buildMesh ? this.buildGeometry() : new THREE.BufferGeometry(), this.material);
+    this.mesh.visible = buildMesh;
     this.mesh.frustumCulled = false;
 
     this.wallMaterial = new THREE.ShaderMaterial({
@@ -221,8 +223,10 @@ export class TerrainLayer {
   loadSatellite(onProgress: (f: number) => void) {
     if (this.satCanvas) return;
     const { dem } = this;
-    const z = dem.zoom + 1;
-    const W = dem.w * 2, H = dem.h * 2;
+    // mozaika Sentinel-2 ma rozdzielczość ~10 m – powyżej z13 nic nie zyskujemy
+    const z = Math.min(dem.zoom + 1, 13);
+    const k = 2 ** (z - dem.zoom);
+    const W = Math.round(dem.w * k), H = Math.round(dem.h * k);
     const canvas = document.createElement('canvas');
     canvas.width = W;
     canvas.height = H;
@@ -238,7 +242,7 @@ export class TerrainLayer {
     this.material.uniforms.uSatTex.value = this.satTex;
     this.material.uniforms.uSatReady.value = 1;
 
-    const ox = dem.px0 * 2, oy = dem.py0 * 2;
+    const ox = Math.round(dem.px0 * k), oy = Math.round(dem.py0 * k);
     const tx0 = Math.floor(ox / 256), tx1 = Math.floor((ox + W - 1) / 256);
     const ty0 = Math.floor(oy / 256), ty1 = Math.floor((oy + H - 1) / 256);
     const jobs: [number, number][] = [];
