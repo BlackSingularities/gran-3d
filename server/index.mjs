@@ -60,7 +60,7 @@ function listAreas() {
     const installed = fs.existsSync(path.join(dir, 'meta.json')) && fs.existsSync(path.join(dir, 'trails.json')) && fs.existsSync(path.join(dir, 'install.json'));
     const info = readJson(path.join(dir, 'install.json')) ?? {};
     if (installed && !sizeCache.has(e.name)) sizeCache.set(e.name, dirSize(dir));
-    out.push({ def, id: def.id, installed, level: info.level ?? null, date: info.date ?? def.created ?? null, bytes: installed ? sizeCache.get(e.name) : 0 });
+    out.push({ def, id: def.id, installed, level: info.level ?? null, lidarZoom: info.lidarZoom ?? null, date: info.date ?? def.created ?? null, bytes: installed ? sizeCache.get(e.name) : 0 });
   }
   return out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }

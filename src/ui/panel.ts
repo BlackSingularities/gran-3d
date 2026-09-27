@@ -477,7 +477,7 @@ export class Panel {
     return `${this.gfxSection()}
       <div class="section">
         <div class="section__title"><span class="kicker">Źródła danych</span></div>
-        <p class="note" style="margin-top:0">${a.tiles ? `Model terenu: <b>LiDAR</b> – NMT <b>GUGiK</b> (PL)${a.region!.def.hd?.lidar.includes('cz') ? ' i DMR 5G <b>ČÚZK</b> (CZ)' : ''}, kafle do ~${a.tiles.maxZ >= 15 ? 3 : 6} m; poza zasięgiem – <b>Terrarium</b>. Ortofoto: <b>GUGiK</b>, <b>ZBGIS</b>, <b>ČÚZK</b>.` : `Model terenu: <b>Terrarium</b> (Mapzen / AWS Open Data; SRTM, EU‑DEM), siatka ~${fmtInt(dem.mpp)} m.`} Szlaki, szczyty, schroniska: <b>© OpenStreetMap</b> (ODbL). Obraz satelitarny: <b>Sentinel‑2 cloudless 2020 © EOX</b> (CC BY‑NC‑SA 4.0). Czas przejścia wg reguły <b>PTTK</b> (15 min/km + 1 min/10 m podejścia) lub normy <b>DIN 33466</b>; punkty <b>GOT PTTK</b> wg reguły 1 pkt/km + 1 pkt/100 m podejścia.</p>
+        <p class="note" style="margin-top:0">${a.tiles ? `Model terenu: <b>LiDAR</b> – NMT <b>GUGiK</b> (PL)${a.region!.def.hd?.lidar.includes('cz') ? ' i DMR 5G <b>ČÚZK</b> (CZ)' : ''}, kafle do ~${a.tiles.maxZ >= 15 ? 3 : a.tiles.maxZ >= 14 ? 6 : 12} m; poza zasięgiem – <b>Terrarium</b>. Ortofoto: <b>GUGiK</b>, <b>ZBGIS</b>, <b>ČÚZK</b>.` : `Model terenu: <b>Terrarium</b> (Mapzen / AWS Open Data; SRTM, EU‑DEM), siatka ~${fmtInt(dem.mpp)} m.`} Szlaki, szczyty, schroniska: <b>© OpenStreetMap</b> (ODbL). Obraz satelitarny: <b>Sentinel‑2 cloudless 2020 © EOX</b> (CC BY‑NC‑SA 4.0). Czas przejścia wg reguły <b>PTTK</b> (15 min/km + 1 min/10 m podejścia) lub normy <b>DIN 33466</b>; punkty <b>GOT PTTK</b> wg reguły 1 pkt/km + 1 pkt/100 m podejścia.</p>
       </div>`;
   }
 
@@ -490,7 +490,7 @@ export class Panel {
     const segs = (k: string, opts: [number, string][], cur: number) =>
       `<div class="seg seg--sm">${opts.map(([v, l]) => `<button data-gfxs="${k}:${v}" class="${cur === v ? 'is-on' : ''}">${l}</button>`).join('')}</div>`;
     const t = a.tiles;
-    const full = t ? (t.maxZ >= 15 ? '3 m' : '6 m') : '';
+    const full = t ? (t.maxZ >= 15 ? '3 m' : t.maxZ >= 14 ? '6 m' : '12 m') : '';
     const tg = (k: string, label: string, on: boolean) => `<button class="toggle ${on ? 'is-on' : ''}" data-gfxt="${k}"><i></i>${label}</button>`;
     return `
       <div class="section">
@@ -498,7 +498,7 @@ export class Panel {
         <div class="seg">${presets}</div>
         <div class="slider"><label>Rozdzielczość renderu</label><output>${fmtInt(g.scale * 100)}%</output><input type="range" min="0.25" max="1" step="0.05" value="${g.scale}" data-gfx="scale"></div>
         ${t ? `<div class="slider"><label>Zasięg szczegółów terenu</label><output>${fmt1(g.lod)}×</output><input type="range" min="0.3" max="2.5" step="0.1" value="${g.lod}" data-gfx="lod"></div>
-        <div class="gfxrow"><span>Najdrobniejszy LiDAR</span>${segs('maxLevel', [[0, full], ...(t.maxZ >= 15 ? [[14, '6 m'] as [number, string]] : []), [13, '12 m'], [12, '25 m']], g.maxLevel >= t.maxZ ? 0 : g.maxLevel)}</div>` : ''}
+        <div class="gfxrow"><span>Najdrobniejszy LiDAR</span>${segs('maxLevel', [[0, full], ...(t.maxZ >= 15 ? [[14, '6 m'] as [number, string]] : []), ...(t.maxZ >= 14 ? [[13, '12 m'] as [number, string]] : []), [12, '25 m']], g.maxLevel >= t.maxZ ? 0 : g.maxLevel)}</div>` : ''}
         <div class="gfxrow"><span>Gęstość siatki kafla</span>${segs('mesh', [[32, '32'], [64, '64'], [128, '128']], g.mesh)}</div>
         <div class="gfxrow"><span>Zdjęcia lotnicze</span>${segs('ortho', [[256, '256'], [512, '512'], [1024, '1024 px']], g.ortho)}</div>
         <div class="slider"><label>Gęstość etykiet</label><output>${fmt1(g.labels)}×</output><input type="range" min="0.3" max="1.6" step="0.1" value="${g.labels}" data-gfx="labels"></div>

@@ -34,14 +34,14 @@ docker compose up -d     # pobrane kwadraty trafiają do wolumenu gran-data
 
 Poziomy pakietów:
 - **Standard**: globalny model terenu ~10–25 m (Terrarium), szlaki, szczyty, schroniska i pokrycie terenu z OpenStreetMap w całej Europie.
-- **LiDAR**: kafle terenu 3 m z NMT GUGiK (Polska) i DMR 5G ČÚZK (Czechy). Wystarczy, że źródło LiDAR obejmuje część kwadratu; reszta korzysta z modelu globalnego z płynnym przejściem.
+- **LiDAR**: kafle terenu z NMT GUGiK (Polska) i DMR 5G ČÚZK (Czechy) – **3 m** do 1500 km², **6 m** do 4000 km², **12 m** dla większych kwadratów (do 10 000 km²). Przetwarzanie odbywa się blokami ~6×6 km, więc zużycie pamięci nie zależy od wielkości kwadratu. Wystarczy, że źródło LiDAR obejmuje część kwadratu; reszta korzysta z modelu globalnego z płynnym przejściem.
 
 Każdy kwadrat ma własny `data/<id>/region.json` z granicami `bbox`, wybraną jakością i wykrytymi źródłami danych. Bez serwera aplikacja może nadal otwierać wcześniej przygotowane dane statyczne, ale nie utworzy nowych kwadratów.
 
 ## Funkcje
 
 ### Teren
-- **Model LiDAR ~3–6 m** z darmowych danych krajowych: **NMT GUGiK** (Polska, lotnicze skanowanie laserowe) i **DMR 5G ČÚZK** (Czechy). W kwadracie pokrytym tylko częściowo reszta korzysta z modelu globalnego, z płynnym przejściem na granicy.
+- **Model LiDAR 3–12 m** z darmowych danych krajowych: **NMT GUGiK** (Polska, lotnicze skanowanie laserowe) i **DMR 5G ČÚZK** (Czechy). W kwadracie pokrytym tylko częściowo reszta korzysta z modelu globalnego, z płynnym przejściem na granicy.
 - **Teren kaflowy z poziomami szczegółowości** (drzewo czwórkowe Web Mercator, kafle 259×259 z ramką, fartuchy maskujące szczeliny), doczytywany w wątkach roboczych wokół kamery; suwak szczegółowości w zakładce „Mapa i światło”.
 - **Ortofotomapa** z usług krajowych składana na każdy kafel: **GUGiK** (PL), **ZBGIS** (SK), **ČÚZK** (CZ) – do ~0,8 m/px; w tle mozaika Sentinel‑2.
 - **Realistyczne cieniowanie**: piętra roślinności (regiel, kosodrzewina, hale, turnie) zależne od wysokości, nachylenia i ekspozycji; **rzeczywiste pokrycie terenu z OSM** (stawy, lasy, kosodrzewina, piargi) wypiekane do maski rastrowej; mikrorzeźba proceduralna na skałach; odbicia nieba i odblaski słońca na wodzie.

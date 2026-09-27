@@ -66,12 +66,20 @@ export function validate(bbox: BBox, quality: Quality): string | null {
   return null;
 }
 
+/** Rozdzielczość LiDAR [m] dobierana do powierzchni (jak w scripts/bake-hd.mjs). */
+export const lidarRes = (km2: number) => (km2 > 4000 ? 12 : km2 > 1500 ? 6 : 3);
+export const lidarResFromZoom = (z?: number) => (z == null ? 3 : z >= 15 ? 3 : z >= 14 ? 6 : 12);
+
 /** Szacunkowy rozmiar (MB) i czas pobierania (min). */
 export function estimate(bbox: BBox, quality: Quality) {
   const { km2 } = areaKm2(bbox);
   const cov = coverageOf(bbox);
+  const res = lidarRes(km2);
   const base = 1 + km2 * (km2 > 500 ? 0.008 : 0.02);
-  const mb = quality === 'high' ? base + km2 * cov.lidar * 0.16 : base;
-  const min = quality === 'high' ? 1.5 + km2 * cov.lidar * 0.015 : 1 + km2 / 800;
-  return { km2, mb, min, lidar: cov.lidar };
+  const perKm2 = { 3: [0.19, 0.022], 6: [0.05, 0.007], 12: [0.013, 0.0025] }[res]!;
+  // LiDAR pobierany jest też kilka km poza granicą (bufor bloków)
+  const lf = Math.min(1, cov.lidar * 1.15);
+  const mb = quality === 'high' ? base + km2 * lf * perKm2[0] : base;
+  const min = quality === 'high' ? 1.5 + km2 / 900 + km2 * lf * perKm2[1] : 1 + km2 / 800;
+  return { km2, mb, min, lidar: cov.lidar, res };
 }

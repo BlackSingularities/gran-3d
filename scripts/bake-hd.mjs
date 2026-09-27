@@ -12,6 +12,7 @@ import path from 'node:path';
 import { PNG } from 'pngjs';
 import { fromArrayBuffer } from 'geotiff';
 import { toPuwg } from './lib/puwg.mjs';
+import { COVERAGE, areaKm2, inRing } from './lib/area.mjs';
 
 import { CACHE_DIR as CACHE, DATA_DIR as OUT, progress, selectRegions } from './lib/common.mjs';
 const UA = 'gran-trail-atlas/1.0 (https://github.com/BlackSingularities/gran-3d)';
@@ -101,7 +102,7 @@ async function coarseSampler(region, frame) {
 
 // ---------------------------------------------------------------- PL: GUGiK NMT (EPSG:2180)
 async function lidarPL(region, frame, F, M) {
-  const res = frame.zf >= 15 ? 3 : 6;
+  const res = frame.zf >= 15 ? 3 : frame.zf >= 14 ? 6 : 12;
   // zasięg regionu w PUWG-1992
   let e0 = Infinity, e1 = -Infinity, n0 = Infinity, n1 = -Infinity;
   for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) {
@@ -118,7 +119,6 @@ async function lidarPL(region, frame, F, M) {
   const CH = Math.round(5000 / res);
   const jobs = [];
   for (let cy = 0; cy < GH; cy += CH) for (let cx = 0; cx < GW; cx += CH) jobs.push([cx, cy]);
-  log(`PL NMT: ${GW}×${GH} px po ${res} m, ${jobs.length} fragmentów WCS`);
   let done = 0;
   await pool(jobs, 4, async ([cx, cy]) => {
     const w = Math.min(CH, GW - cx), h = Math.min(CH, GH - cy);
@@ -133,10 +133,7 @@ async function lidarPL(region, frame, F, M) {
       grid.set(src, (cy + y) * GW + cx);
     }
     done++;
-    process.stdout.write(`\r   PL: ${done}/${jobs.length}   `);
-    progress((done / jobs.length) * 0.55, `LiDAR GUGiK: ${done}/${jobs.length} fragmentów`);
   });
-  process.stdout.write('\n');
   // przeliczenie do siatki Web Mercator (próbki w narożnikach pikseli zf)
   let covered = 0;
   for (let j = 0; j < frame.H; j++) {
@@ -157,7 +154,7 @@ async function lidarPL(region, frame, F, M) {
       covered++;
     }
   }
-  log(`PL: pokrycie ${((covered / (frame.W * frame.H)) * 100).toFixed(1)}% siatki`);
+  return covered;
 }
 
 // ---------------------------------------------------------------- CZ: ČÚZK DMR 5G (Web Mercator)
@@ -165,7 +162,6 @@ async function lidarCZ(region, frame, F, M) {
   const CH = 4000;
   const jobs = [];
   for (let cy = 0; cy < frame.H; cy += CH) for (let cx = 0; cx < frame.W; cx += CH) jobs.push([cx, cy]);
-  log(`CZ DMR 5G: ${jobs.length} fragmentów`);
   let covered = 0, done = 0;
   await pool(jobs, 3, async ([cx, cy]) => {
     const w = Math.min(CH, frame.W - cx), h = Math.min(CH, frame.H - cy);
@@ -182,11 +178,8 @@ async function lidarCZ(region, frame, F, M) {
       if (v > -100 && !M[idx]) { F[idx] = v; M[idx] = 1; covered++; }
     }
     done++;
-    process.stdout.write(`\r   CZ: ${done}/${jobs.length}   `);
-    progress((done / jobs.length) * 0.3, `LiDAR ČÚZK: ${done}/${jobs.length} fragmentów`);
   });
-  process.stdout.write('\n');
-  log(`CZ: pokrycie ${((covered / (frame.W * frame.H)) * 100).toFixed(1)}% siatki`);
+  return covered;
 }
 
 // ---------------------------------------------------------------- łączenie
@@ -267,48 +260,40 @@ function encodeTile(level, tx, ty) {
   return { buf: PNG.sync.write(png, { colorType: 2, deflateLevel: 9, filterType: 4 }), mn, mx };
 }
 
-// ---------------------------------------------------------------- główny przebieg
-for (const region of regions) {
-  const hd = region.hd;
-  if (!hd) continue;
-  console.log(`\n▲ ${region.name} (HD z${hd.zoom}, LiDAR: ${hd.lidar.join(', ')})`);
-  const zr = region.zoom;
-  const [w, s, e, n] = region.bbox;
-  const px0 = Math.floor(lon2px(w, zr)), px1 = Math.ceil(lon2px(e, zr));
-  const py0 = Math.floor(lat2px(n, zr)), py1 = Math.ceil(lat2px(s, zr));
-  const k = 2 ** (hd.zoom - zr);
-  const frame = { zf: hd.zoom, X0: px0 * k, Y0: py0 * k, X1: px1 * k, Y1: py1 * k, W: (px1 - px0) * k + 1, H: (py1 - py0) * k + 1 };
-  log(`siatka HD: ${frame.W}×${frame.H} (${((frame.W * frame.H) / 1e6).toFixed(0)} mln próbek)`);
+// ---------------------------------------------------------------- główny przebieg (blokami)
+// Obszar dzielimy na bloki = kafle poziomu bazowego (zr). Każdy blok niezależnie pobiera LiDAR,
+// łączy go z tłem i zapisuje swoje kafle; w pamięci globalnie trzymamy tylko model poziomu zr+1.
+// Dzięki temu pamięć nie zależy od wielkości obszaru.
 
-  const F = new Float32Array(frame.W * frame.H);
-  const M = new Uint8Array(frame.W * frame.H);
-  for (const src of hd.lidar) {
-    if (src === 'pl') await lidarPL(region, frame, F, M);
-    if (src === 'cz') await lidarCZ(region, frame, F, M);
-  }
-  progress(0.6, 'Model globalny (tło)');
-  const coarse = await coarseSampler(region, frame);
-  progress(0.65, 'Łączenie danych');
+/** Rozdzielczość LiDAR dopasowana do powierzchni (czas pobierania i rozmiar danych). */
+function fineZoom(hd, km2) {
+  const z = km2 > 4000 ? 13 : km2 > 1500 ? 14 : 15;
+  return Math.min(hd.zoom, z);
+}
 
-  // Łączenie LiDAR z tłem. Poza pokryciem LiDAR dodajemy do tła poprawkę (LiDAR − tło)
-  // wygładzoną splotem znormalizowanym – grań na granicy państw nie „opada” do modelu zgrubnego.
-  const C = new Float32Array(F.length);
-  for (let j = 0; j < frame.H; j++) for (let i = 0; i < frame.W; i++) C[j * frame.W + i] = coarse(frame.X0 + i, frame.Y0 + j);
-  const mpp = 3 * 2 ** (15 - hd.zoom);
+function bilin(data, W, H, x, y) {
+  x = Math.max(0, Math.min(W - 1.001, x));
+  y = Math.max(0, Math.min(H - 1.001, y));
+  const xi = x | 0, yi = y | 0, fx = x - xi, fy = y - yi, i = yi * W + xi;
+  return (data[i] * (1 - fx) + data[i + 1] * fx) * (1 - fy) + (data[i + W] * (1 - fx) + data[i + W + 1] * fx) * fy;
+}
+
+/** Łączenie LiDAR z tłem w ramce bloku (splot znormalizowany przy granicy pokrycia). */
+function fuse(F, M, C, W, H, zf) {
+  const mpp = 3 * 2 ** (15 - zf);
   const Wm = new Float32Array(M.length), Dm = new Float32Array(M.length);
   for (let i = 0; i < M.length; i++) if (M[i]) { Wm[i] = 1; Dm[i] = F[i] - C[i]; }
-  const R2 = Math.round(90 / mpp);
-  const bw = boxBlur(boxBlur(Wm, frame.W, frame.H, R2), frame.W, frame.H, R2);
-  const bd = boxBlur(boxBlur(Dm, frame.W, frame.H, R2), frame.W, frame.H, R2);
+  const R2 = Math.max(2, Math.round(90 / mpp));
+  const bw = boxBlur(boxBlur(Wm, W, H, R2), W, H, R2);
+  const bd = boxBlur(boxBlur(Dm, W, H, R2), W, H, R2);
   for (let i = 0; i < M.length; i++) {
     if (M[i]) continue;
-    const reach = Math.min(1, bw[i] * 4); // zanika ~200 m od granicy pokrycia
+    const reach = Math.min(1, bw[i] * 4);
     F[i] = C[i] + (bw[i] > 1e-4 ? bd[i] / bw[i] : 0) * reach;
   }
-  // lekkie wygładzenie samej linii szwu
   const R = Math.max(1, Math.round(12 / mpp));
-  const edge = boxBlur(Wm, frame.W, frame.H, R);
-  const sm = boxBlur(F, frame.W, frame.H, R);
+  const edge = boxBlur(Wm, W, H, R);
+  const sm = boxBlur(F, W, H, R);
   for (let i = 0; i < M.length; i++) {
     const e = edge[i];
     if (e > 0.02 && e < 0.98) {
@@ -316,97 +301,153 @@ for (const region of regions) {
       F[i] = F[i] * (1 - t * 0.7) + sm[i] * t * 0.7;
     }
   }
+}
 
-  progress(0.72, 'Piramida kafli');
-  // piramida poziomów
-  const levels = {};
-  levels[hd.zoom] = { data: F, mask: M, W: frame.W, H: frame.H, X0: frame.X0, Y0: frame.Y0 };
-  for (let z = hd.zoom - 1; z >= zr; z--) {
-    const up = levels[z + 1];
-    const d = downsample(up.data, up.W, up.H);
-    levels[z] = { data: d.data, mask: maxpool(up.mask, up.W, up.H), W: d.W, H: d.H, X0: up.X0 / 2, Y0: up.Y0 / 2 };
-  }
+for (const region of regions) {
+  const hd = region.hd;
+  if (!hd) continue;
+  const zr = region.zoom;
+  const zg = zr + 1;
+  const km2 = areaKm2(region.bbox);
+  const zf = Math.max(zg, fineZoom(hd, km2));
+  console.log(`\n▲ ${region.name} (LiDAR z${zf}, ${Math.round(km2)} km², źródła: ${hd.lidar.join(', ')})`);
+  const [w, s, e, n] = region.bbox;
+  const px0 = Math.floor(lon2px(w, zr)), px1 = Math.ceil(lon2px(e, zr));
+  const py0 = Math.floor(lat2px(n, zr)), py1 = Math.ceil(lat2px(s, zr));
+  const k = 2 ** (zf - zr);
+  const frame = { zf, X0: px0 * k, Y0: py0 * k, X1: px1 * k, Y1: py1 * k };
+  progress(0.02, 'Model globalny (tło)');
+  const coarse = await coarseSampler(region, frame);
 
-  // wybór kafli: niskie poziomy w całości, wysokie tylko z pokryciem LiDAR (+ rodzeństwo)
+  // model poziomu zg (zr+1) – cały obszar w pamięci
+  const gW = (px1 - px0) * 2 + 1, gH = (py1 - py0) * 2 + 1, gX0 = px0 * 2, gY0 = py0 * 2;
+  const kg = 2 ** (zf - zg);
+  const G = new Float32Array(gW * gH);
+  for (let j = 0; j < gH; j++) for (let i = 0; i < gW; i++) G[j * gW + i] = coarse((gX0 + i) * kg, (gY0 + j) * kg);
+
+  // punkty do przeliczenia wysokości (szlaki, szczyty) – przypisane do bloków
   const dir = path.join(OUT, region.id);
+  const trails = JSON.parse(fs.readFileSync(path.join(dir, 'trails.json'), 'utf8'));
+  const pois = JSON.parse(fs.readFileSync(path.join(dir, 'pois.json'), 'utf8'));
+  const refs = new Map();
+  const addRef = (lon, lat, set) => {
+    const X = lon2px(lon, zf), Y = lat2px(lat, zf);
+    set(bilin(G, gW, gH, X / kg - gX0, Y / kg - gY0));
+    const key = `${Math.floor(X / (256 * k))},${Math.floor(Y / (256 * k))}`;
+    if (!refs.has(key)) refs.set(key, []);
+    refs.get(key).push({ X, Y, set });
+  };
+  for (const nd of trails.nodes) addRef(nd[0], nd[1], (v) => (nd[2] = +v.toFixed(1)));
+  for (const ed of trails.edges) for (let i = 0; i < ed.g.length; i += 3) addRef(ed.g[i], ed.g[i + 1], (v) => (ed.g[i + 2] = +v.toFixed(1)));
+  for (const p of pois) addRef(p.lon, p.lat, (v) => (p.d = +v.toFixed(1)));
+
+  // bloki z możliwym pokryciem LiDAR
+  const lidarCountries = COVERAGE.filter((c) => c.lidar && hd.lidar.includes(c.lidar));
+  const blocks = [];
+  const mppR = (156543.034 * Math.cos((((s + n) / 2) * Math.PI) / 180)) / 2 ** zr;
+  const bufPx = Math.ceil(5000 / mppR);
+  for (let ty = Math.floor(py0 / 256); ty <= Math.floor((py1 - 1) / 256); ty++) {
+    for (let tx = Math.floor(px0 / 256); tx <= Math.floor((px1 - 1) / 256); tx++) {
+      // test pokrycia na siatce 9×9 z zapasem 5 km (uproszczone granice bywają przesunięte);
+      // bloki bez danych i tak odpadają po pobraniu
+      const lw = px2lon(tx * 256 - bufPx, zr), le = px2lon(tx * 256 + 256 + bufPx, zr);
+      const ln = px2lat(ty * 256 - bufPx, zr), ls = px2lat(ty * 256 + 256 + bufPx, zr);
+      let hit = false;
+      for (let j = 0; j <= 8 && !hit; j++) for (let i = 0; i <= 8 && !hit; i++) {
+        const lon = lw + ((le - lw) * i) / 8, lat = ls + ((ln - ls) * j) / 8;
+        if (lidarCountries.some((c) => inRing(lon, lat, c.ring))) hit = true;
+      }
+      if (hit) blocks.push([tx, ty]);
+    }
+  }
   const tdir = path.join(dir, 'tiles');
   fs.rmSync(tdir, { recursive: true, force: true });
-  const index = { minZ: zr, maxZ: hd.zoom, tiles: {} };
-  const full = zr + 1;
-  let wanted = new Set();
-  for (let z = hd.zoom; z > full; z--) {
-    const L = levels[z];
-    const next = new Set();
-    const tx0 = Math.floor(L.X0 / 256), tx1 = Math.floor((L.X0 + L.W - 2) / 256);
-    const ty0 = Math.floor(L.Y0 / 256), ty1 = Math.floor((L.Y0 + L.H - 2) / 256);
-    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
-      let cov = wanted.has(`${tx},${ty}`);
-      if (!cov) {
-        for (let j = 0; j < 256 && !cov; j += 4) {
-          const gy = ty * 256 + j - L.Y0;
-          if (gy < 0 || gy >= L.H) continue;
-          for (let i = 0; i < 256; i += 4) {
-            const gx = tx * 256 + i - L.X0;
-            if (gx >= 0 && gx < L.W && L.mask[gy * L.W + gx]) { cov = true; break; }
+  const index = { minZ: zr, maxZ: zf, tiles: {} };
+  let bytes = 0, count = 0, withData = 0;
+  const writeTile = (L, z, tx, ty) => {
+    const { buf, mn, mx } = encodeTile(L, tx, ty);
+    const p = path.join(tdir, String(z), String(tx));
+    fs.mkdirSync(p, { recursive: true });
+    fs.writeFileSync(path.join(p, `${ty}.png`), buf);
+    index.tiles[`${z}/${tx}/${ty}`] = [Math.round(mn * 10) / 10, Math.round(mx * 10) / 10];
+    bytes += buf.length;
+    count++;
+  };
+  log(`bloki z LiDAR: ${blocks.length}`);
+
+  const MARGIN = 64;
+  const B = 256 * k;
+  let bi = 0;
+  for (const [tx, ty] of blocks) {
+    bi++;
+    progress(0.08 + (bi / Math.max(1, blocks.length)) * 0.8, `LiDAR: blok ${bi}/${blocks.length}`);
+    const bf = { zf, X0: tx * B - MARGIN, Y0: ty * B - MARGIN, W: B + 2 * MARGIN + 1, H: B + 2 * MARGIN + 1 };
+    bf.X1 = bf.X0 + bf.W;
+    bf.Y1 = bf.Y0 + bf.H;
+    const pseudo = { bbox: [px2lon(bf.X0, zf), px2lat(bf.Y1, zf), px2lon(bf.X1, zf), px2lat(bf.Y0, zf)] };
+    const F = new Float32Array(bf.W * bf.H);
+    const M = new Uint8Array(bf.W * bf.H);
+    let covered = 0;
+    for (const src of hd.lidar) {
+      if (src === 'pl') covered += await lidarPL(pseudo, bf, F, M);
+      if (src === 'cz') covered += await lidarCZ(pseudo, bf, F, M);
+    }
+    if (CLEAN) for (const f of bigFiles.splice(0)) fs.rmSync(path.join(CACHE, f), { force: true });
+    if (!covered) continue;
+    withData++;
+    const C = new Float32Array(F.length);
+    for (let j = 0; j < bf.H; j++) for (let i = 0; i < bf.W; i++) C[j * bf.W + i] = coarse(bf.X0 + i, bf.Y0 + j);
+    fuse(F, M, C, bf.W, bf.H, zf);
+
+    // piramida bloku: zf … zg
+    let L = { data: F, W: bf.W, H: bf.H, X0: bf.X0, Y0: bf.Y0 };
+    for (let z = zf; z >= zg; z--) {
+      const n = 2 ** (z - zr);
+      if (z > zg) {
+        for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) writeTile(L, z, tx * n + i, ty * n + j);
+        const d = downsample(L.data, L.W, L.H);
+        L = { data: d.data, W: d.W, H: d.H, X0: L.X0 / 2, Y0: L.Y0 / 2 };
+      } else {
+        // wnętrze bloku na poziomie zg → model globalny
+        for (let j = 0; j < L.H; j++) {
+          const gy = L.Y0 + j - gY0;
+          if (gy < 0 || gy >= gH) continue;
+          const by = L.Y0 + j - ty * 512;
+          if (by < 0 || by > 512) continue;
+          for (let i = 0; i < L.W; i++) {
+            const bx = L.X0 + i - tx * 512;
+            if (bx < 0 || bx > 512) continue;
+            const gx = L.X0 + i - gX0;
+            if (gx < 0 || gx >= gW) continue;
+            G[gy * gW + gx] = L.data[j * L.W + i];
           }
         }
       }
-      if (cov) next.add(`${tx >> 1},${ty >> 1}`);
     }
-    // wszystkie dzieci rodziców z pokryciem (pełne czwórki)
-    const list = [];
-    for (const p of next) {
-      const [x, y] = p.split(',').map(Number);
-      for (let b = 0; b < 2; b++) for (let a = 0; a < 2; a++) list.push([2 * x + a, 2 * y + b]);
-    }
-    levels[z].list = list;
-    wanted = next;
+    // szlaki i szczyty w tym bloku – z pełnej rozdzielczości
+    for (const r of refs.get(`${tx},${ty}`) ?? []) r.set(bilin(F, bf.W, bf.H, r.X - bf.X0, r.Y - bf.Y0));
   }
-  for (let z = zr; z <= full; z++) {
-    const L = levels[z];
-    const list = [];
+  log(`bloki z danymi LiDAR: ${withData}/${blocks.length}`);
+
+  // poziomy zg i zr z modelu globalnego (wszystkie kafle obszaru)
+  progress(0.9, 'Kafle poziomów zgrubnych');
+  const LG = { data: G, W: gW, H: gH, X0: gX0, Y0: gY0 };
+  const d = downsample(G, gW, gH);
+  const LR = { data: d.data, W: d.W, H: d.H, X0: px0, Y0: py0 };
+  for (const [L, z] of [[LR, zr], [LG, zg]]) {
     for (let ty = Math.floor(L.Y0 / 256); ty <= Math.floor((L.Y0 + L.H - 2) / 256); ty++)
-      for (let tx = Math.floor(L.X0 / 256); tx <= Math.floor((L.X0 + L.W - 2) / 256); tx++) list.push([tx, ty]);
-    // pełne czwórki także na poziomie „full”, jeśli rodzic istnieje
-    L.list = list;
-  }
-  let bytes = 0, count = 0;
-  for (let z = zr; z <= hd.zoom; z++) {
-    const L = levels[z];
-    for (const [tx, ty] of L.list) {
-      const { buf, mn, mx } = encodeTile(L, tx, ty);
-      const p = path.join(tdir, String(z), String(tx));
-      fs.mkdirSync(p, { recursive: true });
-      fs.writeFileSync(path.join(p, `${ty}.png`), buf);
-      index.tiles[`${z}/${tx}/${ty}`] = [Math.round(mn * 10) / 10, Math.round(mx * 10) / 10];
-      bytes += buf.length;
-      count++;
-    }
-    log(`z${z}: ${L.list.length} kafli`);
-    progress(0.75 + ((z - zr + 1) / (hd.zoom - zr + 1)) * 0.18, `Kafle poziomu ${z}`);
+      for (let tx = Math.floor(L.X0 / 256); tx <= Math.floor((L.X0 + L.W - 2) / 256); tx++) writeTile(L, z, tx, ty);
   }
   fs.writeFileSync(path.join(tdir, 'index.json'), JSON.stringify(index));
   log(`kafle: ${count}, ${(bytes / 1024 / 1024).toFixed(1)} MB`);
 
-  // sampler HD (konwencja krawędziowa zf) dla szlaków i punktów
-  const hdAt = (lon, lat) => {
-    let x = lon2px(lon, hd.zoom) - frame.X0, y = lat2px(lat, hd.zoom) - frame.Y0;
-    x = Math.max(0, Math.min(frame.W - 1.001, x));
-    y = Math.max(0, Math.min(frame.H - 1.001, y));
-    const xi = x | 0, yi = y | 0, fx = x - xi, fy = y - yi, i = yi * frame.W + xi;
-    return (F[i] * (1 - fx) + F[i + 1] * fx) * (1 - fy) + (F[i + frame.W] * (1 - fx) + F[i + frame.W + 1] * fx) * fy;
-  };
-
-  // nowy model analityczny: zoom+1, środki komórek
-  const zg = zr + 1;
-  const L = levels[zg];
+  // model analityczny (zg, środki komórek)
   const gw = (px1 - px0) * 2, gh = (py1 - py0) * 2;
   const q = new Uint16Array(gw * gh);
   let mn = Infinity, mx = -Infinity;
   for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
-    // środek komórki = współrzędna krawędziowa x+0.5 → średnia sąsiednich próbek
-    const i = y * L.W + x;
-    const h = (L.data[i] + L.data[i + 1] + L.data[i + L.W] + L.data[i + L.W + 1]) / 4;
+    const i = y * gW + x;
+    const h = (G[i] + G[i + 1] + G[i + gW] + G[i + gW + 1]) / 4;
     q[y * gw + x] = Math.round(Math.max(0, h) * 10);
     if (h < mn) mn = h;
     if (h > mx) mx = h;
@@ -415,7 +456,7 @@ for (const region of regions) {
   const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8'));
   Object.assign(meta, {
     width: gw, height: gh, zoom: zg, px0: px0 * 2, py0: py0 * 2, min: mn, max: mx,
-    hd: { minZ: zr, maxZ: hd.zoom, lidar: hd.lidar, ortho: hd.ortho },
+    hd: { minZ: zr, maxZ: zf, lidar: hd.lidar, ortho: hd.ortho },
     baked: new Date().toISOString(),
     sources: [
       'Terrarium elevation tiles (Mapzen / AWS Open Data)',
@@ -425,19 +466,11 @@ for (const region of regions) {
     ],
   });
   fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify(meta));
-  log(`dem.bin: ${gw}×${gh}, ${mn.toFixed(0)}–${mx.toFixed(0)} m`);
-
-  // szlaki i punkty: wysokości z modelu HD
-  const trails = JSON.parse(fs.readFileSync(path.join(dir, 'trails.json'), 'utf8'));
-  for (const nd of trails.nodes) nd[2] = +hdAt(nd[0], nd[1]).toFixed(1);
-  for (const ed of trails.edges) for (let i = 0; i < ed.g.length; i += 3) ed.g[i + 2] = +hdAt(ed.g[i], ed.g[i + 1]).toFixed(1);
   fs.writeFileSync(path.join(dir, 'trails.json'), JSON.stringify(trails));
-  const pois = JSON.parse(fs.readFileSync(path.join(dir, 'pois.json'), 'utf8'));
-  for (const p of pois) p.d = +hdAt(p.lon, p.lat).toFixed(1);
   fs.writeFileSync(path.join(dir, 'pois.json'), JSON.stringify(pois));
-  const peak = pois.find((p) => p.t === 'peak');
+  log(`dem.bin: ${gw}×${gh}, ${mn.toFixed(0)}–${mx.toFixed(0)} m`);
+  const peak = [...pois].filter((p) => p.t === 'peak').sort((a, b) => (b.e ?? b.d) - (a.e ?? a.d))[0];
   if (peak) log(`kontrola: ${peak.n} OSM ${peak.e} m / model HD ${peak.d} m`);
-  fs.writeFileSync(path.join(dir, 'install.json'), JSON.stringify({ level: 'hd', date: new Date().toISOString() }));
-  if (CLEAN) for (const f of bigFiles.splice(0)) fs.rmSync(path.join(CACHE, f), { force: true });
+  fs.writeFileSync(path.join(dir, 'install.json'), JSON.stringify({ level: 'hd', lidarZoom: zf, date: new Date().toISOString() }));
   progress(1, 'Gotowe');
 }

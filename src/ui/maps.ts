@@ -1,5 +1,5 @@
 import { escapeHtml } from '../app';
-import { estimate, getCoverage, loadCoverage, validate, type BBox, type Quality } from '../core/area';
+import { estimate, getCoverage, loadCoverage, validate, type BBox, type Quality, lidarResFromZoom } from '../core/area';
 import { fmtInt } from '../core/geo';
 import { CATALOG, initCatalog, REGIONS, SERVER_MODE, STATUS, type RegionDef } from '../core/region';
 import { ICON } from './icons';
@@ -19,6 +19,7 @@ interface AreaStatus {
   def: RegionDef;
   installed: boolean;
   level: 'base' | 'hd' | null;
+  lidarZoom?: number;
   date: string | null;
   bytes: number;
 }
@@ -322,6 +323,8 @@ export class MapsManager {
     if (this.quality === 'high' && highError) this.quality = 'normal';
     this.el.querySelectorAll<HTMLElement>('[data-quality]').forEach((b) => b.classList.toggle('is-on', b.dataset.quality === this.quality));
     const info = estimate(this.selection, this.quality);
+    const hs = high.querySelector('small');
+    if (hs) hs.textContent = `${info.res} m · tylko Polska i Czechy`;
     const names = Object.entries(this.countryFractions(this.selection)).filter(([, f]) => f > 0.01).map(([c]) => COUNTRY[c] ?? c);
     const error = this.quality === 'high' ? highError : normalError;
     box.innerHTML = `<div class="areaform__numbers">
@@ -374,7 +377,7 @@ export class MapsManager {
       status = '<div class="mcard__job">W kolejce…</div>';
       actions = `<button class="btn btn--ghost" data-cancel="${a.id}">Anuluj</button>`;
     } else if (a.installed) {
-      status = `<div class="mcard__ok">${ICON.pin}<b>${a.level === 'hd' ? 'LiDAR 3 m' : 'Standard'}</b>${a.bytes ? ` · ${mb(a.bytes / 1048576)}` : ''}</div>`;
+      status = `<div class="mcard__ok">${ICON.pin}<b>${a.level === 'hd' ? `LiDAR ${lidarResFromZoom(a.lidarZoom)} m` : 'Standard'}</b>${a.bytes ? ` · ${mb(a.bytes / 1048576)}` : ''}</div>`;
       actions = `<button class="btn btn--primary" data-open="${a.id}">Otwórz</button><button class="btn btn--ghost btn--icon" title="Usuń mapę" data-remove="${a.id}">${ICON.trash}</button>`;
     }
     const countries = (a.def.countries ?? []).map((c) => COUNTRY[c] ?? c).join(' · ');

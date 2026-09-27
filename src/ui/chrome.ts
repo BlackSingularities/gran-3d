@@ -153,8 +153,8 @@ export class Chrome {
     if (!t) { el.innerHTML = ''; return; }
     const n = t.loading, o = a.store.state.style === 'satellite' ? t.orthoLoading : 0;
     const html = n + o > 0
-      ? `<span class="spinner"></span>LiDAR <b>${t.maxZ >= 15 ? '3 m' : '6 m'}</b> · doczytywanie ${n ? `${n} kafli` : ''}${n && o ? ', ' : ''}${o ? `${o} zdjęć` : ''}`
-      : `LiDAR <b>${t.maxZ >= 15 ? '3 m' : '6 m'}</b>`;
+      ? `<span class="spinner"></span>LiDAR <b>${t.maxZ >= 15 ? '3 m' : t.maxZ >= 14 ? '6 m' : '12 m'}</b> · doczytywanie ${n ? `${n} kafli` : ''}${n && o ? ', ' : ''}${o ? `${o} zdjęć` : ''}`
+      : `LiDAR <b>${t.maxZ >= 15 ? '3 m' : t.maxZ >= 14 ? '6 m' : '12 m'}</b>`;
     if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; }
   }
 
