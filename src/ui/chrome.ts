@@ -8,7 +8,7 @@ import type { Lens, MeasurePoint, Tool } from '../core/store';
 import { ALT_COLORS } from '../scene/routes';
 import { TRAIL_NAME_PL } from '../scene/trails';
 import { ICON, POI_ICON, POI_TYPE_PL } from './icons';
-import { fmtDuration, type BakeJob } from './maps';
+import { fmtDuration, type BakeExtra, type BakeJob } from './maps';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -67,7 +67,7 @@ export class Chrome {
     app.openCtx = (x, y, p) => this.openCtx(x, y, p);
     $('compass').addEventListener('click', () => app.engine.flyTo({ heading: 0 }, 800));
     $('attrib').innerHTML =
-      'LiDAR i ortofoto: © <a href="https://www.geoportal.gov.pl" target="_blank" rel="noopener">GUGiK</a>, © ČÚZK, © ÚGKK SR · Teren: Terrarium/AWS · Szlaki: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · Sentinel‑2 © EOX';
+      'LiDAR i ortofoto: © <a href="https://www.geoportal.gov.pl" target="_blank" rel="noopener">GUGiK</a>, © ČÚZK, © ÚGKK SR, © IGN, © swisstopo, © BEV, © ARSO, © Prov. Bozen · Teren: Terrarium/AWS · Szlaki: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · Sentinel‑2 © EOX';
     const open = document.createElement('button');
     open.id = 'panel-open';
     open.innerHTML = `${ICON.layers} Panel`;
@@ -141,7 +141,7 @@ export class Chrome {
   }
 
   /** Pasek postępu wypiekania obszaru – widoczny w całej aplikacji. */
-  setJob(job: BakeJob | null, last: BakeJob | null) {
+  setJob(job: BakeJob | null, last: BakeJob | null, extra: BakeExtra = { queued: [], lidar: [] }) {
     let el = document.getElementById('jobpill');
     if (!el) {
       el = document.createElement('button');
@@ -152,8 +152,22 @@ export class Chrome {
     }
     const recent = last && last.finished && Date.now() - last.finished < 8000 ? last : null;
     const j = job ?? recent;
+    // dodatkowe wiersze: bloki LiDAR i kolejka okolic
+    const rows: string[] = [];
+    for (const b of extra.lidar.slice(0, 4)) {
+      rows.push(`<span class="jobpill__row"><span class="spinner"></span><b>LiDAR ${b.sources.map((x) => x.toUpperCase()).join('+') || '…'}</b> ${b.lat.toFixed(2)}° ${b.lon.toFixed(2)}° · ${escapeHtml(b.stage)} · ${fmtDuration(b.elapsed)}</span>`);
+    }
+    if (extra.lidar.length > 4) rows.push(`<span class="jobpill__row">+ ${extra.lidar.length - 4} bloków LiDAR</span>`);
+    const bg = extra.queued.filter((q) => q.prefetch).length, fg = extra.queued.length - bg;
+    if (fg || bg) rows.push(`<span class="jobpill__row">W kolejce: ${[fg ? `${fg} okolic${fg === 1 ? 'a' : 'e'}` : '', bg ? `${bg} sąsiednich w tle` : ''].filter(Boolean).join(', ')}</span>`);
+    const extraHtml = rows.length ? `<span class="jobpill__rows">${rows.join('')}</span>` : '';
     if (!j) {
-      el.classList.remove('is-on');
+      if (rows.length) {
+        el.classList.add('is-on');
+        el.classList.remove('is-done', 'is-err');
+        const html = `<span class="jobpill__ring"><span class="spinner"></span></span><span class="jobpill__main"><b>Doczytywanie terenu</b><small>szczegółowy model wysokości</small>${extraHtml}</span>`;
+        if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; }
+      } else el.classList.remove('is-on');
       return;
     }
     el.classList.add('is-on');
@@ -164,11 +178,11 @@ export class Chrome {
     const res = j.res ? `LiDAR ${j.res} m` : 'Standard';
     const html = job
       ? `<span class="jobpill__ring" style="--p:${pct}"><i>${pct}%</i></span>
-         <span class="jobpill__main"><b>Wypiekanie: ${title}</b><small>${escapeHtml(j.label)} · ${res}${j.km2 ? ` · ${fmtInt(j.km2)} km²` : ''}</small></span>
+         <span class="jobpill__main"><b>${j.prefetch ? 'W tle' : 'Wypiekanie'}: ${title}</b><small>${escapeHtml(j.label)} · ${res}${j.km2 ? ` · ${fmtInt(j.km2)} km²` : ''}</small>${extraHtml}</span>
          <span class="jobpill__time"><b>${j.eta != null ? `~${fmtDuration(j.eta)}` : '…'}</b><small>${fmtDuration(j.elapsed ?? 0)} od startu</small></span>
          <i class="jobpill__bar" style="width:${pct}%"></i>`
       : j.state === 'done'
-        ? `<span class="jobpill__ring is-ok">✓</span><span class="jobpill__main"><b>Gotowe: ${title}</b><small>${res} · otwórz z listy obszarów</small></span>`
+        ? `<span class="jobpill__ring is-ok">✓</span><span class="jobpill__main"><b>Gotowe: ${title}</b><small>${res}</small>${extraHtml}</span>`
         : `<span class="jobpill__ring is-bad">!</span><span class="jobpill__main"><b>Nie udało się: ${title}</b><small>${escapeHtml(j.error ?? '')}</small></span>`;
     if (el.dataset.h !== html) {
       el.dataset.h = html;

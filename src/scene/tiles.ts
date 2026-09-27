@@ -296,12 +296,16 @@ export class TileTerrain {
     const lim = this.maxLevel ? Math.min(this.maxLevel, this.topZ) : this.topZ;
     const K = 2.1 * this.quality * Math.max(0.6, viewH / 900) * (38 / camera.fov);
     const render = new Set<TNode>();
+    // widok pod kątem: najdrobniejsze kafle (LiDAR z14–z15) tylko w pobliżu kamery –
+    // daleko przy horyzoncie i tak nie widać różnicy, a kosztują pobieranie i wypiekanie
+    const above = Math.max(80, cam.y - (this.heightAt(cam.x, cam.z) ?? 0) * exag);
+    const detailOk = (kz: number, d: number) => kz <= 13 || d < Math.min(kz >= 15 ? 7000 : 18000, above * (kz >= 15 ? 5 : 12));
     const visit = (n: TNode) => {
       const box = this.worldBox(n, exag, this.tmpBox);
       if (!this.frustum.intersectsBox(box)) return;
       n.used = this.frame;
       const d = box.distanceToPoint(cam);
-      const kids = d < K * n.size && n.z < lim ? this.children(n) : null;
+      const kids = d < K * n.size && n.z < lim && detailOk(n.z + 1, d) ? this.children(n) : null;
       if (kids) {
         let ok = true;
         for (const k of kids) {

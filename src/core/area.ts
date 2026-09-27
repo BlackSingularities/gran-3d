@@ -62,7 +62,7 @@ export function validate(bbox: BBox, quality: Quality): string | null {
   if (km2 > LIMITS[quality]) return `Obszar za duży dla tej jakości – zmniejsz zaznaczenie do ${LIMITS[quality]} km².`;
   const cov = coverageOf(bbox);
   if (cov.any < 0.5) return 'Zaznacz obszar lądowy w obsługiwanej części Europy.';
-  if (quality === 'high' && cov.lidar <= 0) return 'LiDAR musi obejmować choć część zaznaczenia – jest dostępny w Polsce i Czechach.';
+  if (quality === 'high' && cov.lidar <= 0) return 'LiDAR musi obejmować choć część zaznaczenia – jest dostępny w Polsce, Czechach, Francji, Szwajcarii, Austrii, Słowenii i Południowym Tyrolu.';
   return null;
 }
 

@@ -18,6 +18,13 @@ interface Job {
   elapsed?: number;
   eta?: number | null;
   finished?: number | null;
+  prefetch?: boolean;
+}
+
+/** Praca serwera poza głównym zadaniem: kolejka okolic i bloki LiDAR. */
+export interface BakeExtra {
+  queued: { id: string; prefetch: boolean; sector: boolean }[];
+  lidar: { lon: number; lat: number; stage: string; sources: string[]; elapsed: number }[];
 }
 
 /** Czas w sekundach → „4 min 20 s” / „1 h 05 min”. */
@@ -31,6 +38,7 @@ export function fmtDuration(sec: number) {
 }
 
 export type { Job as BakeJob };
+
 
 interface AreaStatus {
   id: string;
@@ -49,6 +57,8 @@ interface ApiStatus {
   job: Job | null;
   queue: { id: string; level: string }[];
   last: Job | null;
+  queued?: BakeExtra['queued'];
+  lidar?: BakeExtra['lidar'];
 }
 
 const TOKEN_KEY = 'gran.adminToken';
@@ -90,14 +100,14 @@ export class MapsManager {
   onChange: () => void = () => {};
   onOpen: (id: string) => void = () => {};
   /** stan wypiekania – dla paska postępu w aplikacji */
-  onJob: (job: Job | null, last: Job | null) => void = () => {};
+  onJob: (job: Job | null, last: Job | null, extra: BakeExtra) => void = () => {};
   private lastPoll = 0;
 
   constructor() {
     // odpytywanie serwera także przy zamkniętym oknie: gęsto w trakcie zadania, rzadko poza nim
     setInterval(() => {
       if (!SERVER_MODE || this.isOpen) return;
-      const busy = !!this.api?.job;
+      const busy = !!this.api?.job || !!this.api?.lidar?.length || !!this.api?.queued?.length;
       if (busy || Date.now() - this.lastPoll > 5000) void this.refresh();
     }, 1500);
     this.el = document.createElement('div');
@@ -175,7 +185,7 @@ export class MapsManager {
       this.lastDone = `${last.id}:${last.level}`;
       if (!fresh || !before.has(last.id)) this.onInstalled(last.id, before.size === 0);
     }
-    this.onJob(this.api?.job ?? null, this.api?.last ?? null);
+    this.onJob(this.api?.job ?? null, this.api?.last ?? null, { queued: this.api?.queued ?? [], lidar: this.api?.lidar ?? [] });
     const now = new Set(REGIONS.map((r) => r.id));
     if (before.size !== now.size || [...now].some((id) => !before.has(id))) this.onChange();
     if (!this.el.hidden && this.built) this.renderStatus();

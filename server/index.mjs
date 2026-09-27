@@ -15,7 +15,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { CACHE_DIR, DATA_DIR, ROOT } from '../scripts/lib/common.mjs';
 import { LIMITS, areaKm2, deriveRegion, slug, validate } from '../scripts/lib/area.mjs';
-import { getTile, lidarBusy, prefetchBase, tileWaiting } from '../scripts/lib/tileservice.mjs';
+import { getTile, lidarBusy, lidarJobs, prefetchBase, tileWaiting } from '../scripts/lib/tileservice.mjs';
 import { collectGarbage, touch } from '../scripts/lib/cachegc.mjs';
 import { lat2px, lon2px, px2lat, px2lon, UA } from '../scripts/lib/terrain.mjs';
 
@@ -80,7 +80,7 @@ function publicJob(j) {
   const eta = j.state === 'running' && j.progress > 0.04 && elapsed > 8 ? (elapsed / j.progress) * (1 - j.progress) : null;
   return {
     id: j.id, level: j.level, state: j.state, progress: j.progress, label: j.label, error: j.error ?? null, log: j.log.slice(-12),
-    name: j.name ?? '', res: j.res ?? null, km2: j.km2 ?? null, elapsed, eta, finished: j.finished ?? null,
+    name: j.name ?? '', prefetch: !!j.prefetch, res: j.res ?? null, km2: j.km2 ?? null, elapsed, eta, finished: j.finished ?? null,
   };
 }
 
@@ -286,7 +286,9 @@ async function api(req, res, url) {
       admin: !!TOKEN,
       limits: LIMITS,
       regions: listAreas(),
-      job: current?.prefetch ? null : publicJob(current),
+      job: publicJob(current),
+      queued: queue.map((j) => ({ id: j.id, prefetch: !!j.prefetch, sector: !!j.sector })),
+      lidar: lidarJobs(),
       queue: queue.map((j) => ({ id: j.id, level: j.level })),
       last: publicJob(lastFinished),
       lidarBlocks: lidarBusy(),

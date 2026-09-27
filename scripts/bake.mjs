@@ -28,7 +28,14 @@ async function fetchCached(url, file, init) {
     try {
       const res = await fetch(url, { ...init, headers: { 'User-Agent': UA, ...(init?.headers ?? {}) } });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const buf = Buffer.from(await res.arrayBuffer());
+      const parts = [];
+      let got = 0;
+      for await (const chunk of res.body) {
+        parts.push(chunk);
+        got += chunk.length;
+        init?.onBytes?.(got);
+      }
+      const buf = Buffer.concat(parts);
       fs.writeFileSync(p, buf);
       return buf;
     } catch (e) {
@@ -108,7 +115,35 @@ function makeSampler(dem) {
 }
 
 // ---------- Overpass ----------
-async function overpass(query, file, prefer = 0) {
+// ---------- postęp pobierania z OpenStreetMap (widoczny w aplikacji) ----------
+const osmState = {};
+const osmBase = 0.1, osmSpan = 0.8;
+function osmReport() {
+  const parts = Object.entries(osmState).map(([k, v]) => `${k} ${v}`);
+  const done = Object.values(osmState).filter((v) => v.startsWith('✓')).length;
+  progress(osmBase + (osmSpan * done) / Math.max(3, Object.keys(osmState).length), `OpenStreetMap: ${parts.join(' · ')}`);
+}
+let lastReport = 0;
+async function overpass(query, file, prefer = 0, label = 'dane') {
+  osmState[label] = 'czeka na serwer';
+  osmReport();
+  const onBytes = (n) => {
+    osmState[label] = `${(n / 1048576).toFixed(1)} MB`;
+    if (Date.now() - lastReport > 700) { lastReport = Date.now(); osmReport(); }
+  };
+  try {
+    const j = await overpassRaw(query, file, prefer, onBytes);
+    osmState[label] = '✓';
+    osmReport();
+    return j;
+  } catch (e) {
+    osmState[label] = 'błąd';
+    osmReport();
+    throw e;
+  }
+}
+
+async function overpassRaw(query, file, prefer, onBytes) {
   let lastErr;
   // zapytania równoległe rozkładamy na różne serwery (każdy ma limit jednoczesnych zapytań na IP)
   for (const url of [...OVERPASS.slice(prefer), ...OVERPASS.slice(0, prefer)]) {
@@ -117,6 +152,7 @@ async function overpass(query, file, prefer = 0) {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'data=' + encodeURIComponent(query),
+        onBytes,
       });
       return JSON.parse(buf.toString('utf8'));
     } catch (e) {
@@ -169,7 +205,7 @@ out skel qt;`;
 );
 out center tags;`;
 
-  const [tj, pj] = await Promise.all([overpass(trailsQ, `osm-trails-${region.id}.json`), overpass(poiQ, `osm-poi-${region.id}.json`, 1)]);
+  const [tj, pj] = await Promise.all([overpass(trailsQ, `osm-trails-${region.id}.json`, 0, 'szlaki'), overpass(poiQ, `osm-poi-${region.id}.json`, 1, 'punkty')]);
 
   const nodes = new Map();
   const ways = new Map();
@@ -441,12 +477,10 @@ for (const region of regions) {
   console.log(`\n▲ ${region.name}`);
   progress(0.02, 'Model terenu (Terrarium)');
   // pokrycie terenu (największe zapytanie) rusza od razu, równolegle z resztą
-  const landP = overpass(landQuery(region), `osm-land-${region.id}.json`);
+  const landP = overpass(landQuery(region), `osm-land-${region.id}.json`, 0, 'pokrycie terenu');
   landP.catch(() => {});
   const dem = await bakeDem(region);
-  progress(0.3, 'Szlaki i punkty z OpenStreetMap');
   const osm = await bakeOsm(region, dem);
-  progress(0.6, 'Pokrycie terenu z OpenStreetMap');
   const land = await bakeLandcover(region, { ...dem, width: dem.width, height: dem.height }, landP);
   progress(0.92, 'Zapis danych');
   const dir = path.join(OUT, region.id);

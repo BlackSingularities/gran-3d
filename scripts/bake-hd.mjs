@@ -14,6 +14,7 @@ import { COVERAGE, areaKm2, inRing } from './lib/area.mjs';
 import { CACHE_DIR as CACHE, DATA_DIR as OUT, progress, selectRegions } from './lib/common.mjs';
 const regions = selectRegions(process.argv);
 const CLEAN = process.argv.includes('--clean-cache') || process.env.GRAN_CLEAN_CACHE === '1';
+import { LIDAR_SOURCES } from './lib/alps.mjs';
 import { bigFiles, lon2px, lat2px, px2lon, px2lat, log, coarseSampler, lidarPL, lidarCZ, downsample, encodeTile, bilin, fuse } from './lib/terrain.mjs';
 
 for (const region of regions) {
@@ -103,8 +104,7 @@ for (const region of regions) {
     const M = new Uint8Array(bf.W * bf.H);
     let covered = 0;
     for (const src of hd.lidar) {
-      if (src === 'pl') covered += await lidarPL(pseudo, bf, F, M);
-      if (src === 'cz') covered += await lidarCZ(pseudo, bf, F, M);
+      if (LIDAR_SOURCES[src]) covered += await LIDAR_SOURCES[src].fn(pseudo, bf, F, M);
     }
     if (CLEAN) for (const f of bigFiles.splice(0)) fs.rmSync(path.join(CACHE, f), { force: true });
     if (!covered) continue;
@@ -174,8 +174,7 @@ for (const region of regions) {
     baked: new Date().toISOString(),
     sources: [
       'Terrarium elevation tiles (Mapzen / AWS Open Data)',
-      ...(hd.lidar.includes('pl') ? ['NMT GUGiK (LiDAR, geoportal.gov.pl)'] : []),
-      ...(hd.lidar.includes('cz') ? ['DMR 5G © ČÚZK'] : []),
+      ...hd.lidar.map((s) => LIDAR_SOURCES[s]?.credit).filter(Boolean),
       '© OpenStreetMap contributors (ODbL)',
     ],
   });

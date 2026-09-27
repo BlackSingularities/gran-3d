@@ -16,12 +16,13 @@ step.textContent = 'Łączenie z serwerem';
 await Promise.all([initCatalog(), loadCoverage()]);
 
 const app = new App();
+if (import.meta.env.DEV) (window as unknown as { __gran: App }).__gran = app;
 const panel = new Panel(app);
 // MapsManager służy już tylko do śledzenia zadań serwera (pasek postępu danych okolicy)
 const maps = new MapsManager();
 
 const chrome = new Chrome(app, () => {}, () => {});
-maps.onJob = (job, last) => chrome.setJob(job, last);
+maps.onJob = (job, last, extra) => chrome.setJob(job, last, extra);
 void maps.poll();
 
 let scaleTick = 0;

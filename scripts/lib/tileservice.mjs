@@ -7,6 +7,7 @@ import path from 'node:path';
 import { PNG } from 'pngjs';
 import { CACHE_DIR } from './common.mjs';
 import { COVERAGE, inRing } from './area.mjs';
+import { LIDAR_SOURCES } from './alps.mjs';
 import {
   bigFiles, coarseSampler, downsample, encodeTile, fetchCached, fuse, lidarCZ, lidarPL, px2lat, px2lon,
 } from './terrain.mjs';
@@ -109,8 +110,12 @@ export function lidarBlock(bx, by) {
   if (fs.existsSync(blockMarker(bx, by))) return Promise.resolve(JSON.parse(fs.readFileSync(blockMarker(bx, by), 'utf8')).lidar);
   let p = blocks.get(key);
   if (p) return p;
+  const info = { key, lon: px2lon((bx + 0.5) * 256, BLOCK_Z), lat: px2lat((by + 0.5) * 256, BLOCK_Z), stage: 'w kolejce', sources: [], started: Date.now() };
+  blockInfo.set(key, info);
   p = (async () => {
     await slot();
+    info.stage = 'pobieranie';
+    info.started = Date.now();
     try {
       const zf = LIDAR_MAX_Z;
       const k = 2 ** (zf - BLOCK_Z);
@@ -123,18 +128,26 @@ export function lidarBlock(bx, by) {
       const M = new Uint8Array(bf.W * bf.H);
       const lon = px2lon(bf.X0 + bf.W / 2, zf), lat = px2lat(bf.Y0 + bf.H / 2, zf);
       let covered = 0;
-      // źródła: kolejność wg kraju środka bloku
-      const cz = COVERAGE.find((c) => c.code === 'CZ' && inRing(lon, lat, c.ring));
-      for (const src of cz ? ['cz', 'pl'] : ['pl', 'cz']) {
+      // źródła: wszystkie kraje z LiDAR w bloku (z zapasem), najpierw kraj środka bloku
+      const found = new Set();
+      const own = LIDAR.find((c) => inRing(lon, lat, c.ring));
+      if (own) found.add(own.lidar);
+      for (let j = -1; j <= 7; j++) for (let i = -1; i <= 7; i++) {
+        const plon = px2lon(bf.X0 + (bf.W * i) / 6, zf), plat = px2lat(bf.Y0 + (bf.H * j) / 6, zf);
+        for (const c of LIDAR) if (inRing(plon, plat, c.ring)) found.add(c.lidar);
+      }
+      info.sources = [...found];
+      for (const src of found) {
+        info.stage = `pobieranie ${src.toUpperCase()}`;
         try {
-          if (src === 'pl') covered += await lidarPL(pseudo, bf, F, M);
-          else covered += await lidarCZ(pseudo, bf, F, M);
+          covered += await LIDAR_SOURCES[src].fn(pseudo, bf, F, M);
         } catch (e) {
           console.warn(`[gran] LiDAR ${src} blok ${key}: ${e.message}`);
         }
       }
       for (const f of bigFiles.splice(0)) fs.rmSync(path.join(CACHE_DIR, f), { force: true });
       if (covered) {
+        info.stage = 'łączenie i zapis kafli';
         const coarse = await coarseSampler(null, bf);
         const C = new Float32Array(F.length);
         for (let j = 0; j < bf.H; j++) for (let i = 0; i < bf.W; i++) C[j * bf.W + i] = Math.max(0, coarse(bf.X0 + i, bf.Y0 + j));
@@ -158,14 +171,18 @@ export function lidarBlock(bx, by) {
     } finally {
       release();
       blocks.delete(key);
+      blockInfo.delete(key);
     }
   })();
   blocks.set(key, p);
   return p;
 }
 
+const blockInfo = new Map();
 /** Stan bloków LiDAR w trakcie wypiekania (do paska postępu). */
 export const lidarBusy = () => blocks.size;
+export const lidarJobs = () =>
+  [...blockInfo.values()].map((b) => ({ lon: +b.lon.toFixed(3), lat: +b.lat.toFixed(3), stage: b.stage, sources: b.sources, elapsed: (Date.now() - b.started) / 1000 }));
 
 /**
  * Czy kafel czeka na wypiekanie bloku LiDAR (trwa to od kilku sekund do minut).
