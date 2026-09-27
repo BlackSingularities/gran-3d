@@ -39,6 +39,7 @@ class TNode {
   orthoState = 0;
   used = 0;
   prio = 0;
+  retryAt = 0;
   readonly box = new THREE.Box3();
   constructor(
     readonly z: number,
@@ -215,7 +216,7 @@ export class TileTerrain {
   }
 
   private request(n: TNode, prio: number) {
-    if (n.state !== 0) return;
+    if (n.state !== 0 || (n.retryAt ?? 0) > performance.now()) return;
     n.prio = prio;
     this.queue.add(n);
   }
@@ -234,12 +235,17 @@ export class TileTerrain {
     }
   }
 
-  private onTile(msg: { id: number; data?: Float32Array; error?: string }) {
+  private onTile(msg: { id: number; data?: Float32Array; error?: string; retry?: boolean }) {
     const n = this.jobs.get(msg.id);
     this.jobs.delete(msg.id);
     this.inflight--;
     if (!n) return;
-    if (!msg.data) {
+    if (msg.retry) {
+      // dane LiDAR w przygotowaniu – do tego czasu widać kafel nadrzędny
+      n.state = 0;
+      n.retryAt = performance.now() + 3000;
+      setTimeout(() => this.onChange(), 3100);
+    } else if (!msg.data) {
       n.state = 3;
     } else {
       n.data = msg.data;

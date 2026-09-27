@@ -1,3 +1,6 @@
+import { frameWorldToLonLat } from '../core/frame';
+import { lat2px, lon2px } from '../core/geo';
+import { tileNearLidar } from '../core/area';
 import type { App } from '../app';
 import { escapeHtml, trailHex } from '../app';
 import { bearing, compassDir, DEG, fmt1, fmtCoords, fmtDecimal, fmtDist, fmtEle, fmtInt, fmtSigned, fmtTime, haversine } from '../core/geo';
@@ -185,9 +188,17 @@ export class Chrome {
     const t = a.tiles;
     if (!t) { el.innerHTML = ''; return; }
     const n = t.loading, o = a.store.state.style === 'satellite' ? t.orthoLoading : 0;
+    // źródło terenu pod kamerą: LiDAR (PL/CZ) albo model globalny (Terrarium, ~30 m)
+    let src = 'Teren <b>~30 m</b>';
+    if (a.wf) {
+      const v = a.engine.view;
+      const [lon, lat] = frameWorldToLonLat(a.wf, v.x, v.z);
+      const x = Math.floor(lon2px(lon, 12) / 256), y = Math.floor(lat2px(lat, 12) / 256);
+      if (tileNearLidar(12, x, y)) src = `LiDAR <b>${v.distance < 12000 ? '3 m' : v.distance < 30000 ? '6 m' : '12 m'}</b>`;
+    }
     const html = n + o > 0
-      ? `<span class="spinner"></span>LiDAR <b>${t.maxZ >= 15 ? '3 m' : t.maxZ >= 14 ? '6 m' : '12 m'}</b> · doczytywanie ${n ? `${n} kafli` : ''}${n && o ? ', ' : ''}${o ? `${o} zdjęć` : ''}`
-      : `LiDAR <b>${t.maxZ >= 15 ? '3 m' : t.maxZ >= 14 ? '6 m' : '12 m'}</b>`;
+      ? `<span class="spinner"></span>${src} · doczytywanie ${n ? `${n} kafli` : ''}${n && o ? ', ' : ''}${o ? `${o} zdjęć` : ''}`
+      : src;
     if (el.dataset.h !== html) { el.dataset.h = html; el.innerHTML = html; }
   }
 

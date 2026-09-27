@@ -108,9 +108,10 @@ function makeSampler(dem) {
 }
 
 // ---------- Overpass ----------
-async function overpass(query, file) {
+async function overpass(query, file, prefer = 0) {
   let lastErr;
-  for (const url of OVERPASS) {
+  // zapytania równoległe rozkładamy na różne serwery (każdy ma limit jednoczesnych zapytań na IP)
+  for (const url of [...OVERPASS.slice(prefer), ...OVERPASS.slice(0, prefer)]) {
     try {
       const buf = await fetchCached(url, file, {
         method: 'POST',
@@ -168,9 +169,7 @@ out skel qt;`;
 );
 out center tags;`;
 
-  const tj = await overpass(trailsQ, `osm-trails-${region.id}.json`);
-  await new Promise((r) => setTimeout(r, 1500));
-  const pj = await overpass(poiQ, `osm-poi-${region.id}.json`);
+  const [tj, pj] = await Promise.all([overpass(trailsQ, `osm-trails-${region.id}.json`), overpass(poiQ, `osm-poi-${region.id}.json`, 1)]);
 
   const nodes = new Map();
   const ways = new Map();
@@ -341,10 +340,10 @@ out center tags;`;
 
 
 // ---------- pokrycie terenu (maska rastrowa z poligonów OSM) ----------
-async function bakeLandcover(region, dem) {
+function landQuery(region) {
   const [w, s, e, n] = region.bbox;
   const bb = `${s},${w},${n},${e}`;
-  const q = `[out:json][timeout:300];
+  return `[out:json][timeout:300];
 (
   way["natural"="water"](${bb});
   relation["natural"="water"](${bb});
@@ -358,8 +357,11 @@ async function bakeLandcover(region, dem) {
   way["natural"="scrub"](${bb});
   relation["natural"="scrub"](${bb});
 );
-out geom;`;
-  const j = await overpass(q, `osm-land-${region.id}.json`);
+out geom(${bb});`;
+}
+
+async function bakeLandcover(region, dem, landP) {
+  const j = await landP;
   const S = 2; // nadpróbkowanie względem siatki DEM
   const W = dem.width * S, H = dem.height * S;
   const img = new Uint8Array(W * H * 3);
@@ -408,7 +410,7 @@ out geom;`;
     else continue;
     const rings = [];
     if (el.type === 'way' && el.geometry) {
-      const g = el.geometry.map((p) => toPx(p.lon, p.lat));
+      const g = el.geometry.filter(Boolean).map((p) => toPx(p.lon, p.lat));
       if (t.natural === 'cliff') continue; // linie – pomijamy
       if (g.length > 2) {
         if (g[0][0] !== g[g.length - 1][0] || g[0][1] !== g[g.length - 1][1]) g.push(g[0]);
@@ -417,7 +419,7 @@ out geom;`;
     } else if (el.type === 'relation') {
       for (const m of el.members || []) {
         if (m.type !== 'way' || !m.geometry) continue;
-        rings.push(m.geometry.map((p) => toPx(p.lon, p.lat)));
+        rings.push(m.geometry.filter(Boolean).map((p) => toPx(p.lon, p.lat)));
       }
     }
     if (rings.length) fill(rings, ch, val);
@@ -431,19 +433,21 @@ out geom;`;
     png.data[i * 4 + 2] = img[i * 3 + 2];
     png.data[i * 4 + 3] = 255;
   }
-  return PNG.sync.write(png, { colorType: 2, deflateLevel: 9 });
+  return PNG.sync.write(png, { colorType: 2, deflateLevel: 6 });
 }
 
 // ---------- główna pętla ----------
 for (const region of regions) {
   console.log(`\n▲ ${region.name}`);
   progress(0.02, 'Model terenu (Terrarium)');
+  // pokrycie terenu (największe zapytanie) rusza od razu, równolegle z resztą
+  const landP = overpass(landQuery(region), `osm-land-${region.id}.json`);
+  landP.catch(() => {});
   const dem = await bakeDem(region);
   progress(0.3, 'Szlaki i punkty z OpenStreetMap');
   const osm = await bakeOsm(region, dem);
   progress(0.6, 'Pokrycie terenu z OpenStreetMap');
-  await new Promise((r) => setTimeout(r, 1500));
-  const land = await bakeLandcover(region, { ...dem, width: dem.width, height: dem.height });
+  const land = await bakeLandcover(region, { ...dem, width: dem.width, height: dem.height }, landP);
   progress(0.92, 'Zapis danych');
   const dir = path.join(OUT, region.id);
   fs.mkdirSync(dir, { recursive: true });
@@ -484,5 +488,5 @@ for (const region of regions) {
   progress(1, 'Gotowe');
   const size = (f) => (fs.statSync(path.join(dir, f)).size / 1024 / 1024).toFixed(2) + ' MB';
   console.log(`  zapisano: dem ${size('dem.bin')}, szlaki ${size('trails.json')}, punkty ${size('pois.json')}, pokrycie ${size('landcover.png')}`);
-  await new Promise((r) => setTimeout(r, 2000));
+  await new Promise((r) => setTimeout(r, 200));
 }

@@ -161,11 +161,13 @@ export class MapsManager {
   private async refresh() {
     this.lastPoll = Date.now();
     const before = new Set(REGIONS.map((r) => r.id));
-    await initCatalog();
+    const prevLast = this.api?.last?.finished ?? null;
     if (SERVER_MODE) {
       try { this.api = await (await fetch(`${import.meta.env.BASE_URL}api/status`, { cache: 'no-store' })).json(); }
       catch { this.api = null; }
     }
+    // katalog tylko przy otwartym oknie map albo po zakończeniu zadania (bez zbędnych zapytań co kilka sekund)
+    if (!SERVER_MODE || this.isOpen || (this.api?.last?.finished ?? null) !== prevLast) await initCatalog();
     const last = this.api?.last;
     // zadania zakończone przed otwarciem strony nie są „świeże” – nie przełączamy obszaru
     if (last && last.state === 'done' && (last.finished ?? 0) > PAGE_LOADED && `${last.id}:${last.level}` !== this.lastDone) {

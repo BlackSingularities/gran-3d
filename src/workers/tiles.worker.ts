@@ -9,6 +9,8 @@ self.onmessage = async (ev: MessageEvent<{ id: number; url: string }>) => {
   const { id, url } = ev.data;
   try {
     const res = await fetch(url);
+    // 202: serwer wypieka blok LiDAR – ponowić za chwilę
+    if (res.status === 202) return (self as unknown as Worker).postMessage({ id, retry: true });
     if (!res.ok) throw new Error(String(res.status));
     const bmp = await createImageBitmap(await res.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
     if (!canvas) {

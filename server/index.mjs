@@ -15,7 +15,8 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { CACHE_DIR, DATA_DIR, ROOT } from '../scripts/lib/common.mjs';
 import { LIMITS, areaKm2, deriveRegion, slug, validate } from '../scripts/lib/area.mjs';
-import { getTile, lidarBusy } from '../scripts/lib/tileservice.mjs';
+import { getTile, lidarBusy, prefetchBase, tileWaiting } from '../scripts/lib/tileservice.mjs';
+import { collectGarbage, touch } from '../scripts/lib/cachegc.mjs';
 import { lat2px, lon2px, px2lat, px2lon, UA } from '../scripts/lib/terrain.mjs';
 
 const DEV = process.argv.includes('--dev');
@@ -95,19 +96,66 @@ export function sectorAt(lon, lat) {
 function ensureSector(sec) {
   const dir = path.join(DATA_DIR, sec.id);
   const ready = fs.existsSync(path.join(dir, 'install.json'));
-  if (ready) return { ready: true, def: readJson(path.join(dir, 'region.json')) };
-  if (current?.id === sec.id) return { ready: false, job: publicJob(current) };
-  if (!queue.some((j) => j.id === sec.id)) {
+  lastSector = sec;
+  if (ready) {
+    touch(path.join(dir, 'install.json'));
+    return { ready: true, def: readJson(path.join(dir, 'region.json')) };
+  }
+  if (current?.id === sec.id) {
+    current.prefetch = false; // użytkownik tu patrzy – zadanie przestaje być „w tle”
+    return { ready: false, job: publicJob(current) };
+  }
+  // sąsiad wypiekany w tle ustępuje miejsca sektorowi pod kamerą
+  if (current?.prefetch && current.child) {
+    current.cancelled = true;
+    current.child.kill();
+  }
+  const queued = queue.find((j) => j.id === sec.id);
+  if (!fs.existsSync(path.join(dir, 'region.json'))) {
     const def = { ...deriveRegion({ id: sec.id, name: '', bbox: sec.bbox.map((v) => +v.toFixed(6)), quality: 'normal' }), custom: 'sector' };
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'region.json'), JSON.stringify(def, null, 2));
+  }
+  if (queued) {
+    queued.prefetch = false;
+    queue.splice(queue.indexOf(queued), 1);
+    queue.unshift(queued);
+  } else {
     // nowszy sektor wypiera czekające (kamera poleciała dalej); własne kwadraty zostają w kolejce
-    for (let i = queue.length - 1; i >= 0; i--) if (queue[i].sector) queue.splice(i, 1);
+    for (let i = queue.length - 1; i >= 0; i--) if (queue[i].sector && queue[i].id !== sec.id) queue.splice(i, 1);
     queue.unshift({ id: sec.id, level: 'base', sector: true, state: 'queued', progress: 0, label: 'W kolejce', log: [] });
     void runNext();
   }
   return { ready: false, queued: true };
 }
+
+let lastSector = null;
+/** Gdy kolejka pusta: wypiekanie w tle czterech sąsiadów ostatnio oglądanego sektora (lot w bok bez czekania). */
+function prefetchNeighbours() {
+  if (current || queue.length || !lastSector) return;
+  const { x, y } = lastSector;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const n = 2 ** SECTOR_Z;
+    const sx = (x + dx + n) % n, sy = y + dy;
+    if (sy < 0 || sy >= n) continue;
+    const bbox = [px2lon(sx * 256, SECTOR_Z), px2lat((sy + 1) * 256, SECTOR_Z), px2lon((sx + 1) * 256, SECTOR_Z), px2lat(sy * 256, SECTOR_Z)];
+    const id = `s${SECTOR_Z}-${sx}-${sy}`;
+    const dir = path.join(DATA_DIR, id);
+    if (fs.existsSync(path.join(dir, 'install.json'))) continue;
+    const def = { ...deriveRegion({ id, name: '', bbox: bbox.map((v) => +v.toFixed(6)), quality: 'normal' }), custom: 'sector' };
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'region.json'), JSON.stringify(def, null, 2));
+    queue.push({ id, level: 'base', sector: true, prefetch: true, state: 'queued', progress: 0, label: 'W kolejce', log: [] });
+  }
+  void runNext();
+}
+
+/** Sprzątanie bufora do budżetu (1 GB) – po zadaniach i co 10 minut. */
+function gc() {
+  const r = collectGarbage();
+  if (r?.removed) console.log(`[gran] bufor: ${(r.before / 2 ** 20).toFixed(0)} → ${(r.after / 2 ** 20).toFixed(0)} MB, usunięto ${r.removed} elementów`);
+}
+setInterval(gc, 10 * 60 * 1000).unref();
 
 // ------------------------------------------------------------------ wyszukiwanie miejsc (Nominatim, 1 zapytanie/s)
 const geoCache = new Map();
@@ -203,9 +251,11 @@ async function runNext() {
   }
   sizeCache.delete(job.id);
   job.finished = Date.now();
-  lastFinished = job;
+  if (!job.prefetch) lastFinished = job;
   current = null;
-  void runNext();
+  gc();
+  if (queue.length) void runNext();
+  else setTimeout(prefetchNeighbours, 3000);
 }
 let lastFinished = null;
 
@@ -236,7 +286,7 @@ async function api(req, res, url) {
       admin: !!TOKEN,
       limits: LIMITS,
       regions: listAreas(),
-      job: publicJob(current),
+      job: current?.prefetch ? null : publicJob(current),
       queue: queue.map((j) => ({ id: j.id, level: j.level })),
       last: publicJob(lastFinished),
       lidarBlocks: lidarBusy(),
@@ -330,8 +380,13 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/')) return await api(req, res, url);
     const tm = url.pathname.match(/^\/tiles\/dem\/(\d+)\/(\d+)\/(\d+)\.png$/);
     if (tm) {
+      if (tileWaiting(+tm[1], +tm[2], +tm[3])) {
+        res.writeHead(202, { 'Retry-After': '3', 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       const file = await getTile(+tm[1], +tm[2], +tm[3]);
       if (!file) return send(res, 404, 'Brak kafla', 'text/plain; charset=utf-8');
+      if (+tm[1] > 12) touch(file);
       return serveFile(res, file, 'public, max-age=604800');
     }
     if (url.pathname.startsWith('/data/')) {
@@ -364,5 +419,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  dane: ${DATA_DIR}`);
   console.log(`  pobrane kwadraty: ${installed.length ? installed.join(', ') : 'brak – zaznacz pierwszy na mapie w aplikacji'}`);
   if (TOKEN) console.log('  menedżer map chroniony hasłem (GRAN_ADMIN_TOKEN)');
+  setTimeout(gc, 5000);
+  void prefetchBase(6);
   console.log('');
 });

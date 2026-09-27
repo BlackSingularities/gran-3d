@@ -26,7 +26,11 @@ export const log = (...a) => console.log('  ', ...a);
 
 export async function fetchCached(url, file) {
   const p = path.join(CACHE, file);
-  if (fs.existsSync(p) && fs.statSync(p).size > 0) return fs.readFileSync(p);
+  if (fs.existsSync(p) && fs.statSync(p).size > 0) {
+    const t = new Date();
+    try { fs.utimesSync(p, t, t); } catch { /* bez znaczenia */ }
+    return fs.readFileSync(p);
+  }
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       const res = await fetch(url, { headers: { 'User-Agent': UA } });

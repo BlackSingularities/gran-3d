@@ -167,6 +167,21 @@ export function lidarBlock(bx, by) {
 /** Stan bloków LiDAR w trakcie wypiekania (do paska postępu). */
 export const lidarBusy = () => blocks.size;
 
+/**
+ * Czy kafel czeka na wypiekanie bloku LiDAR (trwa to od kilku sekund do minut).
+ * Wtedy uruchamiamy pracę w tle i od razu odpowiadamy „spróbuj później” – klient
+ * w tym czasie pokazuje kafel nadrzędny i nie blokuje kolejki innych kafli.
+ */
+export function tileWaiting(z, x, y) {
+  if (z <= BLOCK_Z || z > LIDAR_MAX_Z || fs.existsSync(tilePath(z, x, y))) return false;
+  const s = 2 ** (z - BLOCK_Z);
+  const bx = Math.floor(x / s), by = Math.floor(y / s);
+  if (fs.existsSync(blockMarker(bx, by)) && !blocks.has(`${bx},${by}`)) return false;
+  if (!lidarNear(z, x, y)) return false;
+  getTile(z, x, y).catch(() => {});
+  return true;
+}
+
 const pending = new Map();
 /** Ścieżka do pliku kafla (generuje go, jeśli trzeba). */
 export async function getTile(z, x, y) {
@@ -179,8 +194,15 @@ export async function getTile(z, x, y) {
     try {
       if (z > BLOCK_Z && lidarNear(z, x, y)) {
         const s = 2 ** (z - BLOCK_Z);
-        await lidarBlock(Math.floor(x / s), Math.floor(y / s));
+        const bx = Math.floor(x / s), by = Math.floor(y / s);
+        const lidar = await lidarBlock(bx, by);
         if (fs.existsSync(file)) return file;
+        // blok częściowo usunięty przez sprzątanie bufora – wypiekamy go od nowa
+        if (lidar) {
+          fs.rmSync(blockMarker(bx, by), { force: true });
+          await lidarBlock(bx, by);
+          if (fs.existsSync(file)) return file;
+        }
       }
       const buf = await baseTile(z, x, y);
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -192,4 +214,29 @@ export async function getTile(z, x, y) {
   })();
   pending.set(key, p);
   return p;
+}
+
+/**
+ * Model podstawowy: kafle z4–z6 całej Ziemi pobierane raz, w tle (ok. 5 tys. kafli).
+ * Dzięki nim widok globu i start w dowolnym miejscu są natychmiastowe.
+ */
+export async function prefetchBase(maxZ = 6, onDone = () => {}) {
+  const jobs = [];
+  for (let z = 4; z <= maxZ; z++) for (let y = 0; y < 2 ** z; y++) for (let x = 0; x < 2 ** z; x++) if (!fs.existsSync(tilePath(z, x, y))) jobs.push([z, x, y]);
+  if (!jobs.length) return onDone(0);
+  console.log(`[gran] model podstawowy: pobieram ${jobs.length} kafli w tle`);
+  let done = 0;
+  const worker = async () => {
+    while (jobs.length) {
+      const [z, x, y] = jobs.shift();
+      try {
+        await getTile(z, x, y);
+      } catch {
+        /* spróbujemy przy następnym starcie */
+      }
+      if (++done % 500 === 0) console.log(`[gran] model podstawowy: ${done} kafli`);
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
+  onDone(done);
 }

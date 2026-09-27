@@ -785,3 +785,5 @@ input[type='date'] {
 
 .menu__label { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-4); padding: 10px 10px 4px; }
 .palette__head { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-4); padding: 10px 10px 4px; }
+
+.trailsw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; box-shadow: 0 0 0 1.5px rgba(255, 246, 226, 0.7) inset; }

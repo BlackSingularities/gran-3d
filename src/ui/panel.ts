@@ -97,8 +97,13 @@ export class Panel {
     const top = peaks[0];
     const huts = r.pois.filter((p) => p.t === 'hut').length;
     const area = (r.dem.widthM * r.dem.heightM) / 1e6;
-    const colors = new Map<string, number>();
-    for (const e of a.graph!.edges) for (const c of e.colors) colors.set(c, (colors.get(c) ?? 0) + e.len2);
+    // konkretne szlaki (relacje OSM) z długością w obrębie okolicy
+    const rlen = new Map<number, number>();
+    for (const e of a.graph!.edges) for (const ri of e.routes) rlen.set(ri, (rlen.get(ri) ?? 0) + e.len2);
+    const routes = [...rlen.entries()]
+      .map(([i, l]) => ({ i, l, r: a.graph!.routes[i] }))
+      .filter((x) => x.r && (x.r.ref || (x.r.name && !/^Szlak d+$/.test(x.r.name))) && x.l > 1500)
+      .sort((x, y) => y.l - x.l);
     const notable = [...peaks].sort((x, y) => y.prom - x.prom).slice(0, 9);
     const gpx = a.store.state.gpx;
     return `
@@ -116,10 +121,11 @@ export class Panel {
       ${gpx ? this.gpxCard() : ''}
       ${a.store.state.routes.length ? `<div class="section"><button class="btn btn--primary" data-act="tool-route">${ICON.route} Wróć do zaplanowanej trasy</button></div>` : ''}
       <div class="section">
-        <div class="section__title"><span class="kicker">Szlaki w regionie</span></div>
-        <div class="legend-rows">
-          ${[...colors.entries()].filter(([, l]) => l > 500).sort((x, y) => y[1] - x[1]).map(([c, l]) => `<div class="legend-row"><i style="background:${trailHex(c)};box-shadow:0 0 0 1.5px rgba(255,246,226,.7) inset"></i><span>${TRAIL_NAME_PL[c] ?? c}</span><span>${fmtInt(l / 1000)} km</span></div>`).join('')}
+        <div class="section__title"><span class="kicker">Szlaki w okolicy · ${fmtInt(routes.length)}</span></div>
+        <div class="peaklist">
+          ${routes.slice(0, 14).map(({ i, l, r }) => `<button class="peakrow" data-route="${i}" title="${escapeHtml(TRAIL_NAME_PL[r.color] ?? r.color)}"><span class="peakrow__n"><i class="trailsw" style="background:${trailHex(r.color)}"></i>${escapeHtml(r.name || r.ref)}</span><span class="peakrow__e">${fmtInt(l / 1000)} km</span><span class="peakrow__d"></span></button>`).join('')}
         </div>
+        ${routes.length > 14 ? `<p class="hint" style="margin-top:6px">Kolejne szlaki: kliknij linię na mapie albo wyszukaj nazwę (klawisz /).</p>` : ''}
       </div>
       <div class="section">
         <div class="section__title"><span class="kicker">Najbardziej wybitne szczyty</span></div>
@@ -544,6 +550,9 @@ export class Panel {
     const a = this.app;
     const b = this.body;
     const num = (el: HTMLElement, k: string) => Number(el.dataset[k]);
+    b.querySelectorAll<HTMLElement>('[data-route]').forEach((el) =>
+      el.addEventListener('click', () => this.app.selectRouteByIndex(Number(el.dataset.route)))
+    );
     b.querySelectorAll<HTMLElement>('[data-poi]').forEach((el) =>
       el.addEventListener('click', () => a.selectPoi(a.region!.pois[num(el, 'poi')], true))
     );
