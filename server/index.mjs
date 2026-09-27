@@ -357,13 +357,20 @@ async function api(req, res, url) {
   return send(res, 404, { error: 'Nie znaleziono.' });
 }
 
-function serveFile(res, file, cache) {
+function serveFile(res, file, cache, req = null) {
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) return send(res, 404, 'Nie znaleziono', 'text/plain; charset=utf-8');
+    // znacznik wersji: rozmiar + czas utworzenia (touch przy użyciu go nie zmienia)
+    const etag = `"${st.size.toString(36)}-${Math.round(st.birthtimeMs).toString(36)}"`;
+    if (req && req.headers['if-none-match'] === etag) {
+      res.writeHead(304, { ETag: etag, 'Cache-Control': cache });
+      return res.end();
+    }
     res.writeHead(200, {
       'Content-Type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
       'Content-Length': st.size,
       'Cache-Control': cache,
+      ETag: etag,
     });
     fs.createReadStream(file).pipe(res);
   });
@@ -387,9 +394,14 @@ const server = http.createServer(async (req, res) => {
         return res.end();
       }
       const file = await getTile(+tm[1], +tm[2], +tm[3]);
+      if (file === 'retry') {
+        res.writeHead(202, { 'Retry-After': '3', 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       if (!file) return send(res, 404, 'Brak kafla', 'text/plain; charset=utf-8');
       if (+tm[1] > 12) touch(file);
-      return serveFile(res, file, 'public, max-age=604800');
+      // kafle mogą się zmienić (nowy LiDAR, sprzątanie bufora) – przeglądarka sprawdza wersję
+      return serveFile(res, file, +tm[1] > 12 ? 'no-cache' : 'public, max-age=86400', req);
     }
     if (url.pathname.startsWith('/data/')) {
       const file = safeJoin(DATA_DIR, url.pathname.slice(6));

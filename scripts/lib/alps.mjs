@@ -6,7 +6,7 @@
 //  CH  – swisstopo swissALTI3D 2 m (STAC, kafle 1 km w LV95 / EPSG:2056)
 // Każda funkcja wypełnia siatkę bloku (F – wysokości, M – maska pokrycia) i zwraca liczbę pikseli.
 import { fromUrl } from 'geotiff';
-import { bigFiles, fetchCached, pool, px2lat, px2lon, px2mx, py2my, readTiff, UA } from './terrain.mjs';
+import { bigFiles, boxBlur, fetchCached, pool, px2lat, px2lon, px2mx, py2my, readTiff, UA } from './terrain.mjs';
 
 // ---------------------------------------------------------------- wspólne: eksport w Web Mercatorze
 async function mercatorChunks(frame, F, M, { chunk, conc, name, url, bil = false, valid = (v) => v > -100 && v < 9000 }) {
@@ -38,13 +38,44 @@ async function mercatorChunks(frame, F, M, { chunk, conc, name, url, bil = false
       data = t.data;
       tw = t.w;
     }
+    if (tw !== w) data = Float32Array.from({ length: w * h }, (_, i) => data[Math.floor(i / w) * tw + (i % w)]);
+    data = unstep(data, w, h, valid);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const v = data[y * tw + x];
+      const v = data[y * w + x];
       const idx = (cy + y) * frame.W + cx + x;
       if (valid(v) && !M[idx]) { F[idx] = v; M[idx] = 1; covered++; }
     }
   });
   return covered;
+}
+
+/**
+ * Część serwerów (IGN) poza pełnym pokryciem oddaje zgrubny model próbkowany „najbliższym
+ * sąsiadem” – wysokości idą schodkami (te same wartości w kilku sąsiednich pikselach), co przy
+ * cieniowaniu daje pasy. Wykrywamy takie miejsca (gęstość powtórzeń) i tylko tam wygładzamy.
+ */
+function unstep(d, w, h, valid) {
+  const rep = new Float32Array(w * h);
+  let any = 0;
+  for (let y = 0; y < h; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x, v = d[i];
+    if (valid(v) && (v === d[i - 1] || v === d[i + 1] || (y > 0 && v === d[i - w]) || (y < h - 1 && v === d[i + w]))) { rep[i] = 1; any++; }
+  }
+  if (any < w * h * 0.02) return d;
+  const dens = boxBlur(rep, w, h, 4);
+  // wygładzenie ważone ważnością próbek (brak danych nie „wlewa się” do średniej)
+  const vv = new Float32Array(w * h), ww = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) if (valid(d[i])) { vv[i] = d[i]; ww[i] = 1; }
+  const out = new Float32Array(d);
+  for (const r of [3]) {
+    const sv = boxBlur(vv, w, h, r), sw = boxBlur(ww, w, h, r);
+    for (let i = 0; i < w * h; i++) {
+      if (!valid(d[i]) || sw[i] < 0.5) continue;
+      const k = Math.min(1, Math.max(0, (dens[i] - 0.25) / 0.25)); // 0 = oryginał, 1 = wygładzone
+      if (k > 0) out[i] = d[i] * (1 - k) + (sv[i] / sw[i]) * k;
+    }
+  }
+  return out;
 }
 
 export const lidarFR = (region, frame, F, M) =>

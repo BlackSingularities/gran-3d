@@ -90,17 +90,29 @@ export function lidarNear(z, x, y) {
 
 // ------------------------------------------------------------------ blok LiDAR
 const blocks = new Map();
+// Kolejka bloków: kilka naraz, pierwszeństwo ma to, o co klient pytał najświeżej (miejsce pod kamerą);
+// bloki, o które nikt nie pyta od WANT_TTL, wypadają z kolejki (kamera poleciała dalej).
+const CONCURRENT = 4;
+const WANT_TTL = 20_000;
 let running = 0;
-const waiting = [];
-async function slot() {
-  if (running < 2) { running++; return; }
-  await new Promise((r) => waiting.push(r));
-  running++;
+const waiting = new Map(); // key → { resolve, wanted }
+const wanted = new Map(); // key → czas ostatniego zapytania
+function slot(key) {
+  if (running < CONCURRENT) { running++; return Promise.resolve(true); }
+  return new Promise((resolve) => waiting.set(key, { resolve }));
 }
 function release() {
   running--;
-  waiting.shift()?.();
+  const now = Date.now();
+  for (const [k, w] of waiting) {
+    if (now - (wanted.get(k) ?? 0) > WANT_TTL) { waiting.delete(k); w.resolve(false); }
+  }
+  let best = null, bt = -1;
+  for (const [k] of waiting) { const t = wanted.get(k) ?? 0; if (t > bt) { bt = t; best = k; } }
+  if (best) { const w = waiting.get(best); waiting.delete(best); running++; w.resolve(true); }
 }
+/** Klient wciąż potrzebuje bloku (ponowne zapytanie o kafel). */
+function want(key) { wanted.set(key, Date.now()); }
 
 const blockMarker = (bx, by) => path.join(TILE_DIR, 'blocks', `${bx}-${by}.json`);
 
@@ -112,8 +124,14 @@ export function lidarBlock(bx, by) {
   if (p) return p;
   const info = { key, lon: px2lon((bx + 0.5) * 256, BLOCK_Z), lat: px2lat((by + 0.5) * 256, BLOCK_Z), stage: 'w kolejce', sources: [], started: Date.now() };
   blockInfo.set(key, info);
+  want(key);
   p = (async () => {
-    await slot();
+    if (!(await slot(key))) {
+      // porzucony w kolejce – przy następnym zapytaniu zacznie od nowa
+      blocks.delete(key);
+      blockInfo.delete(key);
+      return false;
+    }
     info.stage = 'pobieranie';
     info.started = Date.now();
     try {
@@ -193,7 +211,8 @@ export function tileWaiting(z, x, y) {
   if (z <= BLOCK_Z || z > LIDAR_MAX_Z || fs.existsSync(tilePath(z, x, y))) return false;
   const s = 2 ** (z - BLOCK_Z);
   const bx = Math.floor(x / s), by = Math.floor(y / s);
-  if (fs.existsSync(blockMarker(bx, by)) && !blocks.has(`${bx},${by}`)) return false;
+  if (blocks.has(`${bx},${by}`)) want(`${bx},${by}`);
+  else if (fs.existsSync(blockMarker(bx, by))) return false;
   if (!lidarNear(z, x, y)) return false;
   getTile(z, x, y).catch(() => {});
   return true;
@@ -214,6 +233,8 @@ export async function getTile(z, x, y) {
         const bx = Math.floor(x / s), by = Math.floor(y / s);
         const lidar = await lidarBlock(bx, by);
         if (fs.existsSync(file)) return file;
+        // blok porzucony w kolejce (nikt o niego nie pytał) – bez zapisu zgrubnego kafla na stałe
+        if (!fs.existsSync(blockMarker(bx, by))) return 'retry';
         // blok częściowo usunięty przez sprzątanie bufora – wypiekamy go od nowa
         if (lidar) {
           fs.rmSync(blockMarker(bx, by), { force: true });

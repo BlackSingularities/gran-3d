@@ -231,7 +231,7 @@ export class TileTerrain {
       const id = ++this.reqId;
       this.jobs.set(id, best!);
       this.inflight++;
-      this.workers[id % this.workers.length].postMessage({ id, url: `${this.baseUrl}${best!.z}/${best!.x}/${best!.y}.png` });
+      this.workers[id % this.workers.length].postMessage({ id, url: `${this.baseUrl}${best!.z}/${best!.x}/${best!.y}.png?v=2` });
     }
   }
 
