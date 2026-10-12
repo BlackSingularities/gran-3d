@@ -30,7 +30,7 @@ npm run dist:win         # instalator Windows → release/
 npm run dist:android     # APK (wymaga Android SDK, JDK 21 i `npm install --prefix mobile`)
 ```
 
-Wydanie: podbij `version` w `package.json`, zatwierdź i wypchnij tag `v<wersja>` – workflow `.github/workflows/build.yml` zbuduje instalator i APK i opublikuje je w jednym wydaniu.
+Wydanie: podbij `version` w `package.json`, zatwierdź i wypchnij tag `v<wersja>` (albo wypchnij commit z `[release]` w treści – tag utworzy workflow) – workflow `.github/workflows/build.yml` zbuduje instalator i APK i opublikuje je w jednym wydaniu.
 
 Podpis cyfrowy (sekrety repozytorium): Windows – `WIN_CSC_LINK` (certyfikat .pfx w base64) i `WIN_CSC_KEY_PASSWORD`; Android – `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
 
