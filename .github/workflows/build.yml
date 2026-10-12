@@ -1,5 +1,6 @@
 # GRAŃ – budowanie aplikacji (Windows .exe i Android .apk) oraz wydania na GitHub Releases.
 #
+#  • push na main z nową wersją w package.json (brak tagu v<wersja>) → wydanie automatycznie
 #  • push tagu v*        → oba pliki publikowane w jednym wydaniu (z latest.yml dla aktualizacji Windows)
 #  • commit z „[release]” w treści → to samo; tag v<wersja z package.json> tworzy workflow
 #  • push / pull request → kontrolna kompilacja (artefakty przebiegu, bez publikacji)
@@ -31,10 +32,21 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.v.outputs.tag }}
+      new: ${{ steps.v.outputs.new }}
     steps:
       - uses: actions/checkout@v4
       - id: v
-        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        name: Wersja i czy ma już wydanie
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            echo "Wersja $tag ma już wydanie."
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+            echo "Nowa wersja $tag – bez wydania."
+          fi
       - name: Wersja tagu zgodna z package.json
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -152,7 +164,10 @@ jobs:
           retention-days: 14
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.outputs.new == 'true') ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
     needs: [version, windows, android]
     runs-on: ubuntu-latest
     steps:
@@ -162,12 +177,20 @@ jobs:
           path: dist-release
           merge-multiple: true
       - run: ls -la dist-release
+      - name: Opis wydania
+        run: |
+          v="${{ needs.version.outputs.tag }}"
+          f="build/release-notes/${v#v}.md"
+          if [ -f "$f" ]; then cp "$f" notes.md
+          else printf 'Pliki: instalator Windows (`GRAN-Setup-%s.exe`, aktualizuje się automatycznie) i Android (`GRAN-%s.apk`).\n' "${v#v}" "${v#v}" > notes.md
+          fi
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: GRAŃ ${{ needs.version.outputs.tag }}
           make_latest: true
-          body_path: build/release-notes.md
+          body_path: notes.md
+          generate_release_notes: true
           files: dist-release/*
           fail_on_unmatched_files: true
