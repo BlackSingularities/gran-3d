@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src file:; img-src file: data:" />
+<title>GRAŃ</title>
+<style>
+@font-face { font-family: 'Geist'; font-weight: 100 900; src: url(fonts/geist-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Geist'; font-weight: 100 900; src: url(fonts/geist-latin-ext-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Geist Mono'; font-weight: 100 900; src: url(fonts/geist-mono-latin-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Geist Mono'; font-weight: 100 900; src: url(fonts/geist-mono-latin-ext-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Bricolage Grotesque'; font-weight: 200 800; src: url(fonts/bricolage-grotesque-latin-opsz-normal.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Bricolage Grotesque'; font-weight: 200 800; src: url(fonts/bricolage-grotesque-latin-ext-opsz-normal.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+
+/* te same tokeny co w aplikacji (src/style.css) */
+:root {
+  --ink-0: #070a0c; --ink-1: #0c1114; --ink-2: #121a1f; --ink-3: #1b252b; --ink-4: #26323a;
+  --paper: #efe7d6; --paper-2: #cfc6b2; --paper-3: #978f7e; --paper-4: #6a6559;
+  --brass: #d9b56f; --brass-dim: rgba(217, 181, 111, 0.22);
+  --signal: #ff5a36; --signal-dim: rgba(255, 90, 54, 0.18); --teal: #3fd6c6; --ok: #86e07f; --warn: #f7c948;
+  --hair: rgba(239, 231, 214, 0.1); --hair-2: rgba(239, 231, 214, 0.18);
+  --sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --display: 'Bricolage Grotesque', 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'Geist Mono', ui-monospace, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--ink-0); color: var(--paper); }
+body { font-family: var(--sans); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none; }
+button, input { font: inherit; color: inherit; }
+
+.bg { position: fixed; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(1100px 600px at 85% -10%, rgba(217,181,111,0.10), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, rgba(63,214,198,0.06), transparent 60%),
+    var(--ink-0); }
+.bg svg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.5; }
+
+.wrap { position: relative; height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
+.head { display: flex; align-items: center; gap: 14px; padding: 26px 34px 0; }
+.head img { width: 46px; height: 46px; }
+.word { font-family: var(--display); font-size: 27px; font-weight: 700; letter-spacing: -0.035em; line-height: 1; }
+.kicker { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--paper-3); }
+.head .kicker { margin-top: 4px; }
+
+.body { overflow: auto; padding: 18px 34px 8px; }
+h1 { font-family: var(--display); font-size: 30px; font-weight: 700; letter-spacing: -0.035em; line-height: 1.02; margin: 4px 0 8px; }
+.lead { color: var(--paper-2); max-width: 600px; margin: 0 0 18px; font-size: 13.5px; }
+
+.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.choice { position: relative; text-align: left; cursor: pointer; padding: 16px 16px 15px 48px; border-radius: 14px;
+  background: rgba(16,22,27,0.82); border: 1px solid var(--hair); transition: border-color .15s, background .15s, transform .15s; }
+.choice:hover { border-color: var(--hair-2); background: rgba(22,30,36,0.9); }
+.choice.is-on { border-color: var(--brass); background: linear-gradient(180deg, rgba(217,181,111,0.12), rgba(16,22,27,0.9)); }
+.choice i { position: absolute; left: 16px; top: 17px; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--paper-3); }
+.choice.is-on i { border-color: var(--brass); }
+.choice.is-on i::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--brass); }
+.choice b { display: block; font-family: var(--display); font-size: 16.5px; font-weight: 650; letter-spacing: -0.02em; margin-bottom: 5px; }
+.choice span { display: block; color: var(--paper-3); font-size: 12.5px; }
+
+.section { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--hair); }
+.section[hidden] { display: none; }
+.row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.row label { color: var(--paper-2); }
+output { font-family: var(--display); font-size: 22px; font-weight: 650; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+output small { font-family: var(--mono); font-size: 11px; color: var(--paper-3); margin-left: 3px; font-weight: 400; }
+
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; cursor: pointer; margin: 0; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px;
+  background: linear-gradient(90deg, var(--brass) var(--p, 50%), var(--ink-4) var(--p, 50%)); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+  background: var(--paper); border: 3px solid var(--brass); box-shadow: 0 2px 8px rgba(0,0,0,0.5); }
+.ticks { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--paper-4); margin-top: 2px; }
+.note { color: var(--paper-3); font-size: 12px; margin: 10px 0 0; }
+.note b { color: var(--paper-2); font-weight: 600; }
+.warn { color: var(--warn); }
+
+.path { display: flex; gap: 8px; align-items: center; }
+.path code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px;
+  background: rgba(0,0,0,0.3); border: 1px solid var(--hair); border-radius: 9px; padding: 8px 10px; color: var(--paper-2); user-select: text; }
+
+.btn { border: 1px solid var(--hair-2); background: rgba(255,255,255,0.03); border-radius: 10px; padding: 8px 14px; cursor: pointer; white-space: nowrap; transition: background .15s, border-color .15s; }
+.btn:hover { background: rgba(255,255,255,0.07); border-color: var(--paper-4); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn--primary { background: var(--brass); border-color: var(--brass); color: #1b1408; font-weight: 600; padding: 10px 22px; }
+.btn--primary:hover { background: #e6c584; border-color: #e6c584; }
+.btn--danger { color: var(--signal); border-color: var(--signal-dim); }
+.btn--danger:hover { background: var(--signal-dim); border-color: var(--signal); }
+
+.toggle { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; background: none; border: 0; padding: 0; color: var(--paper-2); }
+.toggle i { width: 30px; height: 17px; border-radius: 10px; background: var(--ink-4); position: relative; transition: background .15s; flex: none; }
+.toggle i::after { content: ''; position: absolute; left: 2px; top: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--paper-3); transition: transform .15s, background .15s; }
+.toggle.is-on i { background: var(--brass-dim); }
+.toggle.is-on i::after { transform: translateX(13px); background: var(--brass); }
+
+.usage { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+
+.foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 34px 22px; border-top: 1px solid var(--hair); background: rgba(7,10,12,0.6); }
+.foot .kicker { color: var(--paper-4); }
+.foot .actions { display: flex; gap: 10px; }
+
+@media (max-width: 700px) { .choices { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="bg"><svg id="topo" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice"></svg></div>
+<div class="wrap">
+  <header class="head">
+    <img src="../public/brand/logo-mark.png" alt="" />
+    <div>
+      <div class="word">Grań</div>
+      <div class="kicker" id="ver">atlas szlaków 3D</div>
+    </div>
+  </header>
+
+  <main class="body">
+    <div class="kicker" id="kick">Pierwsze uruchomienie</div>
+    <h1 id="title">Gdzie trzymać dane map?</h1>
+    <p class="lead" id="lead">Grań pobiera kafle terenu LiDAR, zdjęcia lotnicze, szlaki i dane okolic w miarę oglądania mapy. Wybierz, czy mają zostawać na dysku, czy znikać po każdym zamknięciu programu. Zmienisz to później w zakładce „Jakość” albo skrótem <b>Ctrl+,</b>.</p>
+
+    <div class="choices" role="radiogroup">
+      <button class="choice" data-mode="keep" role="radio">
+        <i></i><b>Zachowuj dane na dysku</b>
+        <span>Odwiedzone okolice wczytują się od razu, a zaznaczone obszary działają bez internetu. Po przekroczeniu limitu najdawniej używane kafle są usuwane automatycznie.</span>
+      </button>
+      <button class="choice" data-mode="session" role="radio">
+        <i></i><b>Usuwaj przy każdym zamknięciu</b>
+        <span>Po wyjściu z programu na dysku nie zostają żadne kafle ani dane map. Każde uruchomienie pobiera teren od nowa.</span>
+      </button>
+    </div>
+
+    <section class="section">
+      <div class="row"><label for="limit">Maksymalna pojemność danych</label><output id="limit-o"></output></div>
+      <input type="range" id="limit" min="0" step="1" />
+      <div class="ticks"><span>1 GB</span><span>10 GB</span><span>50 GB</span><span>500 GB</span></div>
+      <p class="note" id="free-note"></p>
+    </section>
+
+    <section class="section" id="dir-sec">
+      <div class="row"><label>Folder danych</label></div>
+      <div class="path"><code id="dir"></code><button class="btn" id="pick">Zmień…</button><button class="btn" id="reset" title="Przywróć folder domyślny">Domyślny</button></div>
+      <p class="note" id="dir-note"></p>
+    </section>
+
+    <section class="section" id="usage-sec" hidden>
+      <div class="usage">
+        <div><div class="row" style="margin:0"><label>Zajęte teraz</label></div><output id="used"></output></div>
+        <button class="btn btn--danger" id="clear">Wyczyść dane teraz</button>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="usage">
+        <button class="toggle" id="upd"><i></i>Sprawdzaj aktualizacje i proponuj instalację</button>
+        <button class="btn" id="chk" hidden>Sprawdź teraz</button>
+      </div>
+      <p class="note" id="chk-note"></p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span class="kicker">© OpenStreetMap · GUGiK · ČÚZK · EOX</span>
+    <div class="actions">
+      <button class="btn" id="cancel">Zamknij</button>
+      <button class="btn btn--primary" id="ok">Rozpocznij</button>
+    </div>
+  </footer>
+</div>
+
+<script>
+const STEPS = [1, 2, 3, 5, 8, 10, 15, 20, 30, 50, 75, 100, 150, 200, 300, 500];
+const $ = (id) => document.getElementById(id);
+const fmtBytes = (b) => {
+  if (b == null) return '—';
+  if (b >= 1024 ** 4) return `${(b / 1024 ** 4).toFixed(1).replace('.', ',')}<small>TB</small>`;
+  if (b >= 1024 ** 3) return `${(b / 1024 ** 3).toFixed(b >= 10 * 1024 ** 3 ? 0 : 1).replace('.', ',')}<small>GB</small>`;
+  return `${Math.round(b / 1024 ** 2)}<small>MB</small>`;
+};
+const plain = (h) => h.replace(/<\/?small>/g, ' ').trim();
+
+const kind = new URLSearchParams(location.search).get('kind') === 'settings' ? 'settings' : 'first';
+const state = { mode: 'keep', limitGB: 10, dataDir: '', autoUpdate: true, free: null, defaultDataDir: '' };
+
+function nearestStep(gb) {
+  let best = 0;
+  STEPS.forEach((s, i) => { if (Math.abs(s - gb) < Math.abs(STEPS[best] - gb)) best = i; });
+  return best;
+}
+
+function render() {
+  document.querySelectorAll('.choice').forEach((el) => {
+    const on = el.dataset.mode === state.mode;
+    el.classList.toggle('is-on', on);
+    el.setAttribute('aria-checked', String(on));
+  });
+  const r = $('limit');
+  const i = nearestStep(state.limitGB);
+  r.max = String(STEPS.length - 1);
+  r.value = String(i);
+  r.style.setProperty('--p', `${(i / (STEPS.length - 1)) * 100}%`);
+  $('limit-o').innerHTML = `${state.limitGB}<small>GB</small>`;
+  const freeGB = state.free == null ? null : state.free / 1024 ** 3;
+  $('free-note').innerHTML = state.mode === 'session'
+    ? `Limit obowiązuje w trakcie jednej sesji – po zamknięciu programu wszystko jest usuwane.${freeGB != null ? ` Wolne miejsce na dysku: <b>${plain(fmtBytes(state.free))}</b>.` : ''}`
+    : `Kafle, zdjęcia i dane okolic nie przekroczą tej wartości – najstarsze są usuwane w tle.${freeGB != null ? ` Wolne miejsce na dysku: <b>${plain(fmtBytes(state.free))}</b>.` : ''}`;
+  if (freeGB != null && state.limitGB > freeGB) $('free-note').innerHTML += ` <span class="warn">Limit jest większy niż wolne miejsce.</span>`;
+  $('dir-sec').hidden = state.mode !== 'keep';
+  $('dir').textContent = state.dataDir;
+  $('dir').title = state.dataDir;
+  $('reset').hidden = state.dataDir === state.defaultDataDir;
+  $('dir-note').textContent = kind === 'settings' && state.dataDir !== initialDir
+    ? 'Dotychczasowe dane nie są przenoszone – nowy folder zacznie się wypełniać od zera.'
+    : '';
+  $('upd').classList.toggle('is-on', state.autoUpdate);
+}
+
+let initialDir = '';
+async function init() {
+  const s = await window.granSetup.get();
+  Object.assign(state, { mode: s.mode, limitGB: s.limitGB, dataDir: s.dataDir, autoUpdate: s.autoUpdate, free: s.free, defaultDataDir: s.defaultDataDir });
+  initialDir = s.dataDir;
+  $('ver').textContent = `atlas szlaków 3D · wersja ${s.version}`;
+  if (kind === 'settings') {
+    $('kick').textContent = 'Ustawienia';
+    $('title').textContent = 'Dane i pamięć';
+    $('lead').textContent = 'Sposób przechowywania kafli terenu, zdjęć lotniczych i danych okolic. Zmiana trybu, limitu lub folderu uruchamia ponownie lokalny serwer danych – widok mapy zostanie odświeżony.';
+    $('ok').textContent = 'Zapisz';
+    $('cancel').textContent = 'Anuluj';
+    $('usage-sec').hidden = false;
+    $('used').innerHTML = fmtBytes(s.used);
+    $('chk').hidden = false;
+  }
+  render();
+}
+
+document.querySelectorAll('.choice').forEach((el) => el.addEventListener('click', async () => {
+  state.mode = el.dataset.mode;
+  render();
+}));
+$('limit').addEventListener('input', (e) => {
+  state.limitGB = STEPS[Number(e.target.value)];
+  render();
+});
+$('pick').addEventListener('click', async () => {
+  const r = await window.granSetup.pick();
+  if (!r) return;
+  state.dataDir = r.dir;
+  state.free = r.free;
+  render();
+});
+$('reset').addEventListener('click', async () => {
+  state.dataDir = state.defaultDataDir;
+  state.free = await window.granSetup.free(state.dataDir);
+  render();
+});
+$('upd').addEventListener('click', () => {
+  state.autoUpdate = !state.autoUpdate;
+  render();
+});
+$('chk').addEventListener('click', async () => {
+  const b = $('chk');
+  b.disabled = true;
+  $('chk-note').textContent = 'Sprawdzanie…';
+  const r = await window.granSetup.checkUpdates();
+  b.disabled = false;
+  $('chk-note').textContent =
+    r.state === 'latest' ? `Masz najnowszą wersję (${r.current}).`
+    : r.state === 'available' ? `Dostępna jest wersja ${r.latest} – zobacz okno z propozycją aktualizacji.`
+    : r.state === 'dev' ? 'Sprawdzanie aktualizacji działa w zainstalowanym programie.'
+    : r.state === 'offline' ? 'Brak połączenia z internetem.'
+    : `Nie udało się sprawdzić aktualizacji${r.error ? `: ${r.error}` : ''}.`;
+});
+$('clear').addEventListener('click', async () => {
+  const b = $('clear');
+  b.disabled = true;
+  b.textContent = 'Usuwanie…';
+  await window.granSetup.clear();
+  const s = await window.granSetup.get();
+  $('used').innerHTML = fmtBytes(s.used);
+  b.textContent = 'Wyczyszczono';
+});
+$('ok').addEventListener('click', async () => {
+  $('ok').disabled = true;
+  await window.granSetup.save({ mode: state.mode, limitGB: state.limitGB, dataDir: state.dataDir, autoUpdate: state.autoUpdate });
+});
+$('cancel').addEventListener('click', () => window.granSetup.cancel());
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') window.granSetup.cancel();
+  if (e.key === 'Enter' && !$('ok').disabled) $('ok').click();
+});
+
+// poziomice w tle – jak na ekranie ładowania aplikacji
+(function topo() {
+  const svg = $('topo');
+  let d = '';
+  const cx = 560, cy = 180;
+  for (let k = 1; k <= 26; k++) {
+    const r0 = k * 26;
+    let p = '';
+    for (let a = 0; a <= 72; a++) {
+      const t = (a / 72) * Math.PI * 2;
+      const w = 1 + 0.18 * Math.sin(3 * t + k * 0.35) + 0.09 * Math.sin(5 * t - k * 0.2) + 0.05 * Math.cos(9 * t + k);
+      const x = cx + Math.cos(t) * r0 * w * 1.25, y = cy + Math.sin(t) * r0 * w * 0.85;
+      p += `${a ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
+    }
+    d += `<path d="${p}Z" fill="none" stroke="${k % 5 ? 'rgba(239,231,214,0.05)' : 'rgba(217,181,111,0.12)'}" stroke-width="${k % 5 ? 0.8 : 1.1}"/>`;
+  }
+  svg.innerHTML = d;
+})();
+
+init();
+</script>
+</body>
+</html>

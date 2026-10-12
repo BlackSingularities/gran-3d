@@ -7,15 +7,16 @@ import { bearing, compassDir, DEG, fmt1, fmtCoords, fmtDecimal, fmtDist, fmtEle,
 import type { Lens, MeasurePoint, Tool } from '../core/store';
 import { ALT_COLORS } from '../scene/routes';
 import { TRAIL_NAME_PL } from '../scene/trails';
+import { TOUCH } from '../core/touch';
 import { ICON, POI_ICON, POI_TYPE_PL } from './icons';
 import { fmtDuration, type BakeExtra, type BakeJob } from './maps';
 
 const $ = (id: string) => document.getElementById(id)!;
 
-const TOOLS: { id: Tool; name: string; key: string; icon: string }[] = [
-  { id: 'explore', name: 'Eksploracja', key: '1', icon: ICON.explore },
-  { id: 'route', name: 'Planowanie trasy', key: '2', icon: ICON.route },
-  { id: 'measure', name: 'Pomiar i linia wzroku', key: '3', icon: ICON.measure },
+const TOOLS: { id: Tool; name: string; cap: string; key: string; icon: string }[] = [
+  { id: 'explore', name: 'Eksploracja', cap: 'Teren', key: '1', icon: ICON.explore },
+  { id: 'route', name: 'Planowanie trasy', cap: 'Trasa', key: '2', icon: ICON.route },
+  { id: 'measure', name: 'Pomiar i linia wzroku', cap: 'Pomiar', key: '3', icon: ICON.measure },
 ];
 
 /** Soczewki kursora – co teren pokazuje wokół wskazanego punktu. */
@@ -26,8 +27,8 @@ export const LENSES: { id: Exclude<Lens, 'none'>; name: string; short: string; k
 ];
 
 const HINTS: Partial<Record<Tool, string>> = {
-  route: '<b>Kliknij</b> start i cel · kolejne kliknięcia dodają punkty · przeciągaj znaczniki',
-  measure: '<b>Klikaj</b> kolejne punkty · <kbd>Esc</kbd> kończy',
+  route: TOUCH ? '<b>Dotknij</b> start i cel · kolejne dotknięcia dodają punkty' : '<b>Kliknij</b> start i cel · kolejne kliknięcia dodają punkty · przeciągaj znaczniki',
+  measure: TOUCH ? '<b>Dotykaj</b> kolejne punkty pomiaru' : '<b>Klikaj</b> kolejne punkty · <kbd>Esc</kbd> kończy',
 };
 
 
@@ -68,6 +69,11 @@ export class Chrome {
     $('compass').addEventListener('click', () => app.engine.flyTo({ heading: 0 }, 800));
     $('attrib').innerHTML =
       'LiDAR i ortofoto: © <a href="https://www.geoportal.gov.pl" target="_blank" rel="noopener">GUGiK</a>, © ČÚZK, © ÚGKK SR, © IGN, © swisstopo, © BEV, © ARSO, © Prov. Bozen · Teren: Terrarium/AWS · Szlaki: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · Sentinel‑2 © EOX';
+    // telefon: pełna atrybucja po dotknięciu (domyślnie jedna linia)
+    $('attrib').addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('a')) $('attrib').classList.toggle('is-open');
+    });
+    this.bindSheet();
     const open = document.createElement('button');
     open.id = 'panel-open';
     open.innerHTML = `${ICON.layers} Panel`;
@@ -85,17 +91,41 @@ export class Chrome {
   private buildRail() {
     const rail = $('rail');
     rail.innerHTML =
-      TOOLS.map((t) => `<button class="tool" data-tool="${t.id}" aria-label="${t.name}">${t.icon}<span class="tool__tip">${t.name}<kbd>${t.key}</kbd></span></button>`).join('') +
+      TOOLS.map((t) => `<button class="tool" data-tool="${t.id}" data-cap="${t.cap}" aria-label="${t.name}">${t.icon}<span class="tool__tip">${t.name}<kbd>${t.key}</kbd></span></button>`).join('') +
       `<div class="rail__sep"></div>
-       <button class="tool" data-act="layers" aria-label="Mapa i światło">${ICON.layers}<span class="tool__tip">Mapa i światło<kbd>M</kbd></span></button>
-       <button class="tool" data-act="search" aria-label="Szukaj">${ICON.target}<span class="tool__tip">Szukaj<kbd>/</kbd></span></button>
-       <button class="tool" data-act="help" aria-label="Pomoc">${ICON.help}<span class="tool__tip">Skróty i pomoc<kbd>?</kbd></span></button>`;
+       <button class="tool" data-act="layers" data-cap="Mapa" aria-label="Mapa i światło">${ICON.layers}<span class="tool__tip">Mapa i światło<kbd>M</kbd></span></button>
+       <button class="tool" data-act="search" data-cap="Szukaj" aria-label="Szukaj">${ICON.target}<span class="tool__tip">Szukaj<kbd>/</kbd></span></button>
+       <button class="tool" data-act="help" data-cap="Pomoc" aria-label="Pomoc">${ICON.help}<span class="tool__tip">Skróty i pomoc<kbd>?</kbd></span></button>
+       <button class="tool tool--panel" data-act="panel" data-cap="Panel" aria-label="Panel">${ICON.sheet}</button>`;
     rail.querySelectorAll<HTMLElement>('[data-tool]').forEach((b) => b.addEventListener('click', () => this.app.setTool(b.dataset.tool as Tool)));
     rail.querySelector('[data-act="layers"]')!.addEventListener('click', () => this.openMapTab());
     rail.querySelector('[data-act="search"]')!.addEventListener('click', () => this.openPalette());
     rail.querySelector('[data-act="help"]')!.addEventListener('click', () => ($('help').hidden = false));
+    // telefon: panel jako arkusz od dołu – przycisk na pasku przełącza go
+    rail.querySelector('[data-act="panel"]')!.addEventListener('click', () => this.app.store.set({ panelOpen: !this.app.store.state.panelOpen }));
 
     $('search-btn').addEventListener('click', () => this.openPalette());
+  }
+
+  /** Telefon: panel jako arkusz – przeciągnięcie nagłówka w górę rozwija, w dół zwija lub zamyka. */
+  private bindSheet() {
+    const head = document.querySelector<HTMLElement>('.panel__tabs')!;
+    const app = $('app');
+    let y0 = -1;
+    head.addEventListener('touchstart', (e) => (y0 = e.touches[0].clientY), { passive: true });
+    head.addEventListener('touchend', (e) => {
+      if (y0 < 0) return;
+      const dy = e.changedTouches[0].clientY - y0;
+      y0 = -1;
+      if (dy < -40) app.classList.add('sheet-full');
+      else if (dy > 40) {
+        if (app.classList.contains('sheet-full')) app.classList.remove('sheet-full');
+        else this.app.store.set({ panelOpen: false });
+      }
+    });
+    this.app.store.on((s, ch) => {
+      if (ch.has('panelOpen') && !s.panelOpen) app.classList.remove('sheet-full');
+    });
   }
 
   openMapTab() {
@@ -122,7 +152,7 @@ export class Chrome {
     const recent = a.recentPlaces();
     const cur = a.region?.def;
     menu.innerHTML =
-      `<button class="menu__more" data-search>${ICON.target}<span><b>Szukaj miejsca na świecie…</b><small>szczyt, miejscowość, pasmo górskie · klawisz /</small></span></button>` +
+      `<button class="menu__more" data-search>${ICON.target}<span><b>Szukaj miejsca na świecie…</b><small>szczyt, miejscowość, pasmo górskie${TOUCH ? '' : ' · klawisz /'}</small></span></button>` +
       (recent.length ? `<div class="menu__label">Ostatnio odwiedzone</div>` : '') +
       recent
         .map((r, i) => `<button class="menu__item ${cur && r.name === cur.name ? 'is-on' : ''}" data-recent="${i}">${silhouette(r.name, 1800)}<span><span class="menu__name">${escapeHtml(r.name)}</span><br><span class="menu__sub">${r.lat.toFixed(3)}°N · ${r.lon.toFixed(3)}°E</span></span><span class="menu__max">${new Date(r.when).toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })}</span></button>`)
@@ -278,7 +308,7 @@ export class Chrome {
         const status = on
           ? pinned
             ? `<button class="lens__chip lens__pin" data-unpin title="Odepnij (Esc)">${ICON.pin} przypięta · odepnij</button>`
-            : '<span class="lens__live">na żywo · kliknij mapę, by przypiąć</span>'
+            : `<span class="lens__live">${TOUCH ? 'dotknij mapę, by wskazać punkt' : 'na żywo · kliknij mapę, by przypiąć'}</span>`
           : '';
         return `<div class="lensitem">
           <button class="tool lens-btn ${on ? 'is-on' : ''} ${on && pinned ? 'is-pinned' : ''}" data-lens="${l.id}" aria-label="${l.name}">${l.icon}</button>
@@ -355,7 +385,7 @@ export class Chrome {
     const cam = a.engine.camera.position;
     const e = cam.y / a.engine.exag - 2;
     const v = a.engine.view;
-    this.panoEl.innerHTML = `<b>Panorama</b><span>${fmtEle(e)} · patrzysz na ${compassDir(v.heading)} (${fmtInt(v.heading)}°) · kółko = zoom</span><button class="btn btn--primary" id="pano-exit">Wyjdź <kbd>Esc</kbd></button>`;
+    this.panoEl.innerHTML = `<b>Panorama</b><span>${fmtEle(e)} · patrzysz na ${compassDir(v.heading)} (${fmtInt(v.heading)}°) · ${TOUCH ? 'dwa palce = zoom' : 'kółko = zoom'}</span><button class="btn btn--primary" id="pano-exit">Wyjdź <kbd>Esc</kbd></button>`;
     this.panoEl.querySelector('#pano-exit')!.addEventListener('click', () => a.exitPanorama());
   }
 
@@ -399,8 +429,8 @@ export class Chrome {
       <circle cx="32" cy="32" r="24" fill="none" stroke="rgba(239,231,214,.18)"/>
       ${Array.from({ length: 24 }, (_, i) => `<line x1="32" y1="${i % 6 === 0 ? 7 : 9}" x2="32" y2="11" stroke="rgba(239,231,214,${i % 6 === 0 ? 0.7 : 0.25})" transform="rotate(${i * 15} 32 32)"/>`).join('')}
       <path d="M32 12 L36.5 32 L32 29 L27.5 32 Z" fill="#ff5a36"/><path d="M32 52 L36.5 32 L32 35 L27.5 32 Z" fill="rgba(239,231,214,.55)"/>
-      <text x="32" y="6.5" text-anchor="middle" font-family="Geist Mono" font-size="7" fill="#efe7d6">N</text></g>
-      <text x="32" y="61" text-anchor="middle" font-family="Geist Mono" font-size="6" fill="rgba(239,231,214,.5)">${fmtInt(v.pitch)}°</text></svg>`;
+      <text x="32" y="6.5" text-anchor="middle" font-family="Geist Mono Variable, Geist Mono" font-size="7" fill="#efe7d6">N</text></g>
+      <text x="32" y="61" text-anchor="middle" font-family="Geist Mono Variable, Geist Mono" font-size="6" fill="rgba(239,231,214,.5)">${fmtInt(v.pitch)}°</text></svg>`;
   }
 
   updateScale() {
@@ -633,24 +663,41 @@ export class Chrome {
     } else a.selectRouteByIndex(it.id);
   }
 
+  /**
+   * Krok „wstecz” (Esc, przycisk Wstecz na Androidzie): zamyka najwyżej położony element
+   * albo kończy bieżący tryb. Zwraca false, gdy nie było już nic do zamknięcia.
+   */
+  back(): boolean {
+    const a = this.app, s = a.store.state;
+    if (!$('ctx').hidden) return ($('ctx').hidden = true);
+    if (!$('help').hidden) return ($('help').hidden = true);
+    if (!$('palette').hidden) return (this.closePalette(), true);
+    if (!$('region-menu').hidden) return ($('region-menu').hidden = true);
+    const dialogCancel = document.querySelector<HTMLElement>('.stg:not([hidden]) [data-stg="cancel"]');
+    if (dialogCancel) return (dialogCancel.click(), true);
+    if ($('attrib').classList.contains('is-open')) return ($('attrib').classList.remove('is-open'), true);
+    if (s.panorama) return (a.exitPanorama(), true);
+    if (s.flying || a.fly) return (a.stopFly(), true);
+    if (s.tool === 'measure' && s.measure.length) return (a.store.set({ tool: 'explore' }), true);
+    if (a.lensPinned) return (a.unpinLens(), true);
+    if (s.lens !== 'none') return (a.setLens(s.lens), true);
+    // telefon: otwarty arkusz panelu
+    if (s.panelOpen && window.innerWidth <= 760) return (a.store.set({ panelOpen: false }), true);
+    if (a.selection) return (a.clearSelection(), true);
+    if (s.tool !== 'explore') return (a.setTool('explore'), true);
+    return false;
+  }
+
   // ------------------------------------------------------------- klawiatura
   private bindKeys() {
+    (window as unknown as { __granBack: () => boolean }).__granBack = () => this.back();
     const a = this.app;
     window.addEventListener('keydown', (e) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       const s = a.store.state;
       if (e.key === 'Escape') {
-        $('help').hidden = true;
-        $('ctx').hidden = true;
-        if (!$('palette').hidden) return this.closePalette();
-        if (s.panorama) return a.exitPanorama();
-        if (s.flying || a.fly) return a.stopFly();
-        if (s.tool === 'measure' && s.measure.length) return a.store.set({ tool: 'explore' });
-        if (a.lensPinned) return a.unpinLens();
-        if (s.lens !== 'none') return a.setLens(s.lens);
-        if (a.selection) return a.clearSelection();
-        if (s.tool !== 'explore') return a.setTool('explore');
+        this.back();
         return;
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;

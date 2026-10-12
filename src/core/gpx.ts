@@ -1,3 +1,4 @@
+import { saveFile } from './desktop';
 import type { Route } from './graph';
 
 const esc = (s: string) => s.replace(/[<>&"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -49,12 +50,5 @@ export function parseGpx(text: string): GpxTrack {
 
 export function download(filename: string, content: string | Blob, type = 'application/gpx+xml') {
   const blob = typeof content === 'string' ? new Blob([content], { type }) : content;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  void saveFile(filename, blob);
 }

@@ -13,10 +13,11 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
 import { CACHE_DIR, DATA_DIR, ROOT } from '../scripts/lib/common.mjs';
 import { LIMITS, areaKm2, deriveRegion, slug, validate } from '../scripts/lib/area.mjs';
 import { getTile, lidarBusy, lidarJobs, prefetchBase, tileWaiting } from '../scripts/lib/tileservice.mjs';
-import { collectGarbage, touch } from '../scripts/lib/cachegc.mjs';
+import { collectGarbage, setTotalLimit, TOTAL_LIMIT, touch, usage } from '../scripts/lib/cachegc.mjs';
 import { lat2px, lon2px, px2lat, px2lon, UA } from '../scripts/lib/terrain.mjs';
 
 const DEV = process.argv.includes('--dev');
@@ -24,6 +25,10 @@ const PORT = Number(process.env.PORT || 5190);
 const HOST = process.env.HOST || '0.0.0.0';
 const TOKEN = process.env.GRAN_ADMIN_TOKEN || '';
 const DIST = path.join(ROOT, 'dist');
+// Android (nodejs-mobile): bez procesów potomnych – wypiekanie w wątkach roboczych tego samego procesu
+const INPROC = process.env.GRAN_INPROC === '1';
+// Android: ustawienia przechowywania danych zapisywane przez serwer (na Windows obsługuje je powłoka Electron)
+const SETTINGS_FILE = process.env.GRAN_SETTINGS_FILE || '';
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const MIME = {
@@ -155,7 +160,8 @@ function gc() {
   const r = collectGarbage();
   if (r?.removed) console.log(`[gran] bufor: ${(r.before / 2 ** 20).toFixed(0)} → ${(r.after / 2 ** 20).toFixed(0)} MB, usunięto ${r.removed} elementów`);
 }
-setInterval(gc, 10 * 60 * 1000).unref();
+// z limitem ustawionym w aplikacji desktopowej sprzątamy częściej, żeby trzymać się deklarowanej pojemności
+setInterval(gc, (TOTAL_LIMIT ? 3 : 10) * 60 * 1000).unref();
 
 // ------------------------------------------------------------------ wyszukiwanie miejsc (Nominatim, 1 zapytanie/s)
 const geoCache = new Map();
@@ -191,13 +197,10 @@ function enqueue(id, level) {
 
 function runStep(job, script, from, to) {
   return new Promise((resolve, reject) => {
-    const args = [path.join(ROOT, 'scripts', script), job.id];
+    const file = path.join(ROOT, 'scripts', script);
+    const args = [job.id];
     if (script === 'bake-hd.mjs' && process.env.GRAN_KEEP_CACHE !== '1') args.push('--clean-cache');
-    const child = spawn(process.execPath, args, {
-      cwd: ROOT,
-      env: { ...process.env, GRAN_DATA_DIR: DATA_DIR, GRAN_CACHE_DIR: CACHE_DIR },
-    });
-    job.child = child;
+    const env = { ...process.env, GRAN_DATA_DIR: DATA_DIR, GRAN_CACHE_DIR: CACHE_DIR };
     let buf = '';
     const onData = (d) => {
       buf += d.toString();
@@ -214,14 +217,29 @@ function runStep(job, script, from, to) {
         }
       }
     };
-    child.stdout.on('data', onData);
-    child.stderr.on('data', onData);
-    child.on('close', (code) => {
+    const onClose = (code) => {
       job.child = null;
       if (job.cancelled) reject(new Error('Anulowano'));
       else if (code === 0) resolve();
       else reject(new Error(job.log.slice(-1)[0] || `Kod wyjścia ${code}`));
-    });
+    };
+    if (INPROC) {
+      const worker = new Worker(file, { argv: args, env, stdout: true, stderr: true });
+      job.child = { kill: () => void worker.terminate() };
+      worker.stdout.on('data', onData);
+      worker.stderr.on('data', onData);
+      worker.on('error', (e) => {
+        job.log.push(e.message);
+        if (job.log.length > 60) job.log.shift();
+      });
+      worker.on('exit', onClose);
+      return;
+    }
+    const child = spawn(process.execPath, [file, ...args], { cwd: ROOT, env, windowsHide: true });
+    job.child = child;
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.on('close', onClose);
   });
 }
 
@@ -292,6 +310,7 @@ async function api(req, res, url) {
       queue: queue.map((j) => ({ id: j.id, level: j.level })),
       last: publicJob(lastFinished),
       lidarBlocks: lidarBusy(),
+      storage: { permanent: usage.permanent, cache: usage.cache, limit: usage.limit, at: usage.at },
     });
   }
   if (url.pathname === '/api/sector' && req.method === 'GET') {
@@ -309,6 +328,8 @@ async function api(req, res, url) {
       return send(res, 502, { error: e.message });
     }
   }
+  if (SETTINGS_FILE && url.pathname === '/api/settings') return settingsApi(req, res);
+  if (url.pathname === '/api/update' && req.method === 'GET') return send(res, 200, await latestRelease(url.searchParams.has('force')));
   if (req.method !== 'GET' && !authorized(req)) return send(res, 401, { error: 'Wymagane hasło administratora.' });
   if (url.pathname === '/api/areas' && req.method === 'POST') {
     const { name, bbox, quality, res: lidarRes } = await readBody(req);
@@ -316,6 +337,10 @@ async function api(req, res, url) {
     const err = validate(bbox, q);
     if (err) return send(res, 400, { error: err });
     if (current || queue.length) return send(res, 409, { error: 'Trwa pobieranie innego obszaru – poczekaj na jego koniec.' });
+    if (TOTAL_LIMIT) {
+      gc();
+      if (usage.permanent >= TOTAL_LIMIT * 0.9) return send(res, 409, { error: 'Zapisane obszary zajmują już prawie cały limit pamięci – zwiększ limit w ustawieniach danych albo usuń któryś obszar.' });
+    }
     const clean = String(name ?? '').trim().slice(0, 60);
     const id = slug(clean);
     const r = [3, 6, 12].includes(Number(lidarRes)) ? Number(lidarRes) : 3;
@@ -355,6 +380,94 @@ async function api(req, res, url) {
     return send(res, 200, { ok: true });
   }
   return send(res, 404, { error: 'Nie znaleziono.' });
+}
+
+// ------------------------------------------------------------------ nowe wydania (Android: propozycja aktualizacji)
+const RELEASES = 'https://api.github.com/repos/BlackSingularities/gran-3d/releases/latest';
+let releaseCache = { at: 0, ttl: 0, data: null };
+
+/** Porównanie wersji x.y.z: dodatnie, gdy a > b. */
+function cmpVersion(a, b) {
+  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
+  return 0;
+}
+
+async function latestRelease(force = false) {
+  const current = process.env.GRAN_VERSION || JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  if (!force && releaseCache.data && Date.now() - releaseCache.at < releaseCache.ttl) return { current, ...releaseCache.data };
+  try {
+    const r = await fetch(RELEASES, { headers: { 'User-Agent': UA, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(15000) });
+    if (!r.ok) throw new Error(`GitHub ${r.status}`);
+    const j = await r.json();
+    const latest = String(j.tag_name || '').replace(/^v/, '');
+    const apk = (j.assets || []).find((a) => /\.apk$/i.test(a.name));
+    releaseCache = {
+      at: Date.now(),
+      ttl: 6 * 3600 * 1000,
+      data: { latest, newer: cmpVersion(latest, current) > 0, apk: apk?.browser_download_url ?? null, apkSize: apk?.size ?? null, page: j.html_url, notes: String(j.body || '').slice(0, 1200), date: j.published_at },
+    };
+  } catch (e) {
+    releaseCache = { at: Date.now(), ttl: 10 * 60 * 1000, data: { latest: null, newer: false, error: e.message } };
+  }
+  return { current, ...releaseCache.data };
+}
+
+// ------------------------------------------------------------------ ustawienia przechowywania (Android)
+const LIMITS_GB = { min: 1, max: 500, def: 8 };
+
+function freeSpace(dir) {
+  try {
+    const st = fs.statfsSync(dir);
+    return st.bavail * st.bsize;
+  } catch {
+    return null;
+  }
+}
+
+async function settingsApi(req, res) {
+  const cur = readJson(SETTINGS_FILE);
+  if (req.method === 'GET') {
+    return send(res, 200, {
+      configured: !!cur,
+      mode: cur?.mode ?? 'keep',
+      limitGB: cur?.limitGB ?? LIMITS_GB.def,
+      limits: LIMITS_GB,
+      free: freeSpace(DATA_DIR),
+      used: usage.permanent + usage.cache,
+      dataDir: DATA_DIR,
+      version: process.env.GRAN_VERSION || '',
+    });
+  }
+  if (req.method === 'POST') {
+    const body = await readBody(req);
+    if (body.clear) {
+      // „Wyczyść dane teraz”: przerwane zadania, pusty katalog danych i bufora
+      queue.length = 0;
+      if (current?.child) {
+        current.cancelled = true;
+        current.child.kill();
+      }
+      for (const e of fs.readdirSync(DATA_DIR)) fs.rmSync(path.join(DATA_DIR, e), { recursive: true, force: true, maxRetries: 3 });
+      fs.mkdirSync(CACHE_DIR, { recursive: true });
+      sizeCache.clear();
+      usage.permanent = 0;
+      usage.cache = 0;
+      return send(res, 200, { ok: true });
+    }
+    const next = {
+      mode: body.mode === 'session' ? 'session' : 'keep',
+      limitGB: Math.min(LIMITS_GB.max, Math.max(LIMITS_GB.min, Math.round(Number(body.limitGB) || LIMITS_GB.def))),
+    };
+    fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2));
+    setTotalLimit(next.limitGB * 1024);
+    setTimeout(gc, 500);
+    // tryb „session” działa przy uruchomieniu i zamknięciu aplikacji (czyszczenie katalogu danych)
+    return send(res, 200, { ok: true });
+  }
+  return send(res, 405, { error: 'Niedozwolona metoda.' });
 }
 
 function serveFile(res, file, cache, req = null) {
@@ -427,7 +540,13 @@ if (DEV) {
   process.exit(1);
 }
 
+server.on('error', (e) => {
+  console.error(`[gran] serwer: ${e.message}`);
+  process.exit(2);
+});
 server.listen(PORT, HOST, () => {
+  // linia czytana przez powłokę desktopową (electron/main.cjs)
+  console.log(`@@ready ${server.address().port}`);
   const installed = listAreas().filter((r) => r.installed).map((r) => r.def.name);
   console.log(`\n  ▲ GRAŃ ${DEV ? '(dev)' : ''} → http://localhost:${PORT}`);
   console.log(`  dane: ${DATA_DIR}`);

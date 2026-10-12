@@ -1,0 +1,196 @@
+# GRAŃ – budowanie aplikacji (Windows .exe i Android .apk) oraz wydania na GitHub Releases.
+#
+#  • push na main z nową wersją w package.json (brak tagu v<wersja>) → wydanie automatycznie
+#  • push tagu v*        → oba pliki publikowane w jednym wydaniu (z latest.yml dla aktualizacji Windows)
+#  • commit z „[release]” w treści → to samo; tag v<wersja z package.json> tworzy workflow
+#  • push / pull request → kontrolna kompilacja (artefakty przebiegu, bez publikacji)
+#
+# Podpis Windows (Authenticode) – sekrety repozytorium:
+#   WIN_CSC_LINK (certyfikat .pfx w base64), WIN_CSC_KEY_PASSWORD
+# Podpis Android – sekrety repozytorium:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# Bez sekretów Androida APK jest podpisywany kluczem jednorazowym (instaluje się, ale kolejna
+# wersja z innym kluczem wymaga odinstalowania poprzedniej).
+name: Build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      new: ${{ steps.v.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Wersja i czy ma już wydanie
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            echo "Wersja $tag ma już wydanie."
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+            echo "Nowa wersja $tag – bez wydania."
+          fi
+      - name: Wersja tagu zgodna z package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v=$(node -p "require('./package.json').version")
+          if [ "v$v" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} nie pasuje do wersji v$v z package.json"
+            exit 1
+          fi
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Zależności
+        run: npm ci
+      - name: Sprawdzenie typów i kompilacja
+        run: npm run build
+      - name: Instalator
+        run: npx electron-builder --win --x64 --publish never
+      - name: Weryfikacja podpisu
+        if: env.CSC_LINK != ''
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem release -Filter 'GRAN-Setup-*.exe' | Select-Object -First 1
+          $sig = Get-AuthenticodeSignature $exe.FullName
+          Write-Host "$($exe.Name): $($sig.Status) – $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            release/GRAN-Setup-*.exe
+            release/GRAN-Setup-*.exe.blockmap
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - name: Zależności
+        run: |
+          npm ci
+          npm ci --prefix mobile
+      - name: Sprawdzenie typów i kompilacja interfejsu
+        run: npm run build
+      - name: Zasoby aplikacji i synchronizacja Capacitor
+        working-directory: mobile
+        run: npm run sync
+      - name: Klucz podpisu
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ks="$RUNNER_TEMP/gran.keystore"
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$ks"
+            {
+              echo "GRAN_ANDROID_KEYSTORE_PASSWORD=$KS_PASS"
+              echo "GRAN_ANDROID_KEY_ALIAS=$KS_ALIAS"
+              echo "GRAN_ANDROID_KEY_PASSWORD=$KEY_PASS"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning::Brak sekretu ANDROID_KEYSTORE_BASE64 – APK podpisany kluczem jednorazowym."
+            pass=$(openssl rand -hex 16)
+            keytool -genkeypair -keystore "$ks" -storepass "$pass" -keypass "$pass" -alias gran \
+              -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=GRAN, O=BlackSingularities, C=PL" >/dev/null
+            echo "::add-mask::$pass"
+            {
+              echo "GRAN_ANDROID_KEYSTORE_PASSWORD=$pass"
+              echo "GRAN_ANDROID_KEY_ALIAS=gran"
+              echo "GRAN_ANDROID_KEY_PASSWORD=$pass"
+            } >> "$GITHUB_ENV"
+          fi
+          echo "GRAN_ANDROID_KEYSTORE=$ks" >> "$GITHUB_ENV"
+      - name: APK
+        working-directory: mobile/android
+        run: ./gradlew --no-daemon assembleRelease
+      - name: Weryfikacja podpisu
+        run: |
+          apk=$(ls mobile/android/app/build/outputs/apk/release/GRAN-*-release.apk)
+          "$ANDROID_HOME"/build-tools/$(ls "$ANDROID_HOME"/build-tools | sort -V | tail -1)/apksigner verify --print-certs "$apk" | head -3
+          mkdir -p out && cp "$apk" "out/GRAN-$(node -p "require('./package.json').version").apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: out/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.outputs.new == 'true') ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
+    needs: [version, windows, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          merge-multiple: true
+      - run: ls -la dist-release
+      - name: Opis wydania
+        run: |
+          v="${{ needs.version.outputs.tag }}"
+          f="build/release-notes/${v#v}.md"
+          if [ -f "$f" ]; then cp "$f" notes.md
+          else printf 'Pliki: instalator Windows (`GRAN-Setup-%s.exe`, aktualizuje się automatycznie) i Android (`GRAN-%s.apk`).\n' "${v#v}" "${v#v}" > notes.md
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: GRAŃ ${{ needs.version.outputs.tag }}
+          make_latest: true
+          body_path: notes.md
+          generate_release_notes: true
+          files: dist-release/*
+          fail_on_unmatched_files: true

@@ -140,7 +140,7 @@ export class Profile {
     // siatka wysokości
     const span = this.yMax - this.yMin;
     const step = [10, 20, 50, 100, 200, 250, 500, 1000].find((s) => span / s <= 5) ?? 1000;
-    c.font = '10px "Geist Mono", monospace';
+    c.font = '10px "Geist Mono Variable", "Geist Mono", monospace';
     c.textAlign = 'right';
     c.textBaseline = 'middle';
     for (let e = Math.ceil(this.yMin / step) * step; e < this.yMax; e += step) {
@@ -281,7 +281,7 @@ export class Profile {
       c.fill();
       if (!last && k !== 0) c.stroke();
       c.fillStyle = k === 0 ? '#0c1114' : '#fff';
-      c.font = '600 9px "Geist Mono", monospace';
+      c.font = '600 9px "Geist Mono Variable", "Geist Mono", monospace';
       c.textBaseline = 'middle';
       c.fillText(k === 0 ? 'A' : last ? 'B' : String(k), x, y + 0.5);
     });
@@ -289,7 +289,7 @@ export class Profile {
     // nazwy mijanych punktów
     const pois = (this.data.pois ?? []).slice().sort((a, b) => b.ele - a.ele);
     const used: [number, number][] = [];
-    c.font = '600 11.5px "Bricolage Grotesque", "Geist", sans-serif';
+    c.font = '600 11.5px "Bricolage Grotesque Variable", "Geist Variable", sans-serif';
     c.textBaseline = 'bottom';
     for (const p of pois) {
       const x = X(p.d), y = Y(p.ele) - 8;

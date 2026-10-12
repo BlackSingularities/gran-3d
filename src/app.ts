@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { routeFromPolyline, TrailGraph, type Route } from './core/graph';
 import { bearing, clamp, curvatureDrop, DEG, fmtDist, fmtEle, fmtSigned, haversine } from './core/geo';
+import { saveFile } from './core/desktop';
 import { download, parseGpx, routeToGpx } from './core/gpx';
 import { timeModel } from './core/metrics';
 import { loadGfx, saveGfx } from './core/gfx';
@@ -215,7 +216,7 @@ export class App {
     this.terrain.onChange = () => (this.engine.dirty = true);
     if (data.def.id !== PLACEHOLDER_ID) this.terrain.loadLandcover(`${import.meta.env.BASE_URL}data/${data.def.id}/landcover.png`);
     if (!this.tiles) {
-      const tiles = new TileTerrain(this.wf, null, `${import.meta.env.BASE_URL}tiles/dem/`, this.shared, null, Math.min(8, this.engine.renderer.capabilities.getMaxAnisotropy()));
+      const tiles = new TileTerrain(this.wf, null, new URL(`${import.meta.env.BASE_URL}tiles/dem/`, location.href).href, this.shared, null, Math.min(8, this.engine.renderer.capabilities.getMaxAnisotropy()));
       tiles.onChange = () => (this.engine.dirty = true);
       this.tiles = tiles;
       this.engine.world.add(tiles.group);
@@ -1421,11 +1422,7 @@ export class App {
   }
 
   screenshot() {
-    const url = this.engine.screenshot();
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `gran-${this.region?.def.id}-${Date.now()}.png`;
-    a.click();
+    void saveFile(`gran-${this.region?.def.id}-${Date.now()}.png`, this.engine.screenshot());
     this.toast('Zapisano zrzut widoku 3D.');
   }
 

@@ -2,6 +2,8 @@ import type { App } from '../app';
 import { escapeHtml, trailHex } from '../app';
 import { compassDir, fmt1, fmtCoords, fmtDecimal, fmtDist, fmtEle, fmtInt, fmtSigned, fmtTime, haversine } from '../core/geo';
 import { DIFFICULTY, SAC_LABEL, TIME_MODEL_LABEL } from '../core/metrics';
+import { fmtBytes, storageHost, type StorageStatus } from '../core/desktop';
+import { CLICK, click, CTX_GESTURE, TOUCH } from '../core/touch';
 import { GFX_PRESETS, GFX_PRESET_LABEL, type Gfx, type GfxPreset } from '../core/gfx';
 import type { Poi } from '../core/region';
 import type { Style } from '../core/store';
@@ -66,6 +68,7 @@ export class Panel {
     this.body.innerHTML = this.tab === 'map' ? this.mapTab() : this.tab === 'gfx' ? this.gfxTab() : this.toolTab();
     this.body.scrollTop = scroll;
     this.bind();
+    if (this.tab === 'gfx') void this.syncStorage();
   }
 
   // ======================================================================= NARZĘDZIE
@@ -109,7 +112,7 @@ export class Panel {
     return `
       <div class="kicker">Region · ${r.def.bbox[1].toFixed(2)}°–${r.def.bbox[3].toFixed(2)}° N</div>
       <h1 class="h1">${r.def.name}</h1>
-      <p class="lede">${r.def.subtitle}. Przeciągnij, aby przesunąć, prawy przycisk – obrót, kółko – przybliżenie. <b>Prawy klik na terenie</b> otwiera menu analiz.</p>
+      <p class="lede">${r.def.subtitle ? `${r.def.subtitle}. ` : ''}${TOUCH ? 'Przeciągnij jednym palcem, aby przesunąć, dwoma – obrót, nachylenie i przybliżenie.' : 'Przeciągnij, aby przesunąć, prawy przycisk – obrót, kółko – przybliżenie.'} <b>${CTX_GESTURE}</b> otwiera menu analiz.</p>
       <div class="stats">
         <div class="stat"><div class="stat__v">${fmtInt(top?.ele ?? r.dem.max)}<small>m</small></div><div class="stat__k">${top ? escapeHtml(top.n) : 'najwyżej'}</div></div>
         <div class="stat"><div class="stat__v">${fmtInt(r.dem.max - r.dem.min)}<small>m</small></div><div class="stat__k">rozpiętość wysokości</div></div>
@@ -125,7 +128,7 @@ export class Panel {
         <div class="peaklist">
           ${routes.slice(0, 14).map(({ i, l, r }) => `<button class="peakrow" data-route="${i}" title="${escapeHtml(TRAIL_NAME_PL[r.color] ?? r.color)}"><span class="peakrow__n"><i class="trailsw" style="background:${trailHex(r.color)}"></i>${escapeHtml(r.name || r.ref)}</span><span class="peakrow__e">${fmtInt(l / 1000)} km</span><span class="peakrow__d"></span></button>`).join('')}
         </div>
-        ${routes.length > 14 ? `<p class="hint" style="margin-top:6px">Kolejne szlaki: kliknij linię na mapie albo wyszukaj nazwę (klawisz /).</p>` : ''}
+        ${routes.length > 14 ? `<p class="hint" style="margin-top:6px">Kolejne szlaki: ${click} linię na mapie albo wyszukaj nazwę${TOUCH ? '' : ' (klawisz /)'}.</p>` : ''}
       </div>
       <div class="section">
         <div class="section__title"><span class="kicker">Najbardziej wybitne szczyty</span></div>
@@ -259,7 +262,7 @@ export class Panel {
         }).join('')}</ol>`
       : '';
     const empty = wps.length < 2
-      ? `<div class="empty" style="margin-top:12px">${wps.length ? 'Teraz kliknij <b>cel</b>' : 'Kliknij na mapie <b>punkt startowy</b>, potem <b>cel</b>'}.<br>Kolejne kliknięcia dodają punkty pośrednie; znaczniki można przeciągać, prawy klik na znaczniku usuwa go.</div>`
+      ? `<div class="empty" style="margin-top:12px">${wps.length ? `Teraz ${click} <b>cel</b>` : `${CLICK} na mapie <b>punkt startowy</b>, potem <b>cel</b>`}.<br>Kolejne ${TOUCH ? 'dotknięcia' : 'kliknięcia'} dodają punkty pośrednie; znaczniki można przeciągać, prawy klik na znaczniku usuwa go.</div>`
       : '';
     const alts = s.routes.length
       ? `<div class="section"><div class="section__title"><span class="kicker">Warianty (${s.routes.length})</span><span class="kicker" style="color:var(--paper-4)">porównanie z najszybszym</span></div><div class="alts">${s.routes.map((rt, i) => {
@@ -331,9 +334,9 @@ export class Panel {
       return `
         <div class="kicker">Wysokość względna</div>
         <h1 class="h1">Co jest <em>wyżej</em>?</h1>
-        <p class="lede">Kliknij dowolny punkt – stanie się <b>poziomem zero</b>. Teren zostanie przekolorowany według różnicy wysokości: cieplej – wyżej, chłodniej – niżej. Biała linia łączy miejsca dokładnie na tej samej wysokości, a pierścienie wyznaczają kolejne kilometry.</p>
+        <p class="lede">${CLICK} dowolny punkt – stanie się <b>poziomem zero</b>. Teren zostanie przekolorowany według różnicy wysokości: cieplej – wyżej, chłodniej – niżej. Biała linia łączy miejsca dokładnie na tej samej wysokości, a pierścienie wyznaczają kolejne kilometry.</p>
         ${legend}
-        <div class="empty" style="margin-top:18px">Kliknij na teren, aby ustawić punkt odniesienia.</div>`;
+        <div class="empty" style="margin-top:18px">${CLICK} teren, aby ustawić punkt odniesienia.</div>`;
     }
     const st = a.relStats();
     return `
@@ -344,7 +347,7 @@ export class Panel {
       ${legend}
       ${st ? `<div class="stats" style="margin-top:16px"><div class="stat"><div class="stat__v">${fmtInt(st.frac * 100)}<small>%</small></div><div class="stat__k">terenu wyżej</div></div><div class="stat"><div class="stat__v">${fmtInt((1 - st.frac) * 100)}<small>%</small></div><div class="stat__k">terenu niżej</div></div></div>
       <div class="section"><div class="section__title"><span class="kicker">Szczyty względem punktu</span></div><div class="peaklist">${st.peaks.map(({ p, dh, dist }) => `<button class="peakrow" data-poi="${p.id}"><span class="peakrow__n">${escapeHtml(p.n)}</span><span class="peakrow__e" style="color:${dh > 0 ? '#ffb08c' : '#8fd3ff'}">${fmtSigned(dh)}</span><span class="peakrow__d">${fmtDist(dist)}</span></button>`).join('')}</div></div>` : ''}
-      <p class="note">Najedź kursorem na teren – w pasku odczytu zobaczysz <b>Δh</b>, odległość i kąt wzniesienia względem punktu. Linia przerywana wyznacza poziomicę przechodzącą przez kursor (włącz/wyłącz klawiszem <b>I</b> lub w zakładce „Mapa i światło”).</p>
+      ${TOUCH ? '' : `<p class="note">Najedź kursorem na teren – w pasku odczytu zobaczysz <b>Δh</b>, odległość i kąt wzniesienia względem punktu. Linia przerywana wyznacza poziomicę przechodzącą przez kursor (włącz/wyłącz klawiszem <b>I</b> lub w zakładce „Mapa i światło”).</p>`}
       <div class="btns" style="margin-top:12px"><button class="btn" data-act="vs" data-x="${s.ref.x}" data-z="${s.ref.z}">${ICON.viewshed} Widoczność stąd</button><button class="btn" data-act="pano" data-x="${s.ref.x}" data-z="${s.ref.z}">${ICON.person} Panorama</button></div>`;
   }
 
@@ -389,9 +392,9 @@ export class Panel {
       return `
         <div class="kicker">Analiza widoczności</div>
         <h1 class="h1">Co <em>widać</em> stąd?</h1>
-        <p class="lede">Kliknij punkt obserwacji. Obliczę pole widzenia po całym modelu terenu z uwzględnieniem <b>krzywizny Ziemi i refrakcji</b>. Miejsca niewidoczne zostaną przyciemnione i zakreskowane.</p>
+        <p class="lede">${CLICK} punkt obserwacji. Obliczę pole widzenia po całym modelu terenu z uwzględnieniem <b>krzywizny Ziemi i refrakcji</b>. Miejsca niewidoczne zostaną przyciemnione i zakreskowane.</p>
         <div class="kicker">Wysokość obserwatora nad terenem</div>${seg}
-        <div class="empty" style="margin-top:12px">Kliknij na teren, aby wskazać obserwatora.</div>`;
+        <div class="empty" style="margin-top:12px">${CLICK} teren, aby wskazać obserwatora.</div>`;
     }
     const v = s.viewshed;
     const dem = a.region!.dem;
@@ -417,7 +420,7 @@ export class Panel {
         <div class="kicker">Pomiar i linia wzroku</div>
         <h1 class="h1">Odległość <em>po terenie</em></h1>
         <p class="lede">Klikaj kolejne punkty. Zmierzę dystans <b>po powierzchni</b> (z uwzględnieniem wszystkich wzniesień), w rzucie poziomym i w linii prostej. Dla dwóch punktów sprawdzę też, czy <b>widać jeden z drugiego</b>.</p>
-        <div class="empty">${s.measure.length ? 'Kliknij drugi punkt.' : 'Kliknij pierwszy punkt na terenie.'}</div>`;
+        <div class="empty">${s.measure.length ? `${CLICK} drugi punkt.` : `${CLICK} pierwszy punkt na terenie.`}</div>`;
     }
     const pts = s.measure;
     const vis = m.visible;
@@ -433,7 +436,7 @@ export class Panel {
         <div><div class="metric__k">Kąt wzniesienia</div><div class="metric__v">${fmt1(m.angle)}°</div></div>
       </div>
       ${pts.length === 2 && vis != null ? `<div class="section"><div class="kicker">Linia wzroku (oczy 1,7 m, krzywizna Ziemi)</div><div class="big ${vis ? 'big--ok' : 'big--signal'}" style="font-size:34px;margin-top:6px">${vis ? 'Widać' : 'Nie widać'}</div><p class="note">${vis ? 'Z punktu A widać punkt B – teren nie przesłania linii wzroku.' : 'Teren przesłania linię wzroku – miejsce przeszkody zaznaczono na profilu.'}</p></div>` : ''}
-      <p class="note">Prawy klik na mapie → „Pomiar stąd” rozpoczyna nowy pomiar.</p>`;
+      <p class="note">${TOUCH ? 'Przytrzymaj palec na mapie' : 'Prawy klik na mapie'} → „Pomiar stąd” rozpoczyna nowy pomiar.</p>`;
   }
 
   // ======================================================================= MAPA
@@ -480,7 +483,7 @@ export class Panel {
   private gfxTab() {
     const a = this.app;
     const dem = a.region!.dem;
-    return `${this.gfxSection()}
+    return `${this.gfxSection()}${storageHost ? this.storageSection() : ''}
       <div class="section">
         <div class="section__title"><span class="kicker">Źródła danych</span></div>
         <p class="note" style="margin-top:0">${a.tiles ? `Model terenu: <b>LiDAR</b> – NMT <b>GUGiK</b> (PL)${a.region!.def.hd?.lidar.includes('cz') ? ' i DMR 5G <b>ČÚZK</b> (CZ)' : ''}, kafle do ~${a.tiles.maxZ >= 15 ? 3 : a.tiles.maxZ >= 14 ? 6 : 12} m; poza zasięgiem – <b>Terrarium</b>. Ortofoto: <b>GUGiK</b>, <b>ZBGIS</b>, <b>ČÚZK</b>.` : `Model terenu: <b>Terrarium</b> (Mapzen / AWS Open Data; SRTM, EU‑DEM), siatka ~${fmtInt(dem.mpp)} m.`} Szlaki, szczyty, schroniska: <b>© OpenStreetMap</b> (ODbL). Obraz satelitarny: <b>Sentinel‑2 cloudless 2020 © EOX</b> (CC BY‑NC‑SA 4.0). Czas przejścia wg reguły <b>PTTK</b> (15 min/km + 1 min/10 m podejścia) lub normy <b>DIN 33466</b>; punkty <b>GOT PTTK</b> wg reguły 1 pkt/km + 1 pkt/100 m podejścia.</p>
@@ -513,8 +516,53 @@ export class Panel {
           ${tg('fps', 'Limit 30 kl./s', g.fps === 30)}
           ${tg('detail', 'Mikrorzeźba skał', g.detail)}
         </div>
-        <p class="note">Niższa rozdzielczość renderu i rzadsza siatka najbardziej odciążają kartę graficzną; limit poziomu LiDAR i mniejsze zdjęcia zmniejszają też transfer danych. Ustawienia są zapamiętywane w tej przeglądarce.</p>
+        <p class="note">Niższa rozdzielczość renderu i rzadsza siatka najbardziej odciążają kartę graficzną; limit poziomu LiDAR i mniejsze zdjęcia zmniejszają też transfer danych. Ustawienia są zapamiętywane na tym komputerze.</p>
       </div>`;
+  }
+
+  /** Aplikacja desktopowa: tryb przechowywania danych, zajętość i limit (wypełniane asynchronicznie). */
+  private storageSection() {
+    return `
+      <div class="section">
+        <div class="section__title"><span class="kicker">Dane i pamięć</span><span class="kicker" id="o-store-mode"></span></div>
+        <div class="stats">
+          <div class="stat"><div class="stat__v" id="o-store-used">—</div><div class="stat__k">zajęte</div></div>
+          <div class="stat"><div class="stat__v" id="o-store-limit">—</div><div class="stat__k">limit</div></div>
+        </div>
+        <div class="meter"><i id="o-store-bar" style="width:0"></i></div>
+        <p class="note" id="o-store-note"></p>
+        <div class="btns">
+          <button class="btn" data-act="data-settings">${ICON.layers} Ustawienia danych…</button>
+          ${storageHost?.checkUpdates ? `<button class="btn" data-act="check-updates">${ICON.reset} Sprawdź aktualizacje</button>` : ''}
+        </div>
+        <p class="note" id="o-version"></p>
+      </div>`;
+  }
+
+  private async syncStorage() {
+    if (!storageHost) return;
+    try {
+      const [info, st] = await Promise.all([
+        storageHost.info(),
+        fetch(`${import.meta.env.BASE_URL}api/status`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ storage?: StorageStatus }>),
+      ]);
+      const b = this.body;
+      const used = (st.storage?.permanent ?? 0) + (st.storage?.cache ?? 0);
+      const limit = info.limitGB * 1024 ** 3;
+      const set = (id: string, v: string) => { const el = b.querySelector(`#${id}`); if (el) el.textContent = v; };
+      if (info.version) set('o-version', `Wersja ${info.version}`);
+      set('o-store-mode', info.mode === 'session' ? 'usuwane przy zamknięciu' : 'zachowywane');
+      set('o-store-used', st.storage?.at ? fmtBytes(used) : '…');
+      set('o-store-limit', `${info.limitGB} GB`);
+      const bar = b.querySelector<HTMLElement>('#o-store-bar');
+      if (bar) bar.style.width = `${Math.min(100, (used / limit) * 100).toFixed(1)}%`;
+      const android = info.platform === 'android';
+      set('o-store-note', info.mode === 'session'
+        ? `Kafle i dane okolic są usuwane przy każdym ${android ? 'uruchomieniu i zamknięciu aplikacji' : 'zamknięciu programu. Ctrl+, otwiera ustawienia'}.`
+        : `${info.dataDir ? `Folder: ${info.dataDir}. ` : ''}Po przekroczeniu limitu najdawniej używane kafle są usuwane w tle.${android ? '' : ' Ctrl+, otwiera ustawienia.'}`);
+    } catch {
+      /* serwer chwilowo niedostępny – wartości zostaną przy następnym otwarciu zakładki */
+    }
   }
 
   /** Odświeża licznik wydajności w sekcji jakości (bez przebudowy panelu). */
@@ -661,6 +709,22 @@ export class Panel {
           case 'gpx-clear': a.store.set({ gpx: null }); break;
           case 'link': a.shareLink(); break;
           case 'shot': a.screenshot(); break;
+          case 'data-settings': void storageHost?.openSettings(); break;
+          case 'check-updates': {
+            const btn = el as HTMLButtonElement;
+            btn.disabled = true;
+            void storageHost?.checkUpdates?.().then((r) => {
+              btn.disabled = false;
+              // Android pokazuje własne komunikaty; na Windows propozycja pojawia się w oknie programu
+              if (storageHost && 'granDesktop' in window) {
+                if (r.state === 'latest') a.toast(`Masz najnowszą wersję (${r.current}).`);
+                else if (r.state === 'available') a.toast(`Dostępna jest wersja ${r.latest}.`);
+                else if (r.state === 'dev') a.toast('Sprawdzanie aktualizacji działa w zainstalowanym programie.');
+                else a.toast('Nie udało się sprawdzić aktualizacji.', true);
+              }
+            });
+            break;
+          }
           case 'clear-ref': a.unpinLens(); break;
           case 'clear-vs': a.unpinLens(); break;
           case 'clear-m': a.clearMeasure(); break;
@@ -762,7 +826,7 @@ export class Panel {
     c.lineTo(W, y0);
     c.stroke();
     c.fillStyle = 'rgba(239,231,214,0.35)';
-    c.font = '9px "Geist Mono", monospace';
+    c.font = '9px "Geist Mono Variable", "Geist Mono", monospace';
     for (let hh = 3; hh < 24; hh += 3) {
       c.fillText(String(hh).padStart(2, '0'), (hh / 24) * W - 6, H - 5);
     }
