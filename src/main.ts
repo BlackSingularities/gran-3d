@@ -71,6 +71,8 @@ app.listeners.push(() => {
 });
 app.engine.onFrame(() => {
   if (!app.region) return;
+  // dotyk: celownik na środku ekranu działa jak kursor
+  chrome.frameAim();
   if (++statTick % 20 === 0) {
     chrome.updateTileStat();
     panel.syncPerf();
