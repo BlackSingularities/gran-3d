@@ -1,7 +1,7 @@
 {
   "name": "gran-mobile",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GRAŃ – aplikacja Android (Capacitor + Node.js na urządzeniu)",
   "scripts": {
     "prepare-www": "node ../scripts/mobile-prepare.mjs",

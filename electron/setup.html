@@ -156,7 +156,11 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
     </section>
 
     <section class="section">
-      <button class="toggle" id="upd"><i></i>Automatycznie instaluj aktualizacje z oficjalnych wydań</button>
+      <div class="usage">
+        <button class="toggle" id="upd"><i></i>Sprawdzaj aktualizacje i proponuj instalację</button>
+        <button class="btn" id="chk" hidden>Sprawdź teraz</button>
+      </div>
+      <p class="note" id="chk-note"></p>
     </section>
   </main>
 
@@ -230,6 +234,7 @@ async function init() {
     $('cancel').textContent = 'Anuluj';
     $('usage-sec').hidden = false;
     $('used').innerHTML = fmtBytes(s.used);
+    $('chk').hidden = false;
   }
   render();
 }
@@ -257,6 +262,19 @@ $('reset').addEventListener('click', async () => {
 $('upd').addEventListener('click', () => {
   state.autoUpdate = !state.autoUpdate;
   render();
+});
+$('chk').addEventListener('click', async () => {
+  const b = $('chk');
+  b.disabled = true;
+  $('chk-note').textContent = 'Sprawdzanie…';
+  const r = await window.granSetup.checkUpdates();
+  b.disabled = false;
+  $('chk-note').textContent =
+    r.state === 'latest' ? `Masz najnowszą wersję (${r.current}).`
+    : r.state === 'available' ? `Dostępna jest wersja ${r.latest} – zobacz okno z propozycją aktualizacji.`
+    : r.state === 'dev' ? 'Sprawdzanie aktualizacji działa w zainstalowanym programie.'
+    : r.state === 'offline' ? 'Brak połączenia z internetem.'
+    : `Nie udało się sprawdzić aktualizacji${r.error ? `: ${r.error}` : ''}.`;
 });
 $('clear').addEventListener('click', async () => {
   const b = $('clear');

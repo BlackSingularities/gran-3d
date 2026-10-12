@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('granDesktop', {
   info: () => ipcRenderer.invoke('gran:info'),
   /** Okno „Dane i pamięć” (to samo co przy pierwszym uruchomieniu). */
   openSettings: () => ipcRenderer.invoke('gran:open-settings'),
+  /** Sprawdzenie, czy w GitHub Releases jest nowsza wersja (propozycja aktualizacji pojawia się sama). */
+  checkUpdates: () => ipcRenderer.invoke('gran:update:check'),
 });
 
 contextBridge.exposeInMainWorld('granSetup', {
@@ -17,4 +19,5 @@ contextBridge.exposeInMainWorld('granSetup', {
   save: (cfg) => ipcRenderer.invoke('gran:setup:save', cfg),
   clear: () => ipcRenderer.invoke('gran:setup:clear'),
   cancel: () => ipcRenderer.invoke('gran:setup:cancel'),
+  checkUpdates: () => ipcRenderer.invoke('gran:update:check'),
 });

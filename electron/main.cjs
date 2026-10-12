@@ -540,25 +540,57 @@ app.on('before-quit', (e) => {
 });
 
 // ------------------------------------------------------------------ aktualizacje (GitHub Releases)
-function setupUpdater() {
-  if (!app.isPackaged || settings?.autoUpdate === false) return;
-  let autoUpdater;
+// Program sprawdza wydania przy starcie i co 6 godzin. Nowa wersja = propozycja w oknie dialogowym;
+// pobieranie dopiero po zgodzie (postęp na pasku zadań), potem instalacja z ponownym uruchomieniem.
+let updater = null;
+let updateOffered = null; // wersja, o której użytkownik już wie w tej sesji
+let updateBusy = false;
+let manualCheck = false;
+
+function getUpdater() {
+  if (updater || !app.isPackaged) return updater;
   try {
-    ({ autoUpdater } = require('electron-updater'));
+    ({ autoUpdater: updater } = require('electron-updater'));
   } catch {
-    return;
+    return null;
   }
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.logger = { info: log, warn: log, error: log, debug: () => {} };
-  autoUpdater.on('update-downloaded', async (info) => {
+  updater.autoDownload = false;
+  updater.autoInstallOnAppQuit = true;
+  updater.logger = { info: log, warn: log, error: log, debug: () => {} };
+
+  updater.on('update-available', async (info) => {
+    if (updateBusy || (updateOffered === info.version && !manualCheck)) return;
+    updateOffered = info.version;
     const r = await dialog.showMessageBox(mainWin ?? undefined, {
       type: 'info',
       title: APP_NAME,
       message: `Dostępna jest nowa wersja ${info.version}.`,
-      detail: 'Aktualizacja została pobrana. Zainstalować ją teraz? Program uruchomi się ponownie.',
-      buttons: ['Zainstaluj i uruchom ponownie', 'Przy następnym zamknięciu'],
+      detail: `Masz wersję ${app.getVersion()}. Pobrać i zainstalować aktualizację? Twoje dane map i ustawienia zostaną zachowane.`,
+      buttons: ['Aktualizuj teraz', 'Później'],
       defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (r.response !== 0) return;
+    updateBusy = true;
+    mainWin?.setProgressBar(0.01);
+    updater.downloadUpdate().catch((err) => {
+      updateBusy = false;
+      mainWin?.setProgressBar(-1);
+      dialog.showErrorBox(APP_NAME, `Nie udało się pobrać aktualizacji: ${err?.message ?? err}`);
+    });
+  });
+  updater.on('download-progress', (p) => mainWin?.setProgressBar(Math.max(0.01, (p.percent ?? 0) / 100)));
+  updater.on('update-downloaded', async (info) => {
+    mainWin?.setProgressBar(-1);
+    const r = await dialog.showMessageBox(mainWin ?? undefined, {
+      type: 'info',
+      title: APP_NAME,
+      message: `Wersja ${info.version} jest gotowa do instalacji.`,
+      detail: 'Program zamknie się na chwilę i uruchomi ponownie w nowej wersji.',
+      buttons: ['Zainstaluj teraz', 'Przy zamknięciu programu'],
+      defaultId: 0,
+      cancelId: 1,
       noLink: true,
     });
     if (r.response === 0) {
@@ -566,14 +598,43 @@ function setupUpdater() {
       await stopServer();
       if (settings?.mode === 'session') rmrf(SESSION_DIR);
       cleaned = true;
-      autoUpdater.quitAndInstall(false, true);
+      updater.quitAndInstall(false, true);
     }
   });
-  autoUpdater.on('error', (err) => log(`aktualizacje: ${err?.message ?? err}`));
-  const check = () => net.isOnline() && autoUpdater.checkForUpdates().catch((err) => log(`aktualizacje: ${err.message}`));
-  setTimeout(check, 15_000);
-  setInterval(check, 6 * 60 * 60 * 1000).unref();
+  updater.on('error', (err) => {
+    updateBusy = false;
+    mainWin?.setProgressBar(-1);
+    log(`aktualizacje: ${err?.message ?? err}`);
+  });
+  return updater;
 }
+
+/** Sprawdzenie wydań. Wynik dla okna ustawień: aktualna / dostępna wersja X / błąd. */
+async function checkUpdates(manual = false) {
+  const u = getUpdater();
+  if (!u) return { state: 'dev', current: app.getVersion() };
+  if (!manual && !net.isOnline()) return { state: 'offline', current: app.getVersion() };
+  manualCheck = manual;
+  try {
+    const r = await u.checkForUpdates();
+    const latest = r?.updateInfo?.version ?? app.getVersion();
+    const newer = r?.isUpdateAvailable ?? latest !== app.getVersion();
+    return { state: newer ? 'available' : 'latest', current: app.getVersion(), latest };
+  } catch (err) {
+    log(`aktualizacje: ${err?.message ?? err}`);
+    return { state: 'error', current: app.getVersion(), error: String(err?.message ?? err) };
+  } finally {
+    manualCheck = false;
+  }
+}
+
+function setupUpdater() {
+  if (!app.isPackaged || settings?.autoUpdate === false) return;
+  setTimeout(() => void checkUpdates(), 15_000);
+  setInterval(() => void checkUpdates(), 6 * 60 * 60 * 1000).unref();
+}
+
+ipcMain.handle('gran:update:check', () => checkUpdates(true));
 
 app.whenReady().then(main);
 

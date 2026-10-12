@@ -38,6 +38,7 @@ export const ICON = {
   iso: s('<path d="M3 17 L8 9 L12 13 L16 6 L21 17"/><path d="M2 12 C 6 10, 9 14, 13 11.5 S 19 10, 22 12" stroke-dasharray="0" stroke-width="2"/>'),
   band: s('<path d="M3 18 L9 7 L13 12 L17 6 L21 18 Z"/><path d="M4 11.5 H20 M4 14.5 H20" stroke-width="1.3"/>'),
   cursor: s('<path d="M6 3 L6 19 L10.5 14.8 L13.4 21 L16 19.8 L13.2 13.8 L19 13.5 Z" stroke-linejoin="round"/>'),
+  sheet: s('<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 13 H20"/><path d="M9.5 16.5 H14.5"/>'),
   reset: s('<path d="M4 12 A8 8 0 1 0 7 5.8"/><path d="M4 4 V9 H9"/>'),
 };
 

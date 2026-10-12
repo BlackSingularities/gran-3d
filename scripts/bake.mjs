@@ -25,20 +25,31 @@ async function fetchCached(url, file, init) {
   const p = path.join(CACHE, file);
   if (fs.existsSync(p)) return fs.readFileSync(p);
   for (let attempt = 0; attempt < 4; attempt++) {
+    // limity czasu: odpowiedź (Overpass potrafi długo trzymać zapytanie w kolejce) i brak danych w trakcie pobierania
+    const ctl = new AbortController();
+    let timer = setTimeout(() => ctl.abort(new Error('serwer nie odpowiada')), 330_000);
+    const idle = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => ctl.abort(new Error('pobieranie stoi')), 90_000);
+    };
     try {
-      const res = await fetch(url, { ...init, headers: { 'User-Agent': UA, ...(init?.headers ?? {}) } });
+      const res = await fetch(url, { ...init, signal: ctl.signal, headers: { 'User-Agent': UA, ...(init?.headers ?? {}) } });
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      idle();
       const parts = [];
       let got = 0;
       for await (const chunk of res.body) {
         parts.push(chunk);
         got += chunk.length;
+        idle();
         init?.onBytes?.(got);
       }
+      clearTimeout(timer);
       const buf = Buffer.concat(parts);
       fs.writeFileSync(p, buf);
       return buf;
     } catch (e) {
+      clearTimeout(timer);
       console.warn(`  ! ${file}: ${e.message} (próba ${attempt + 1})`);
       await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
     }
@@ -143,7 +154,7 @@ async function overpass(query, file, prefer = 0, label = 'dane') {
   }
 }
 
-async function overpassRaw(query, file, prefer, onBytes) {
+async function overpassRaw(query, file, prefer, onBytes, parse = true) {
   let lastErr;
   // zapytania równoległe rozkładamy na różne serwery (każdy ma limit jednoczesnych zapytań na IP)
   for (const url of [...OVERPASS.slice(prefer), ...OVERPASS.slice(0, prefer)]) {
@@ -154,7 +165,7 @@ async function overpassRaw(query, file, prefer, onBytes) {
         body: 'data=' + encodeURIComponent(query),
         onBytes,
       });
-      return JSON.parse(buf.toString('utf8'));
+      return parse ? JSON.parse(buf.toString('utf8')) : null;
     } catch (e) {
       lastErr = e;
     }
@@ -376,28 +387,67 @@ out center tags;`;
 
 
 // ---------- pokrycie terenu (maska rastrowa z poligonów OSM) ----------
-function landQuery(region) {
+/** Pokrycie terenu w ćwiartkach obszaru: mniejsze odpowiedzi i mniejsze zużycie pamięci (telefony). */
+const LAND_SPLIT = 2;
+function landParts(region) {
+  const [w, s, e, n] = region.bbox;
+  const parts = [];
+  for (let j = 0; j < LAND_SPLIT; j++)
+    for (let i = 0; i < LAND_SPLIT; i++) {
+      const pw = w + ((e - w) * i) / LAND_SPLIT, pe = w + ((e - w) * (i + 1)) / LAND_SPLIT;
+      const ps = s + ((n - s) * j) / LAND_SPLIT, pn = s + ((n - s) * (j + 1)) / LAND_SPLIT;
+      parts.push({ q: landQuery(region, [pw, ps, pe, pn]), file: `osm-land-${region.id}-${j * LAND_SPLIT + i}.json` });
+    }
+  return parts;
+}
+
+/** Pobiera ćwiartki po kolei (bez parsowania – trafiają do bufora na dysku). Błąd nie przerywa wypiekania. */
+async function fetchLand(region) {
+  const parts = landParts(region);
+  const label = 'pokrycie terenu';
+  const files = [];
+  for (let k = 0; k < parts.length; k++) {
+    osmState[label] = `${k}/${parts.length}`;
+    osmReport();
+    try {
+      await overpassRaw(parts[k].q, parts[k].file, 0, (n) => {
+        osmState[label] = `${k}/${parts.length} · ${(n / 1048576).toFixed(1)} MB`;
+        if (Date.now() - lastReport > 700) { lastReport = Date.now(); osmReport(); }
+      }, false);
+      files.push(parts[k].file);
+    } catch (e) {
+      console.warn(`  ! pokrycie terenu ${k + 1}/${parts.length}: ${e.message}`);
+    }
+  }
+  osmState[label] = files.length === parts.length ? '✓' : files.length ? '✓ (część)' : '✓ (bez danych)';
+  osmReport();
+  return files;
+}
+
+function landQuery(region, part = region.bbox) {
   const [w, s, e, n] = region.bbox;
   const bb = `${s},${w},${n},${e}`;
+  const [qw, qs, qe, qn] = part;
+  const qb = `${qs},${qw},${qn},${qe}`;
   return `[out:json][timeout:300];
 (
-  way["natural"="water"](${bb});
-  relation["natural"="water"](${bb});
-  way["waterway"="riverbank"](${bb});
-  way["landuse"="forest"](${bb});
-  relation["landuse"="forest"](${bb});
-  way["natural"="wood"](${bb});
-  relation["natural"="wood"](${bb});
-  way["natural"~"^(scree|bare_rock|shingle|cliff)$"](${bb});
-  relation["natural"~"^(scree|bare_rock)$"](${bb});
-  way["natural"="scrub"](${bb});
-  relation["natural"="scrub"](${bb});
+  way["natural"="water"](${qb});
+  relation["natural"="water"](${qb});
+  way["waterway"="riverbank"](${qb});
+  way["landuse"="forest"](${qb});
+  relation["landuse"="forest"](${qb});
+  way["natural"="wood"](${qb});
+  relation["natural"="wood"](${qb});
+  way["natural"~"^(scree|bare_rock|shingle|cliff)$"](${qb});
+  relation["natural"~"^(scree|bare_rock)$"](${qb});
+  way["natural"="scrub"](${qb});
+  relation["natural"="scrub"](${qb});
 );
 out geom(${bb});`;
 }
 
 async function bakeLandcover(region, dem, landP) {
-  const j = await landP;
+  const files = await landP;
   const S = 2; // nadpróbkowanie względem siatki DEM
   const W = dem.width * S, H = dem.height * S;
   const img = new Uint8Array(W * H * 3);
@@ -436,6 +486,16 @@ async function bakeLandcover(region, dem, landP) {
   };
 
   let counts = { water: 0, forest: 0, rock: 0, scrub: 0 };
+  // ćwiartki po kolei: parsowanie, rasteryzacja i zwolnienie pamięci przed następną
+  for (const file of files) {
+  let j;
+  try {
+    j = JSON.parse(fs.readFileSync(path.join(CACHE, file), 'utf8'));
+  } catch (e) {
+    console.warn(`  ! ${file}: ${e.message}`);
+    fs.rmSync(path.join(CACHE, file), { force: true });
+    continue;
+  }
   for (const el of j.elements) {
     const t = el.tags || {};
     let ch, val;
@@ -460,6 +520,8 @@ async function bakeLandcover(region, dem, landP) {
     }
     if (rings.length) fill(rings, ch, val);
   }
+  j = null;
+  }
   console.log(`  pokrycie: ${counts.water} wód, ${counts.forest} lasów, ${counts.scrub} zarośli, ${counts.rock} skał/piargów`);
   const png = new PNG({ width: W, height: H, colorType: 2 });
   png.data = Buffer.alloc(W * H * 4);
@@ -477,8 +539,7 @@ for (const region of regions) {
   console.log(`\n▲ ${region.name}`);
   progress(0.02, 'Model terenu (Terrarium)');
   // pokrycie terenu (największe zapytanie) rusza od razu, równolegle z resztą
-  const landP = overpass(landQuery(region), `osm-land-${region.id}.json`, 0, 'pokrycie terenu');
-  landP.catch(() => {});
+  const landP = fetchLand(region);
   const dem = await bakeDem(region);
   const osm = await bakeOsm(region, dem);
   const land = await bakeLandcover(region, { ...dem, width: dem.width, height: dem.height }, landP);

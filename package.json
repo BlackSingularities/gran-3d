@@ -2,7 +2,7 @@
   "name": "gran-3d",
   "productName": "GRAŃ",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GRAŃ — atlas szlaków górskich 3D: teren, wysokości względne, trasowanie i analizy widoczności",
   "author": {
     "name": "BlackSingularities",
@@ -82,9 +82,6 @@
       "artifactName": "GRAN-Setup-${version}.${ext}",
       "legalTrademarks": "GRAŃ",
       "signtoolOptions": {
-        "publisherName": [
-          "BlackSingularities"
-        ],
         "signingHashAlgorithms": [
           "sha256"
         ],

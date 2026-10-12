@@ -8,9 +8,17 @@ export interface DesktopInfo {
   dataDir: string;
 }
 
+export interface UpdateCheck {
+  state: 'latest' | 'available' | 'error' | 'offline' | 'dev';
+  current: string;
+  latest?: string;
+}
+
 interface DesktopBridge {
   info(): Promise<DesktopInfo>;
   openSettings(): Promise<void>;
+  /** Ręczne sprawdzenie aktualizacji (propozycję instalacji pokazuje sam program). */
+  checkUpdates?(): Promise<UpdateCheck>;
 }
 
 export const desktop: DesktopBridge | null = (globalThis as { granDesktop?: DesktopBridge }).granDesktop ?? null;
@@ -35,6 +43,8 @@ export const fmtBytes = (b: number) =>
 interface AndroidBridge {
   saveFile(name: string, mime: string, base64: string): void;
   openExternal(url: string): void;
+  /** Pobranie APK nowej wersji i otwarcie systemowego instalatora (postęp: window.__granUpdateProgress). */
+  installUpdate?(url: string, version: string): void;
 }
 
 export const android: AndroidBridge | null = (globalThis as { GranAndroid?: AndroidBridge }).GranAndroid ?? null;

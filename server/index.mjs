@@ -329,6 +329,7 @@ async function api(req, res, url) {
     }
   }
   if (SETTINGS_FILE && url.pathname === '/api/settings') return settingsApi(req, res);
+  if (url.pathname === '/api/update' && req.method === 'GET') return send(res, 200, await latestRelease(url.searchParams.has('force')));
   if (req.method !== 'GET' && !authorized(req)) return send(res, 401, { error: 'Wymagane hasło administratora.' });
   if (url.pathname === '/api/areas' && req.method === 'POST') {
     const { name, bbox, quality, res: lidarRes } = await readBody(req);
@@ -379,6 +380,38 @@ async function api(req, res, url) {
     return send(res, 200, { ok: true });
   }
   return send(res, 404, { error: 'Nie znaleziono.' });
+}
+
+// ------------------------------------------------------------------ nowe wydania (Android: propozycja aktualizacji)
+const RELEASES = 'https://api.github.com/repos/BlackSingularities/gran-3d/releases/latest';
+let releaseCache = { at: 0, ttl: 0, data: null };
+
+/** Porównanie wersji x.y.z: dodatnie, gdy a > b. */
+function cmpVersion(a, b) {
+  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
+  return 0;
+}
+
+async function latestRelease(force = false) {
+  const current = process.env.GRAN_VERSION || JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  if (!force && releaseCache.data && Date.now() - releaseCache.at < releaseCache.ttl) return { current, ...releaseCache.data };
+  try {
+    const r = await fetch(RELEASES, { headers: { 'User-Agent': UA, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(15000) });
+    if (!r.ok) throw new Error(`GitHub ${r.status}`);
+    const j = await r.json();
+    const latest = String(j.tag_name || '').replace(/^v/, '');
+    const apk = (j.assets || []).find((a) => /\.apk$/i.test(a.name));
+    releaseCache = {
+      at: Date.now(),
+      ttl: 6 * 3600 * 1000,
+      data: { latest, newer: cmpVersion(latest, current) > 0, apk: apk?.browser_download_url ?? null, apkSize: apk?.size ?? null, page: j.html_url, notes: String(j.body || '').slice(0, 1200), date: j.published_at },
+    };
+  } catch (e) {
+    releaseCache = { at: Date.now(), ttl: 10 * 60 * 1000, data: { latest: null, newer: false, error: e.message } };
+  }
+  return { current, ...releaseCache.data };
 }
 
 // ------------------------------------------------------------------ ustawienia przechowywania (Android)

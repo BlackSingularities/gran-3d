@@ -13,6 +13,7 @@ import { MapsManager } from './ui/maps';
 import { Panel } from './ui/panel';
 import { android, setStorageHost } from './core/desktop';
 import { fetchMobileSettings, StorageDialog } from './ui/storage';
+import { UpdateBanner } from './ui/update';
 
 const loader = document.getElementById('loader')!;
 const fill = document.getElementById('loader-fill')!;
@@ -24,9 +25,17 @@ step.textContent = 'Łączenie z serwerem';
 const [, , mobile] = await Promise.all([initCatalog(), loadCoverage(), fetchMobileSettings()]);
 
 // Android: ustawienia przechowywania danych w oknie aplikacji; przy pierwszym starcie wybór jest wymagany
+const updates = new UpdateBanner((m, err) => app.toast(m, err));
 if (mobile) {
   const dialog = new StorageDialog(mobile);
-  setStorageHost({ info: async () => (await dialog.refresh(), dialog.info()), openSettings: () => dialog.open() });
+  setStorageHost({
+    info: async () => (await dialog.refresh(), dialog.info()),
+    openSettings: () => dialog.open(),
+    checkUpdates: async () => {
+      const r = await updates.check(true);
+      return { state: !r || r.error ? 'error' : r.newer ? 'available' : 'latest', current: r?.current ?? '', latest: r?.latest ?? undefined };
+    },
+  });
   if (!mobile.configured) {
     loader.classList.add('is-done');
     await dialog.open();
@@ -95,3 +104,6 @@ chrome.updateScale();
 
 // dostęp diagnostyczny z konsoli
 (window as unknown as { gran: App }).gran = app;
+
+// Android: propozycja aktualizacji, gdy w GitHub Releases pojawi się nowsza wersja
+updates.start();
