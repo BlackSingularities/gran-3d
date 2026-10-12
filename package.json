@@ -22,10 +22,10 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "dist:win": "npm run build && electron-builder --win --x64 --publish never",
-    "release": "npm run build && electron-builder --win --x64 --publish always",
     "bake": "node scripts/bake.mjs",
     "bake:hd": "node scripts/bake-hd.mjs",
-    "bake:all": "node scripts/bake.mjs && node scripts/bake-hd.mjs"
+    "bake:all": "node scripts/bake.mjs && node scripts/bake-hd.mjs",
+    "dist:android": "npm run build && npm --prefix mobile run apk"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",

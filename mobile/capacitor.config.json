@@ -1,0 +1,21 @@
+{
+  "appId": "com.blacksingularities.gran3d",
+  "appName": "GRAŃ",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true,
+    "allowNavigation": ["127.0.0.1"]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#070a0c",
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {
+    "CapacitorNodeJS": {
+      "nodeDir": "nodejs",
+      "startMode": "auto"
+    }
+  }
+}

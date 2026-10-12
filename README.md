@@ -2,42 +2,43 @@
 
 Trójwymiarowy atlas polskich gór działający w całości w przeglądarce. Łączy rzeczywisty numeryczny model terenu z siecią znakowanych szlaków z OpenStreetMap i dokłada do tego narzędzia analityczne: wysokość względną, wyznaczanie tras z wariantami, pole widoczności, linię wzroku, cienie o dowolnej porze dnia i przelot kamery nad trasą.
 
-Aplikacja jest przeznaczona do **samodzielnego hostowania**. Repozytorium nie zawiera żadnych danych gór. W aplikacji otwierasz **mapę pobierania** (przycisk „Mapy” na szynie narzędzi albo klawisz `D`) i zaznaczasz kwadrat do 10 000 km² w dowolnym miejscu Europy — także w Alpach. Serwer pobiera dokładnie ten wycinek i przygotowuje go w tle. Zapamiętane są wyłącznie kwadraty wybrane przez użytkownika; nie ma katalogu gotowych pasm.
+GRAŃ to **aplikacja na Windows i Androida** dystrybuowana przez [GitHub Releases](https://github.com/BlackSingularities/gran-3d/releases) – nie jest publikowana jako strona WWW. Repozytorium nie zawiera żadnych danych gór: teren, szlaki i dane okolic pobierane są w tle w miarę oglądania mapy, a w menedżerze map (przycisk „Mapy” albo klawisz `D`) można zaznaczyć kwadrat do 10 000 km² w dowolnym miejscu Europy do pracy bez internetu.
 
-## Uruchomienie
+## Instalacja
+
+| platforma | plik | uwagi |
+| --- | --- | --- |
+| Windows 10/11 (64-bit) | `GRAN-Setup-<wersja>.exe` | instalator z wyborem folderu (domyślnie `Program Files`), skróty, deinstalacja z Panelu sterowania, automatyczne aktualizacje |
+| Android 7.0+ | `GRAN-<wersja>.apk` | instalacja z pliku (zezwolenie na „nieznane aplikacje”) |
+
+Przy pierwszym uruchomieniu wybierasz sposób przechowywania danych map: **zachowywanie** z limitem pojemności (1–500 GB, najdawniej używane kafle są usuwane automatycznie) albo **usuwanie przy każdym zamknięciu**. Ustawienie zmienisz w zakładce **Jakość → Dane i pamięć** (Windows także `Ctrl+,`).
+
+## Architektura aplikacji
+
+Interfejs (Vite + Three.js, `src/`) rozmawia z lokalnym serwerem danych (`server/index.mjs` + `scripts/`), który pobiera i wypieka teren, szlaki i pokrycie terenu. Serwer nasłuchuje wyłącznie na `127.0.0.1`.
+
+- **Windows** – Electron (`electron/`): powłoka uruchamia serwer jako proces Node wbudowany w Electron, okno pierwszego uruchomienia (`electron/setup.html`), instalator NSIS (`build/`), aktualizacje `electron-updater`.
+- **Android** – Capacitor (`mobile/`): serwer działa w silniku Node.js osadzonym w aplikacji (`capacitor-nodejs`), wypiekanie w wątkach roboczych zamiast procesów, ustawienia danych w oknie aplikacji (`src/ui/storage.ts`), most natywny do zapisu plików (`MainActivity.java`).
+
+## Budowanie
 
 ```bash
 npm install
-npm run dev              # tryb deweloperski: http://localhost:5190
+npm run dev              # tryb deweloperski w przeglądarce: http://localhost:5190
+npm run dev:desktop      # aplikacja desktopowa (Electron) lokalnie
+npm run dist:win         # instalator Windows → release/
+npm run dist:android     # APK (wymaga Android SDK, JDK 21 i `npm install --prefix mobile`)
 ```
 
-Produkcyjnie:
+Wydanie: podbij `version` w `package.json`, zatwierdź i wypchnij tag `v<wersja>` – workflow `.github/workflows/build.yml` zbuduje instalator i APK i opublikuje je w jednym wydaniu.
 
-```bash
-npm run build
-npm start                # serwer + aplikacja + menedżer map na porcie 5190
-```
-
-albo w kontenerze:
-
-```bash
-docker compose up -d     # pobrane kwadraty trafiają do wolumenu gran-data
-```
-
-| zmienna | domyślnie | znaczenie |
-| --- | --- | --- |
-| `PORT`, `HOST` | `5190`, `0.0.0.0` | adres serwera |
-| `GRAN_DATA_DIR` | `./data` | katalog pobranych kwadratów |
-| `GRAN_CACHE_DIR` | `./.cache` | bufor pobranych kafli i odpowiedzi |
-| `GRAN_ADMIN_TOKEN` | — | hasło wymagane do pobierania i usuwania kwadratów (zalecane na publicznym serwerze) |
-| `GRAN_KEEP_CACHE` | — | `1` = nie usuwaj dużych plików LiDAR z bufora po instalacji |
+Podpis cyfrowy (sekrety repozytorium): Windows – `WIN_CSC_LINK` (certyfikat .pfx w base64) i `WIN_CSC_KEY_PASSWORD`; Android – `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
 
 Poziomy pakietów:
 - **Standard**: globalny model terenu ~10–25 m (Terrarium), szlaki, szczyty, schroniska i pokrycie terenu z OpenStreetMap w całej Europie.
 - **LiDAR 3 / 6 / 12 m** (do wyboru przy pobieraniu, z szacunkiem rozmiaru i czasu): kafle terenu z NMT GUGiK (Polska) i DMR 5G ČÚZK (Czechy). Przetwarzanie odbywa się blokami ~6×6 km, więc zużycie pamięci nie zależy od wielkości kwadratu. Wystarczy, że źródło LiDAR obejmuje część kwadratu; reszta korzysta z modelu globalnego z płynnym przejściem.
 
-Każdy kwadrat ma własny `data/<id>/region.json` z granicami `bbox`, wybraną jakością i wykrytymi źródłami danych. Bez serwera aplikacja może nadal otwierać wcześniej przygotowane dane statyczne, ale nie utworzy nowych kwadratów.
-
+Każdy kwadrat ma własny `data/<id>/region.json` z granicami `bbox`, wybraną jakością i wykrytymi źródłami danych. 
 ## Funkcje
 
 ### Teren
@@ -100,7 +101,7 @@ npm run bake:hd -- moj-kwadrat  # etap 2: LiDAR → piramida kafli, model analit
 
 Etap 2 pobiera setki MB danych LiDAR (GUGiK udostępnia NMT w układzie PUWG‑1992 – przeliczenie do Web Mercatora jest w `scripts/lib/puwg.mjs`). Słowacki DMR 5.0 nie ma publicznej usługi z surowymi wysokościami (tylko wysyłka na dysku), dlatego słowacka strona gór korzysta z modelu globalnego.
 
-Pobrane kafle i odpowiedzi Overpass są buforowane w `.cache/`.
+Pobrane kafle i odpowiedzi Overpass są buforowane w katalogu `.cache` wewnątrz folderu danych.
 
 ## Architektura
 

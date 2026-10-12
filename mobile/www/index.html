@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>GRAŃ</title>
+<style>
+@font-face { font-family: 'Geist Mono'; font-weight: 100 900; src: url(fonts/geist-mono-latin-wght-normal.woff2) format('woff2-variations'); }
+@font-face { font-family: 'Geist Mono'; font-weight: 100 900; src: url(fonts/geist-mono-latin-ext-wght-normal.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1E00-1E9F,U+2020,U+20A0-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Bricolage Grotesque'; font-weight: 200 800; src: url(fonts/bricolage-grotesque-latin-opsz-normal.woff2) format('woff2-variations'); }
+@font-face { font-family: 'Bricolage Grotesque'; font-weight: 200 800; src: url(fonts/bricolage-grotesque-latin-ext-opsz-normal.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+1E00-1E9F,U+2020,U+20A0-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+:root { --ink-0: #070a0c; --ink-4: #26323a; --paper: #efe7d6; --paper-3: #978f7e; --brass: #d9b56f; --signal: #ff5a36; color-scheme: dark; }
+html, body { margin: 0; height: 100%; background: var(--ink-0); color: var(--paper); overflow: hidden; }
+body { display: grid; place-items: center; font-family: 'Geist Mono', ui-monospace, monospace; -webkit-font-smoothing: antialiased; }
+svg { position: fixed; inset: 0; width: 100%; height: 100%; }
+.c { position: relative; display: grid; justify-items: center; text-align: center; padding: 24px; }
+img { width: 96px; height: 96px; }
+.k { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--paper-3); margin-top: 18px; }
+.w { font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-size: 56px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; margin-top: 6px; }
+.bar { width: 200px; height: 2px; background: var(--ink-4); border-radius: 2px; overflow: hidden; margin-top: 28px; }
+.bar i { display: block; height: 100%; width: 35%; background: var(--brass); animation: run 1.3s ease-in-out infinite; }
+@keyframes run { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.s { font-size: 11px; color: var(--paper-3); margin-top: 12px; min-height: 1.4em; max-width: 300px; }
+.s.err { color: var(--signal); }
+button { margin-top: 16px; font: inherit; color: #1b1408; background: var(--brass); border: 0; border-radius: 10px; padding: 10px 18px; }
+button[hidden] { display: none; }
+</style>
+</head>
+<body>
+<svg id="topo" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice"></svg>
+<div class="c">
+  <img src="brand/logo-mark.png" alt="" />
+  <div class="k">atlas szlaków 3D</div>
+  <div class="w">Grań</div>
+  <div class="bar"><i></i></div>
+  <div class="s" id="s">Uruchamianie silnika danych</div>
+  <button id="retry" hidden>Spróbuj ponownie</button>
+</div>
+<script>
+// Ekran startowy: czeka na lokalny serwer (Node.js w aplikacji) i przechodzi do atlasu.
+const APP = 'http://127.0.0.1:47190/';
+const s = document.getElementById('s');
+const retry = document.getElementById('retry');
+const t0 = Date.now();
+async function poll() {
+  try {
+    await fetch(APP + 'api/status', { mode: 'no-cors', cache: 'no-store' });
+    s.textContent = 'Wczytywanie atlasu';
+    location.replace(APP);
+    return;
+  } catch {
+    /* serwer jeszcze nie słucha */
+  }
+  const t = (Date.now() - t0) / 1000;
+  if (t > 8) s.textContent = 'Pierwsze uruchomienie po instalacji trwa dłużej – rozpakowywanie danych';
+  if (t > 90) {
+    s.textContent = 'Silnik danych nie odpowiada. Uruchom aplikację ponownie.';
+    s.classList.add('err');
+    retry.hidden = false;
+    return;
+  }
+  setTimeout(poll, 250);
+}
+retry.addEventListener('click', () => location.reload());
+poll();
+(function topo() {
+  let d = '';
+  for (let k = 1; k <= 26; k++) {
+    const r0 = k * 26;
+    let p = '';
+    for (let a = 0; a <= 72; a++) {
+      const t = (a / 72) * Math.PI * 2;
+      const w = 1 + 0.18 * Math.sin(3 * t + k * 0.35) + 0.09 * Math.sin(5 * t - k * 0.2) + 0.05 * Math.cos(9 * t + k);
+      p += (a ? 'L' : 'M') + (400 + Math.cos(t) * r0 * w * 1.2).toFixed(1) + ' ' + (330 + Math.sin(t) * r0 * w * 0.9).toFixed(1);
+    }
+    d += `<path d="${p}Z" fill="none" stroke="${k % 5 ? 'rgba(239,231,214,0.05)' : 'rgba(217,181,111,0.12)'}" stroke-width="${k % 5 ? 0.8 : 1.1}"/>`;
+  }
+  document.getElementById('topo').innerHTML = d;
+})();
+</script>
+</body>
+</html>

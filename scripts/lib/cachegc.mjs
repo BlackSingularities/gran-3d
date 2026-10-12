@@ -10,7 +10,7 @@ import { CACHE_DIR, DATA_DIR } from './common.mjs';
 
 export const CACHE_BUDGET = Number(process.env.GRAN_CACHE_MB || 1024) * 1024 * 1024;
 /** Limit całkowity (dane stałe + bufor) ustawiony przez użytkownika w aplikacji desktopowej; 0 = brak. */
-export const TOTAL_LIMIT = Number(process.env.GRAN_LIMIT_MB || 0) * 1024 * 1024;
+export let TOTAL_LIMIT = Number(process.env.GRAN_LIMIT_MB || 0) * 1024 * 1024;
 /** Minimalny budżet bufora – bez niego strumieniowanie terenu nie miałoby gdzie odkładać kafli. */
 const MIN_BUDGET = 128 * 1024 * 1024;
 const DEM = path.join(CACHE_DIR, 'dem');
@@ -127,6 +127,12 @@ function permanentSize() {
 
 /** Ostatnio policzone zajęcie dysku (do panelu „Dane i pamięć”). */
 export const usage = { permanent: 0, cache: 0, limit: TOTAL_LIMIT, at: 0 };
+
+/** Zmiana limitu w trakcie pracy (Android: ustawienia bez restartu silnika Node). */
+export function setTotalLimit(mb) {
+  TOTAL_LIMIT = Math.max(0, Number(mb) || 0) * 1024 * 1024;
+  usage.limit = TOTAL_LIMIT;
+}
 
 let running = false;
 /** Usuwa najdawniej używane elementy, aż bufor zmieści się w budżecie. Zwraca statystykę. */

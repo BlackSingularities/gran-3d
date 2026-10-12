@@ -11,6 +11,8 @@ import { loadCoverage } from './core/area';
 import { Chrome, drawLoaderTopo } from './ui/chrome';
 import { MapsManager } from './ui/maps';
 import { Panel } from './ui/panel';
+import { android, setStorageHost } from './core/desktop';
+import { fetchMobileSettings, StorageDialog } from './ui/storage';
 
 const loader = document.getElementById('loader')!;
 const fill = document.getElementById('loader-fill')!;
@@ -19,7 +21,28 @@ drawLoaderTopo();
 
 // zasięg danych krajowych (LiDAR, ortofoto) i stan serwera
 step.textContent = 'Łączenie z serwerem';
-await Promise.all([initCatalog(), loadCoverage()]);
+const [, , mobile] = await Promise.all([initCatalog(), loadCoverage(), fetchMobileSettings()]);
+
+// Android: ustawienia przechowywania danych w oknie aplikacji; przy pierwszym starcie wybór jest wymagany
+if (mobile) {
+  const dialog = new StorageDialog(mobile);
+  setStorageHost({ info: async () => (await dialog.refresh(), dialog.info()), openSettings: () => dialog.open() });
+  if (!mobile.configured) {
+    loader.classList.add('is-done');
+    await dialog.open();
+    loader.classList.remove('is-done');
+  }
+}
+// Android: linki zewnętrzne w przeglądarce systemowej
+if (android) {
+  const bridge = android;
+  document.addEventListener('click', (e) => {
+    const a = (e.target as HTMLElement).closest?.('a[target="_blank"]') as HTMLAnchorElement | null;
+    if (!a) return;
+    e.preventDefault();
+    bridge.openExternal(a.href);
+  });
+}
 
 const app = new App();
 if (import.meta.env.DEV) (window as unknown as { __gran: App }).__gran = app;

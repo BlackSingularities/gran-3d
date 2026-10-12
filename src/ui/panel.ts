@@ -2,7 +2,7 @@ import type { App } from '../app';
 import { escapeHtml, trailHex } from '../app';
 import { compassDir, fmt1, fmtCoords, fmtDecimal, fmtDist, fmtEle, fmtInt, fmtSigned, fmtTime, haversine } from '../core/geo';
 import { DIFFICULTY, SAC_LABEL, TIME_MODEL_LABEL } from '../core/metrics';
-import { desktop, fmtBytes, type StorageStatus } from '../core/desktop';
+import { fmtBytes, storageHost, type StorageStatus } from '../core/desktop';
 import { GFX_PRESETS, GFX_PRESET_LABEL, type Gfx, type GfxPreset } from '../core/gfx';
 import type { Poi } from '../core/region';
 import type { Style } from '../core/store';
@@ -482,7 +482,7 @@ export class Panel {
   private gfxTab() {
     const a = this.app;
     const dem = a.region!.dem;
-    return `${this.gfxSection()}${desktop ? this.storageSection() : ''}
+    return `${this.gfxSection()}${storageHost ? this.storageSection() : ''}
       <div class="section">
         <div class="section__title"><span class="kicker">Źródła danych</span></div>
         <p class="note" style="margin-top:0">${a.tiles ? `Model terenu: <b>LiDAR</b> – NMT <b>GUGiK</b> (PL)${a.region!.def.hd?.lidar.includes('cz') ? ' i DMR 5G <b>ČÚZK</b> (CZ)' : ''}, kafle do ~${a.tiles.maxZ >= 15 ? 3 : a.tiles.maxZ >= 14 ? 6 : 12} m; poza zasięgiem – <b>Terrarium</b>. Ortofoto: <b>GUGiK</b>, <b>ZBGIS</b>, <b>ČÚZK</b>.` : `Model terenu: <b>Terrarium</b> (Mapzen / AWS Open Data; SRTM, EU‑DEM), siatka ~${fmtInt(dem.mpp)} m.`} Szlaki, szczyty, schroniska: <b>© OpenStreetMap</b> (ODbL). Obraz satelitarny: <b>Sentinel‑2 cloudless 2020 © EOX</b> (CC BY‑NC‑SA 4.0). Czas przejścia wg reguły <b>PTTK</b> (15 min/km + 1 min/10 m podejścia) lub normy <b>DIN 33466</b>; punkty <b>GOT PTTK</b> wg reguły 1 pkt/km + 1 pkt/100 m podejścia.</p>
@@ -535,10 +535,10 @@ export class Panel {
   }
 
   private async syncStorage() {
-    if (!desktop) return;
+    if (!storageHost) return;
     try {
       const [info, st] = await Promise.all([
-        desktop.info(),
+        storageHost.info(),
         fetch(`${import.meta.env.BASE_URL}api/status`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ storage?: StorageStatus }>),
       ]);
       const b = this.body;
@@ -550,9 +550,10 @@ export class Panel {
       set('o-store-limit', `${info.limitGB} GB`);
       const bar = b.querySelector<HTMLElement>('#o-store-bar');
       if (bar) bar.style.width = `${Math.min(100, (used / limit) * 100).toFixed(1)}%`;
+      const android = info.platform === 'android';
       set('o-store-note', info.mode === 'session'
-        ? 'Kafle i dane okolic są usuwane przy każdym zamknięciu programu. Ctrl+, otwiera ustawienia.'
-        : `Folder: ${info.dataDir}. Po przekroczeniu limitu najdawniej używane kafle są usuwane w tle. Ctrl+, otwiera ustawienia.`);
+        ? `Kafle i dane okolic są usuwane przy każdym ${android ? 'uruchomieniu i zamknięciu aplikacji' : 'zamknięciu programu. Ctrl+, otwiera ustawienia'}.`
+        : `${info.dataDir ? `Folder: ${info.dataDir}. ` : ''}Po przekroczeniu limitu najdawniej używane kafle są usuwane w tle.${android ? '' : ' Ctrl+, otwiera ustawienia.'}`);
     } catch {
       /* serwer chwilowo niedostępny – wartości zostaną przy następnym otwarciu zakładki */
     }
@@ -702,7 +703,7 @@ export class Panel {
           case 'gpx-clear': a.store.set({ gpx: null }); break;
           case 'link': a.shareLink(); break;
           case 'shot': a.screenshot(); break;
-          case 'data-settings': void desktop?.openSettings(); break;
+          case 'data-settings': void storageHost?.openSettings(); break;
           case 'clear-ref': a.unpinLens(); break;
           case 'clear-vs': a.unpinLens(); break;
           case 'clear-m': a.clearMeasure(); break;

@@ -19,6 +19,9 @@ const ROOT = app.getAppPath();
 const PREFERRED_PORT = 47190; // stały port = stałe pochodzenie strony, więc ustawienia interfejsu przetrwają restart
 const BG = '#070a0c';
 
+// katalog ustawień z nazwą ASCII (nazwa „GRAŃ” bywa gubiona przy wyznaczaniu ścieżki)
+app.setPath('userData', path.join(app.getPath('appData'), 'GRAN'));
+
 // ------------------------------------------------------------------ jedna instancja
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -341,7 +344,7 @@ function openSetup(kind) {
   }
   setupWin = new BrowserWindow({
     width: 780,
-    height: 700,
+    height: 780,
     minWidth: 640,
     minHeight: 620,
     show: false,
