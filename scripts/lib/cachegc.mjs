@@ -9,6 +9,10 @@ import path from 'node:path';
 import { CACHE_DIR, DATA_DIR } from './common.mjs';
 
 export const CACHE_BUDGET = Number(process.env.GRAN_CACHE_MB || 1024) * 1024 * 1024;
+/** Limit całkowity (dane stałe + bufor) ustawiony przez użytkownika w aplikacji desktopowej; 0 = brak. */
+export const TOTAL_LIMIT = Number(process.env.GRAN_LIMIT_MB || 0) * 1024 * 1024;
+/** Minimalny budżet bufora – bez niego strumieniowanie terenu nie miałoby gdzie odkładać kafli. */
+const MIN_BUDGET = 128 * 1024 * 1024;
 const DEM = path.join(CACHE_DIR, 'dem');
 /** elementów użytych w ostatnich minutach nie ruszamy (mogą być właśnie czytane) */
 const GRACE = 10 * 60 * 1000;
@@ -107,6 +111,23 @@ function collect() {
   return items;
 }
 
+/** Rozmiar danych trwałych: model globalny z ≤ 12 i obszary zaznaczone przez użytkownika. */
+function permanentSize() {
+  let n = 0;
+  if (fs.existsSync(DEM)) {
+    for (const z of fs.readdirSync(DEM)) if (/^\d+$/.test(z) && +z <= 12) n += dirSize(path.join(DEM, z));
+  }
+  if (fs.existsSync(DATA_DIR)) {
+    for (const d of fs.readdirSync(DATA_DIR, { withFileTypes: true })) {
+      if (d.isDirectory() && !/^s\d+-\d+-\d+$/.test(d.name)) n += dirSize(path.join(DATA_DIR, d.name));
+    }
+  }
+  return n;
+}
+
+/** Ostatnio policzone zajęcie dysku (do panelu „Dane i pamięć”). */
+export const usage = { permanent: 0, cache: 0, limit: TOTAL_LIMIT, at: 0 };
+
 let running = false;
 /** Usuwa najdawniej używane elementy, aż bufor zmieści się w budżecie. Zwraca statystykę. */
 export function collectGarbage(budget = CACHE_BUDGET) {
@@ -114,6 +135,10 @@ export function collectGarbage(budget = CACHE_BUDGET) {
   running = true;
   try {
     const items = collect();
+    if (TOTAL_LIMIT) {
+      usage.permanent = permanentSize();
+      budget = Math.max(MIN_BUDGET, TOTAL_LIMIT - usage.permanent);
+    }
     let total = items.reduce((s, it) => s + it.size, 0);
     const before = total;
     let removed = 0;
@@ -132,6 +157,8 @@ export function collectGarbage(budget = CACHE_BUDGET) {
         }
       }
     }
+    usage.cache = total;
+    usage.at = Date.now();
     return { before, after: total, removed };
   } finally {
     running = false;

@@ -16,7 +16,7 @@ import { spawn } from 'node:child_process';
 import { CACHE_DIR, DATA_DIR, ROOT } from '../scripts/lib/common.mjs';
 import { LIMITS, areaKm2, deriveRegion, slug, validate } from '../scripts/lib/area.mjs';
 import { getTile, lidarBusy, lidarJobs, prefetchBase, tileWaiting } from '../scripts/lib/tileservice.mjs';
-import { collectGarbage, touch } from '../scripts/lib/cachegc.mjs';
+import { collectGarbage, TOTAL_LIMIT, touch, usage } from '../scripts/lib/cachegc.mjs';
 import { lat2px, lon2px, px2lat, px2lon, UA } from '../scripts/lib/terrain.mjs';
 
 const DEV = process.argv.includes('--dev');
@@ -155,7 +155,8 @@ function gc() {
   const r = collectGarbage();
   if (r?.removed) console.log(`[gran] bufor: ${(r.before / 2 ** 20).toFixed(0)} → ${(r.after / 2 ** 20).toFixed(0)} MB, usunięto ${r.removed} elementów`);
 }
-setInterval(gc, 10 * 60 * 1000).unref();
+// z limitem ustawionym w aplikacji desktopowej sprzątamy częściej, żeby trzymać się deklarowanej pojemności
+setInterval(gc, (TOTAL_LIMIT ? 3 : 10) * 60 * 1000).unref();
 
 // ------------------------------------------------------------------ wyszukiwanie miejsc (Nominatim, 1 zapytanie/s)
 const geoCache = new Map();
@@ -292,6 +293,7 @@ async function api(req, res, url) {
       queue: queue.map((j) => ({ id: j.id, level: j.level })),
       last: publicJob(lastFinished),
       lidarBlocks: lidarBusy(),
+      storage: { permanent: usage.permanent, cache: usage.cache, limit: usage.limit, at: usage.at },
     });
   }
   if (url.pathname === '/api/sector' && req.method === 'GET') {
@@ -316,6 +318,10 @@ async function api(req, res, url) {
     const err = validate(bbox, q);
     if (err) return send(res, 400, { error: err });
     if (current || queue.length) return send(res, 409, { error: 'Trwa pobieranie innego obszaru – poczekaj na jego koniec.' });
+    if (TOTAL_LIMIT) {
+      gc();
+      if (usage.permanent >= TOTAL_LIMIT * 0.9) return send(res, 409, { error: 'Zapisane obszary zajmują już prawie cały limit pamięci – zwiększ limit w ustawieniach danych albo usuń któryś obszar.' });
+    }
     const clean = String(name ?? '').trim().slice(0, 60);
     const id = slug(clean);
     const r = [3, 6, 12].includes(Number(lidarRes)) ? Number(lidarRes) : 3;
@@ -427,7 +433,13 @@ if (DEV) {
   process.exit(1);
 }
 
+server.on('error', (e) => {
+  console.error(`[gran] serwer: ${e.message}`);
+  process.exit(2);
+});
 server.listen(PORT, HOST, () => {
+  // linia czytana przez powłokę desktopową (electron/main.cjs)
+  console.log(`@@ready ${server.address().port}`);
   const installed = listAreas().filter((r) => r.installed).map((r) => r.def.name);
   console.log(`\n  ▲ GRAŃ ${DEV ? '(dev)' : ''} → http://localhost:${PORT}`);
   console.log(`  dane: ${DATA_DIR}`);

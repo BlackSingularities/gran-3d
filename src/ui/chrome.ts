@@ -399,8 +399,8 @@ export class Chrome {
       <circle cx="32" cy="32" r="24" fill="none" stroke="rgba(239,231,214,.18)"/>
       ${Array.from({ length: 24 }, (_, i) => `<line x1="32" y1="${i % 6 === 0 ? 7 : 9}" x2="32" y2="11" stroke="rgba(239,231,214,${i % 6 === 0 ? 0.7 : 0.25})" transform="rotate(${i * 15} 32 32)"/>`).join('')}
       <path d="M32 12 L36.5 32 L32 29 L27.5 32 Z" fill="#ff5a36"/><path d="M32 52 L36.5 32 L32 35 L27.5 32 Z" fill="rgba(239,231,214,.55)"/>
-      <text x="32" y="6.5" text-anchor="middle" font-family="Geist Mono" font-size="7" fill="#efe7d6">N</text></g>
-      <text x="32" y="61" text-anchor="middle" font-family="Geist Mono" font-size="6" fill="rgba(239,231,214,.5)">${fmtInt(v.pitch)}°</text></svg>`;
+      <text x="32" y="6.5" text-anchor="middle" font-family="Geist Mono Variable, Geist Mono" font-size="7" fill="#efe7d6">N</text></g>
+      <text x="32" y="61" text-anchor="middle" font-family="Geist Mono Variable, Geist Mono" font-size="6" fill="rgba(239,231,214,.5)">${fmtInt(v.pitch)}°</text></svg>`;
   }
 
   updateScale() {

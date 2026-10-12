@@ -1,3 +1,9 @@
+// fonty dołączone do aplikacji (bez zależności od Google Fonts – działa też offline)
+import '@fontsource-variable/bricolage-grotesque/opsz.css';
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
+import '@fontsource/instrument-serif/400.css';
+import '@fontsource/instrument-serif/400-italic.css';
 import './style.css';
 import { App } from './app';
 import { initCatalog } from './core/region';

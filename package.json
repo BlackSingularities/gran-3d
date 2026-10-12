@@ -1,29 +1,125 @@
 {
   "name": "gran-3d",
+  "productName": "GRAŃ",
   "private": true,
   "version": "1.0.0",
   "description": "GRAŃ — atlas szlaków górskich 3D: teren, wysokości względne, trasowanie i analizy widoczności",
+  "author": {
+    "name": "BlackSingularities",
+    "email": "adamredzikowski2@gmail.com"
+  },
+  "homepage": "https://github.com/BlackSingularities/gran-3d",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackSingularities/gran-3d.git"
+  },
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "node server/index.mjs --dev",
-    "start": "node server/index.mjs",
+    "dev:desktop": "npm run build && electron .",
+    "start": "electron .",
     "build": "tsc --noEmit && vite build",
-    "preview": "npm run build && npm start",
     "typecheck": "tsc --noEmit",
+    "dist:win": "npm run build && electron-builder --win --x64 --publish never",
+    "release": "npm run build && electron-builder --win --x64 --publish always",
     "bake": "node scripts/bake.mjs",
     "bake:hd": "node scripts/bake-hd.mjs",
     "bake:all": "node scripts/bake.mjs && node scripts/bake-hd.mjs"
   },
   "dependencies": {
-    "three": "^0.186.1",
-    "pngjs": "^7.0.0",
-    "geotiff": "^3.0.5"
+    "electron-updater": "^6.8.9",
+    "geotiff": "^3.0.5",
+    "pngjs": "^7.0.0"
   },
   "devDependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource/instrument-serif": "^5.3.0",
     "@types/node": "^26.6.3",
     "@types/pngjs": "^6.0.5",
     "@types/three": "^0.186.0",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^7.0.2",
-    "vite": "^8.3.1"
+    "vite": "^8.3.1",
+    "three": "^0.186.1"
+  },
+  "build": {
+    "appId": "com.blacksingularities.gran3d",
+    "productName": "GRAŃ",
+    "copyright": "Copyright © 2026 BlackSingularities",
+    "asar": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "package.json",
+      "electron/**/*",
+      "dist/**/*",
+      "server/**/*",
+      "scripts/**/*",
+      "public/catalog.json",
+      "public/coverage.json",
+      "public/brand/logo-mark.png",
+      "build/icon.ico",
+      "build/icon.png",
+      "!**/*.map"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "executableName": "Gran",
+      "artifactName": "GRAN-Setup-${version}.${ext}",
+      "legalTrademarks": "GRAŃ",
+      "signtoolOptions": {
+        "publisherName": [
+          "BlackSingularities"
+        ],
+        "signingHashAlgorithms": [
+          "sha256"
+        ],
+        "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GRAŃ",
+      "uninstallDisplayName": "GRAŃ – atlas szlaków 3D",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
+      "installerLanguages": [
+        "pl_PL"
+      ],
+      "language": "1045",
+      "unicode": true,
+      "include": "build/installer.nsh"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "BlackSingularities",
+        "repo": "gran-3d",
+        "releaseType": "release"
+      }
+    ]
   }
 }

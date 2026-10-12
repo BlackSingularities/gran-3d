@@ -1,8 +1,10 @@
 // Wspólne ustawienia skryptów wypiekających: katalog pasm, katalogi danych i bufora, raport postępu.
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-export const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1')), '..', '..');
+// fileURLToPath: poprawne ścieżki Windows ze spacjami i znakami spoza ASCII (np. „C:\Program Files\GRAŃ”)
+export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const DATA_DIR = path.resolve(process.env.GRAN_DATA_DIR || path.join(ROOT, 'data'));
 export const CACHE_DIR = path.resolve(process.env.GRAN_CACHE_DIR || path.join(ROOT, '.cache'));
 export const CATALOG = JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'catalog.json'), 'utf8')).regions;

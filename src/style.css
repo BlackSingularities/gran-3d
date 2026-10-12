@@ -20,9 +20,9 @@
   --hair: rgba(239, 231, 214, 0.1);
   --hair-2: rgba(239, 231, 214, 0.18);
   --serif: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
-  --sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
-  --display: 'Bricolage Grotesque', 'Geist', ui-sans-serif, system-ui, sans-serif;
-  --mono: 'Geist Mono', ui-monospace, 'SFMono-Regular', monospace;
+  --sans: 'Geist Variable', 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, 'SFMono-Regular', monospace;
   --panel-w: 372px;
   --profile-h: 196px;
   --rail-w: 60px;
@@ -259,6 +259,8 @@ input[type='date'] {
 .trail-chip i { width: 18px; height: 5px; border-radius: 3px; box-shadow: 0 0 0 1.5px rgba(255,246,226,0.8); }
 
 /* statystyki regionu */
+.meter { height: 4px; margin-top: 10px; border-radius: 4px; background: var(--ink-4); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--brass); border-radius: 4px; transition: width .3s; }
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--hair); border: 1px solid var(--hair); border-radius: 12px; overflow: hidden; }
 .stat { background: rgba(10,14,17,0.9); padding: 11px 12px 10px; }
 .stat__v { font-family: var(--display); font-size: 23px; font-weight: 650; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
