@@ -26,9 +26,12 @@ export const LENSES: { id: Exclude<Lens, 'none'>; name: string; short: string; k
   { id: 'vis', name: 'Widoczność', short: 'Widoczność', key: 'O', icon: ICON.viewshed, hint: 'rozświetlone jest to, co widać z miejsca pod kursorem' },
 ];
 
+/** Opis soczewki: na dotyku „kursorem” jest celownik na środku ekranu. */
+const lensHint = (h: string) => (TOUCH ? h.replace('pod kursorem', 'pod celownikiem').replace('kursora', 'celownika') : h);
+
 const HINTS: Partial<Record<Tool, string>> = {
-  route: TOUCH ? '<b>Dotknij</b> start i cel · kolejne dotknięcia dodają punkty' : '<b>Kliknij</b> start i cel · kolejne kliknięcia dodają punkty · przeciągaj znaczniki',
-  measure: TOUCH ? '<b>Dotykaj</b> kolejne punkty pomiaru' : '<b>Klikaj</b> kolejne punkty · <kbd>Esc</kbd> kończy',
+  route: TOUCH ? 'Nakieruj <b>celownik</b> na punkt i dotknij przycisku pod nim – albo dotknij mapy' : '<b>Kliknij</b> start i cel · kolejne kliknięcia dodają punkty · przeciągaj znaczniki',
+  measure: TOUCH ? 'Nakieruj <b>celownik</b> na punkt A, potem na B – albo dotykaj mapy' : '<b>Klikaj</b> kolejne punkty · <kbd>Esc</kbd> kończy',
 };
 
 
@@ -74,6 +77,7 @@ export class Chrome {
       if (!(e.target as HTMLElement).closest('a')) $('attrib').classList.toggle('is-open');
     });
     this.bindSheet();
+    this.buildAim();
     const open = document.createElement('button');
     open.id = 'panel-open';
     open.innerHTML = `${ICON.layers} Panel`;
@@ -95,16 +99,96 @@ export class Chrome {
       `<div class="rail__sep"></div>
        <button class="tool" data-act="layers" data-cap="Mapa" aria-label="Mapa i światło">${ICON.layers}<span class="tool__tip">Mapa i światło<kbd>M</kbd></span></button>
        <button class="tool" data-act="search" data-cap="Szukaj" aria-label="Szukaj">${ICON.target}<span class="tool__tip">Szukaj<kbd>/</kbd></span></button>
-       <button class="tool" data-act="help" data-cap="Pomoc" aria-label="Pomoc">${ICON.help}<span class="tool__tip">Skróty i pomoc<kbd>?</kbd></span></button>
-       <button class="tool tool--panel" data-act="panel" data-cap="Panel" aria-label="Panel">${ICON.sheet}</button>`;
-    rail.querySelectorAll<HTMLElement>('[data-tool]').forEach((b) => b.addEventListener('click', () => this.app.setTool(b.dataset.tool as Tool)));
+       <button class="tool" data-act="help" data-cap="Pomoc" aria-label="Pomoc">${ICON.help}<span class="tool__tip">Skróty i pomoc<kbd>?</kbd></span></button>`;
+    rail.querySelectorAll<HTMLElement>('[data-tool]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const a = this.app, tool = b.dataset.tool as Tool;
+        // telefon: ponowne dotknięcie aktywnego trybu otwiera / zamyka panel z jego szczegółami
+        if (window.innerWidth <= 760 && a.store.state.tool === tool) {
+          if (!a.store.state.panelOpen) this.showPanelTab('tool');
+          else a.store.set({ panelOpen: false });
+          return;
+        }
+        a.setTool(tool);
+        if (window.innerWidth <= 760 && a.store.state.panelOpen) this.showPanelTab('tool');
+      })
+    );
     rail.querySelector('[data-act="layers"]')!.addEventListener('click', () => this.openMapTab());
     rail.querySelector('[data-act="search"]')!.addEventListener('click', () => this.openPalette());
     rail.querySelector('[data-act="help"]')!.addEventListener('click', () => ($('help').hidden = false));
-    // telefon: panel jako arkusz od dołu – przycisk na pasku przełącza go
-    rail.querySelector('[data-act="panel"]')!.addEventListener('click', () => this.app.store.set({ panelOpen: !this.app.store.state.panelOpen }));
 
     $('search-btn').addEventListener('click', () => this.openPalette());
+  }
+
+  // ------------------------------------------------------------- celownik (dotyk)
+  private aimEl: HTMLElement | null = null;
+  private aimBtn: HTMLButtonElement | null = null;
+  private aimInfo: HTMLElement | null = null;
+
+  private buildAim() {
+    if (!TOUCH) return;
+    const el = document.createElement('div');
+    el.className = 'aim';
+    el.hidden = true;
+    el.innerHTML = `<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="11"/><path d="M24 2 V15 M24 33 V46 M2 24 H15 M33 24 H46"/><circle class="dot" cx="24" cy="24" r="1.8"/></svg><span class="aim__info"></span>`;
+    const btn = document.createElement('button');
+    btn.className = 'aim-act';
+    btn.hidden = true;
+    btn.addEventListener('click', () => {
+      this.app.aimClick();
+      this.updateAim();
+    });
+    $('app').append(el, btn);
+    this.aimEl = el;
+    this.aimBtn = btn;
+    this.aimInfo = el.querySelector('.aim__info');
+    const relayout = () => this.updateAim();
+    window.addEventListener('resize', relayout);
+    $('panel').addEventListener('transitionend', relayout);
+  }
+
+  /** Położenie celownika (środek widocznej części mapy) i opis przycisku. */
+  updateAim() {
+    if (!this.aimEl || !this.aimBtn) return;
+    const a = this.app, s = a.store.state;
+    const on = a.aimActive();
+    this.aimEl.hidden = this.aimBtn.hidden = !on;
+    $('app').classList.toggle('aim-on', on);
+    if (!on) return;
+    const narrow = window.innerWidth <= 760;
+    const top = narrow ? $('search-btn').getBoundingClientRect().bottom : $('mast').getBoundingClientRect().bottom;
+    let bottom = window.innerHeight;
+    let right = window.innerWidth;
+    const r = $('panel').getBoundingClientRect();
+    // telefon: arkusz (zwinięty lub otwarty) zasłania dół; szerzej: panel z prawej
+    if (narrow) bottom = r.top;
+    else if (s.panelOpen) right = Math.min(right, r.left);
+    const x = Math.round(right / 2), y = Math.round((top + bottom) / 2);
+    a.aimScreen = { x, y };
+    this.aimEl.style.left = `${x}px`;
+    this.aimEl.style.top = `${y}px`;
+    this.aimBtn.style.left = `${x}px`;
+    this.aimBtn.style.top = `${y + 34}px`;
+    const n = s.tool === 'route' ? s.waypoints.length : s.tool === 'measure' ? s.measure.length : 0;
+    const label =
+      s.lens === 'vis' ? 'Widoczność stąd'
+      : s.lens === 'rel' ? (a.lensPinned ? 'Przenieś poziom zero tutaj' : 'Poziom zero tutaj')
+      : s.lens === 'band' ? (a.lensPinned ? 'Przenieś poziomicę tutaj' : 'Przypnij poziomicę tutaj')
+      : s.tool === 'route' ? (n === 0 ? 'Start trasy tutaj' : n === 1 ? 'Cel tutaj' : 'Dodaj punkt tutaj')
+      : n === 0 ? 'Punkt A tutaj' : n === 1 ? 'Punkt B tutaj' : 'Kolejny punkt tutaj';
+    const icon = s.lens === 'vis' ? ICON.viewshed : s.lens !== 'none' ? ICON.pin : s.tool === 'route' ? ICON.flag : ICON.measure;
+    const html = `${icon}${label}`;
+    if (this.aimBtn.dataset.h !== html) {
+      this.aimBtn.dataset.h = html;
+      this.aimBtn.innerHTML = html;
+    }
+  }
+
+  /** Co klatkę (dotyk): kursor pod celownikiem i jego wysokość. */
+  frameAim() {
+    if (!this.aimEl || !this.app.trackAim()) return;
+    const c = this.app.cursor;
+    if (this.aimInfo) this.aimInfo.textContent = c ? fmtEle(c.e) : '';
   }
 
   /** Telefon: panel jako arkusz – przeciągnięcie nagłówka w górę rozwija, w dół zwija lub zamyka. */
@@ -112,12 +196,21 @@ export class Chrome {
     const head = document.querySelector<HTMLElement>('.panel__tabs')!;
     const app = $('app');
     let y0 = -1;
+    // zwinięty arkusz: dotknięcie zakładki albo nagłówka rozwija go
+    head.addEventListener('click', (e) => {
+      if (window.innerWidth > 760 || this.app.store.state.panelOpen) return;
+      if ((e.target as HTMLElement).closest('#panel-toggle')) return;
+      this.app.store.set({ panelOpen: true });
+    });
     head.addEventListener('touchstart', (e) => (y0 = e.touches[0].clientY), { passive: true });
     head.addEventListener('touchend', (e) => {
       if (y0 < 0) return;
       const dy = e.changedTouches[0].clientY - y0;
       y0 = -1;
-      if (dy < -40) app.classList.add('sheet-full');
+      if (dy < -40) {
+        if (!this.app.store.state.panelOpen) this.app.store.set({ panelOpen: true });
+        else app.classList.add('sheet-full');
+      }
       else if (dy > 40) {
         if (app.classList.contains('sheet-full')) app.classList.remove('sheet-full');
         else this.app.store.set({ panelOpen: false });
@@ -129,13 +222,27 @@ export class Chrome {
   }
 
   openMapTab() {
+    this.showPanelTab('map');
+  }
+
+  /** Otwiera panel na wskazanej zakładce. */
+  showPanelTab(tab: 'tool' | 'map' | 'gfx') {
     this.app.store.set({ panelOpen: true });
-    (document.querySelector('.panel__tabs [data-tab="map"]') as HTMLButtonElement).click();
+    const b = document.querySelector<HTMLButtonElement>(`.panel__tabs [data-tab="${tab}"]`);
+    if (b && !b.classList.contains('is-on')) b.click();
   }
 
   // ------------------------------------------------------------- regiony
   private buildRegionMenu() {
     const btn = $('region-btn'), menu = $('region-menu');
+    // telefon: logo w pasku wyszukiwania otwiera listę ostatnich miejsc
+    document.querySelector('#mast .brand')!.addEventListener('click', (e) => {
+      if (window.innerWidth > 760) return;
+      e.preventDefault();
+      e.stopPropagation();
+      menu.hidden = !menu.hidden;
+      this.renderRegionMenu();
+    });
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       menu.hidden = !menu.hidden;
@@ -301,20 +408,20 @@ export class Chrome {
     dock.innerHTML =
       `<div class="lensitem">
         <button class="tool lens-btn lens-btn--cursor ${none ? 'is-on' : ''}" data-lens="none" aria-label="Kursor">${ICON.cursor}</button>
-        <div class="flyout"><div class="flyout__head"><b>Kursor</b><kbd>Esc</kbd></div><div class="flyout__hint">zwykła mysz: kliknięcie zaznacza szczyty, szlaki i punkty terenu; soczewki wyłączone</div></div>
+        <div class="flyout"><div class="flyout__head"><b>Kursor</b><kbd>Esc</kbd></div><div class="flyout__hint">${TOUCH ? 'dotknięcie zaznacza szczyty, szlaki i punkty terenu; soczewki wyłączone' : 'zwykła mysz: kliknięcie zaznacza szczyty, szlaki i punkty terenu; soczewki wyłączone'}</div></div>
       </div><div class="lensrail__sep"></div>` +
       LENSES.map((l) => {
         const on = s.lens === l.id;
         const status = on
           ? pinned
             ? `<button class="lens__chip lens__pin" data-unpin title="Odepnij (Esc)">${ICON.pin} przypięta · odepnij</button>`
-            : `<span class="lens__live">${TOUCH ? 'dotknij mapę, by wskazać punkt' : 'na żywo · kliknij mapę, by przypiąć'}</span>`
+            : `<span class="lens__live">${TOUCH ? 'na żywo pod celownikiem · przycisk pod nim przypina' : 'na żywo · kliknij mapę, by przypiąć'}</span>`
           : '';
         return `<div class="lensitem">
           <button class="tool lens-btn ${on ? 'is-on' : ''} ${on && pinned ? 'is-pinned' : ''}" data-lens="${l.id}" aria-label="${l.name}">${l.icon}</button>
           <div class="flyout">
             <div class="flyout__head"><b>${l.name}</b><kbd>${l.key}</kbd></div>
-            <div class="flyout__hint">${l.hint}</div>
+            <div class="flyout__hint">${lensHint(l.hint)}</div>
             ${params[l.id] ? `<div class="flyout__k">${paramLabel[l.id]}</div><div class="flyout__chips">${params[l.id]}</div>` : ''}
             ${status ? `<div class="flyout__status">${status}</div>` : ''}
           </div>
@@ -334,10 +441,14 @@ export class Chrome {
       $('region-name').textContent = a.pendingSector ? 'Przygotowuję okolicę…' : 'Widok świata';
       $('region-sub').textContent = a.pendingSector ? 'szlaki, szczyty i miejscowości' : 'przybliż, aby wczytać szlaki';
     }
+    // telefon: nazwa okolicy pod napisem w pasku wyszukiwania
+    const sub = a.sectorReady ? `${$('region-name').textContent} · ${$('region-sub').textContent}` : $('region-name').textContent;
+    if ($('search-sub').textContent !== sub) $('search-sub').textContent = sub ?? '';
     document.querySelectorAll<HTMLElement>('#rail [data-tool]').forEach((b) => b.classList.toggle('is-on', b.dataset.tool === s.tool));
     this.updateReadout();
     this.updateCompass();
     this.updateHint();
+    this.updateAim();
     this.updatePano();
     this.updateProfileHead();
   }
@@ -350,8 +461,12 @@ export class Chrome {
     const key = lens ? `lens:${lens.id}:${this.app.lensPinned}` : s.tool;
     if (lens && s.tool === 'explore' && !s.panorama) {
       txt = this.app.lensPinned
-        ? `Soczewka <b>${lens.name}</b> przypięta · <kbd>Esc</kbd> odepnij · kliknij gdzie indziej, by przenieść`
-        : `Soczewka <b>${lens.name}</b>: ${lens.hint} · <b>kliknij</b>, by przypiąć`;
+        ? TOUCH
+          ? `Soczewka <b>${lens.name}</b> przypięta · celownik i przycisk pod nim przenoszą punkt`
+          : `Soczewka <b>${lens.name}</b> przypięta · <kbd>Esc</kbd> odepnij · kliknij gdzie indziej, by przenieść`
+        : TOUCH
+          ? `Soczewka <b>${lens.name}</b>: ${lensHint(lens.hint)} · przesuwaj mapę`
+          : `Soczewka <b>${lens.name}</b>: ${lens.hint} · <b>kliknij</b>, by przypiąć`;
       show = true;
     }
     if (!show) {

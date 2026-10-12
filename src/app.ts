@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { routeFromPolyline, TrailGraph, type Route } from './core/graph';
 import { bearing, clamp, curvatureDrop, DEG, fmtDist, fmtEle, fmtSigned, haversine } from './core/geo';
 import { saveFile } from './core/desktop';
+import { TOUCH } from './core/touch';
 import { download, parseGpx, routeToGpx } from './core/gpx';
 import { timeModel } from './core/metrics';
 import { loadGfx, saveGfx } from './core/gfx';
@@ -499,6 +500,8 @@ export class App {
       down = null;
     });
     canvas.addEventListener('pointermove', (e) => {
+      // dotyk: „kursorem” jest celownik na środku ekranu (trackAim), nie palec przesuwający mapę
+      if (TOUCH || e.pointerType === 'touch') return;
       if (!moveQueued) requestAnimationFrame(() => {
         if (moveQueued) this.onMove(moveQueued);
         moveQueued = null;
@@ -555,8 +558,13 @@ export class App {
   }
 
   private onMove(e: PointerEvent) {
+    this.hoverAt(e.clientX, e.clientY);
+  }
+
+  /** Kursor nad punktem ekranu: odczyt, podświetlenie szlaku, pomiar i soczewka na żywo. */
+  private hoverAt(cx: number, cy: number) {
     if (!this.region || this.loading) return;
-    const p = this.engine.pick(e.clientX, e.clientY);
+    const p = this.engine.pick(cx, cy);
     const u = this.terrain!.material.uniforms;
     if (!p) {
       this.cursor = null;
@@ -575,7 +583,7 @@ export class App {
     if (this.graph && this.store.state.trails && (tool === 'route' || (tool === 'explore' && this.store.state.lens === 'none')) && !this.engine.panorama) {
       const mpp = this.engine.metersPerPixel() ?? 20;
       const snap = this.graph.snap(p.x, p.z, clamp(mpp * 9, 15, 400));
-      this.setHoverEdge(snap ? snap.edge : null, e.clientX, e.clientY);
+      this.setHoverEdge(snap ? snap.edge : null, cx, cy);
     }
     if (tool === 'measure' && this.store.state.measure.length) this.applyMeasure();
     if (this.store.state.lens !== 'none' && !this.lensPinned) {
@@ -614,8 +622,51 @@ export class App {
   }
 
   private onClick(e: PointerEvent) {
+    this.clickAt(e.clientX, e.clientY);
+  }
+
+  // ---------------------------------------------------------------- celownik (telefon)
+  /** Punkt ekranu pod celownikiem – środek widocznej części mapy (ustawia interfejs). */
+  aimScreen = { x: 0, y: 0 };
+  private aimKey = '';
+
+  /** Celownik jest aktywny przy wskazywaniu punktów: soczewki, trasa, pomiar. */
+  aimActive(): boolean {
+    const s = this.store.state;
+    return TOUCH && !!this.region && !s.panorama && !s.flying && (s.lens !== 'none' || s.tool === 'route' || s.tool === 'measure');
+  }
+
+  /** Wywoływane co klatkę: gdy widok lub celownik się zmienił, punkt pod celownikiem staje się kursorem. */
+  trackAim(): boolean {
+    if (!this.aimActive()) {
+      if (this.aimKey) {
+        this.aimKey = '';
+        this.cursor = null;
+        if (this.terrain) this.terrain.material.uniforms.uCursor.value.w = 0;
+        this.setHoverEdge(null, 0, 0);
+        if (!this.lensPinned) this.applyLens();
+        this.engine.dirty = true;
+        this.changed();
+      }
+      return false;
+    }
+    const c = this.engine.camera.position, t = this.engine.controls.target, s = this.store.state;
+    const key = [c.x, c.y, c.z, t.x, t.z].map((v) => Math.round(v * 2)).join(',') + `|${this.aimScreen.x}|${this.aimScreen.y}|${s.lens}|${s.tool}|${this.lensPinned}|${s.bandTol}|${s.relRange}|${s.vsEye}`;
+    if (key === this.aimKey) return false;
+    this.aimKey = key;
+    this.hoverAt(this.aimScreen.x, this.aimScreen.y);
+    return true;
+  }
+
+  /** Przycisk pod celownikiem: to samo co dotknięcie mapy w punkcie celownika. */
+  aimClick() {
+    this.clickAt(this.aimScreen.x, this.aimScreen.y);
+    this.aimKey = '';
+  }
+
+  private clickAt(cx: number, cy: number) {
     if (!this.region || this.engine.panorama) return;
-    const p = this.engine.pick(e.clientX, e.clientY);
+    const p = this.engine.pick(cx, cy);
     if (!p) return;
     const s = this.store.state;
     switch (s.tool) {
@@ -894,7 +945,8 @@ export class App {
     if (s.tool !== 'explore') this.store.set({ tool: 'explore' });
     if (s.lens === 'vis') void this.runViewshed(x, z);
     else this.store.set({ ref: this.pointFromWorld(x, z) });
-    if (!this.store.state.panelOpen) this.store.set({ panelOpen: true });
+    // telefon: wynik w zwiniętym arkuszu (nie zasłaniamy mapy), szerzej – panel otwarty
+    if (!this.store.state.panelOpen && window.innerWidth > 760) this.store.set({ panelOpen: true });
     this.applyLens();
   }
 

@@ -40,7 +40,10 @@ export class Panel {
         this.render(true);
       })
     );
-    document.getElementById('panel-toggle')!.addEventListener('click', () => app.store.set({ panelOpen: false }));
+    document.getElementById('panel-toggle')!.addEventListener('click', (e) => {
+      e.stopPropagation();
+      app.store.set({ panelOpen: !app.store.state.panelOpen });
+    });
   }
 
   private computeKey() {
@@ -262,7 +265,7 @@ export class Panel {
         }).join('')}</ol>`
       : '';
     const empty = wps.length < 2
-      ? `<div class="empty" style="margin-top:12px">${wps.length ? `Teraz ${click} <b>cel</b>` : `${CLICK} na mapie <b>punkt startowy</b>, potem <b>cel</b>`}.<br>Kolejne ${TOUCH ? 'dotknięcia' : 'kliknięcia'} dodają punkty pośrednie; znaczniki można przeciągać, prawy klik na znaczniku usuwa go.</div>`
+      ? `<div class="empty" style="margin-top:12px">${wps.length ? `Teraz ${click} <b>cel</b>` : `${CLICK} na mapie <b>punkt startowy</b>, potem <b>cel</b>`}.<br>${TOUCH ? 'Celownik na środku ekranu i przycisk pod nim dodają kolejne punkty; znacznik można przeciągnąć, a przytrzymanie go usuwa.' : 'Kolejne kliknięcia dodają punkty pośrednie; znaczniki można przeciągać, prawy klik na znaczniku usuwa go.'}</div>`
       : '';
     const alts = s.routes.length
       ? `<div class="section"><div class="section__title"><span class="kicker">Warianty (${s.routes.length})</span><span class="kicker" style="color:var(--paper-4)">porównanie z najszybszym</span></div><div class="alts">${s.routes.map((rt, i) => {
@@ -380,7 +383,7 @@ export class Panel {
       </div>
       <div class="section"><div class="section__title"><span class="kicker">Na tej samej wysokości (±${Math.max(tol, 15)} m)</span></div>
       ${same.length ? `<div class="peaklist">${same.map(({ p, dist }) => `<button class="peakrow" data-poi="${p.id}"><span class="peakrow__n">${escapeHtml(p.n)}</span><span class="peakrow__e">${fmtSigned(p.ele - ref.e)}</span><span class="peakrow__d">${fmtDist(dist)}</span></button>`).join('')}</div>` : '<div class="empty">Brak nazwanych punktów na tej wysokości.</div>'}</div>
-      <p class="note">Przesuwaj kursor – w pasku odczytu zobaczysz <b>Δh</b> względem tego poziomu. Kliknięcie w inne miejsce przenosi poziom, <kbd>Esc</kbd> odpina soczewkę.</p>
+      <p class="note">${TOUCH ? 'Celownik na środku ekranu pokazuje wysokość punktu; przycisk pod nim przenosi poziom, „Wstecz” odpina soczewkę.' : 'Przesuwaj kursor – w pasku odczytu zobaczysz <b>Δh</b> względem tego poziomu. Kliknięcie w inne miejsce przenosi poziom, <kbd>Esc</kbd> odpina soczewkę.'}</p>
       <div class="btns" style="margin-top:12px"><button class="btn" data-act="ref" data-x="${ref.x}" data-z="${ref.z}">${ICON.relative} Względna stąd</button><button class="btn" data-act="vs" data-x="${ref.x}" data-z="${ref.z}">${ICON.viewshed} Widoczność stąd</button></div>`;
   }
 
