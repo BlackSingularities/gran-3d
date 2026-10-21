@@ -490,6 +490,11 @@ export class Panel {
       <div class="section">
         <div class="section__title"><span class="kicker">Źródła danych</span></div>
         <p class="note" style="margin-top:0">${a.tiles ? `Model terenu: <b>LiDAR</b> – NMT <b>GUGiK</b> (PL)${a.region!.def.hd?.lidar.includes('cz') ? ' i DMR 5G <b>ČÚZK</b> (CZ)' : ''}, kafle do ~${a.tiles.maxZ >= 15 ? 3 : a.tiles.maxZ >= 14 ? 6 : 12} m; poza zasięgiem – <b>Terrarium</b>. Ortofoto: <b>GUGiK</b>, <b>ZBGIS</b>, <b>ČÚZK</b>.` : `Model terenu: <b>Terrarium</b> (Mapzen / AWS Open Data; SRTM, EU‑DEM), siatka ~${fmtInt(dem.mpp)} m.`} Szlaki, szczyty, schroniska: <b>© OpenStreetMap</b> (ODbL). Obraz satelitarny: <b>Sentinel‑2 cloudless 2020 © EOX</b> (CC BY‑NC‑SA 4.0). Czas przejścia wg reguły <b>PTTK</b> (15 min/km + 1 min/10 m podejścia) lub normy <b>DIN 33466</b>; punkty <b>GOT PTTK</b> wg reguły 1 pkt/km + 1 pkt/100 m podejścia.</p>
+      </div>
+      <div class="section">
+        <div class="section__title"><span class="kicker">Autor</span></div>
+        <p class="note" style="margin-top:0">Projekt i wykonanie: <a href="https://redzikowski.com" target="_blank" rel="noopener"><b>redzikowski.com</b></a></p>
+        <a class="btn btn--primary" style="margin-top:10px" href="https://buycoffee.to/adamredzikowski" target="_blank" rel="noopener">☕ Postaw kawę</a>
       </div>`;
   }
 
