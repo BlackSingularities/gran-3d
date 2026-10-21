@@ -115,3 +115,9 @@ src/
 ```
 
 Uwaga: model terenu o rozdzielczości ~25 m wygładza najostrzejsze granie (np. Gerlach 2655 m ma w modelu ~2590 m) — nazwy i wysokości szczytów pochodzą z OSM, a różnicę widać w karcie szczytu. Trasy przez teren to analiza rzeźby, a nie zachęta do schodzenia ze szlaków w parkach narodowych.
+
+---
+
+**Projekt i wykonanie: [redzikowski.com](https://redzikowski.com)**
+
+<a href="https://buycoffee.to/adamredzikowski" target="_blank"><img src="https://buycoffee.to/static/img/share/share-button-dark--pl.png" style="width: 351px; height: 92px" width="351" height="92" alt="Postaw kawę dla adamredzikowski na buycoffee.to"></a>
