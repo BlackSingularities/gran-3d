@@ -47,7 +47,7 @@ Wyszukiwarka (`/`) szczytów, schronisk, przełęczy, szlaków (także po kolorz
   areas.json                    obszary zapisane do pracy bez internetu
   tiles\dem\z\bx_by.gpk         teren (u16 co 1/8 m + LZ4), paczki 16×16 kafli
   tiles\sat\z\bx_by.gpk         zdjęcia satelitarne (JPEG), paczki 16×16 kafli
-  tiles\ortho\zx_by.gpk       ortofotomapa krajowa (JPEG 512 px)
+  tiles\ortho\z\bx_by.gpk       ortofotomapa krajowa (JPEG 512 px)
   sectors\9_x_y.json.lz4        szlaki i punkty OSM sektora
   land\9_x_y.png                pokrycie terenu sektora (R woda, G las, B skały/zarośla)
 ```
