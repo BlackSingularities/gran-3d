@@ -9,9 +9,12 @@ use crate::store::Layer;
 
 const DEM_TAG: u8 = b'D';
 const JPEG_TAG: u8 = b'J';
-const DEM_VERSION: u8 = 1;
+/// Starsze wersje (1, 2) mogły zapisać dziury ze źródła jako −1000 m – są pobierane ponownie.
+const DEM_VERSION: u8 = 3;
 /// Ten sam format, z wysokościami LiDAR (żeby nie pobierać ich ponownie).
-const DEM_VERSION_LIDAR: u8 = 2;
+const DEM_VERSION_LIDAR: u8 = 4;
+/// Niżej nie ma lądu: Terrarium zaznacza tak brak danych (−32768 m) albo ma tam błędne piksele.
+const HOLE_M: f32 = -500.0;
 const OFFSET_M: f32 = 1000.0;
 const STEP: f32 = 8.0;
 
@@ -28,14 +31,7 @@ impl std::fmt::Display for BakeError {
 pub fn bake(layer: Layer, source: &[u8]) -> Result<Vec<u8>, BakeError> {
     match layer {
         Layer::Dem => {
-            let img = image::load_from_memory(source)
-                .map_err(|e| BakeError(format!("PNG terenu: {e}")))?
-                .to_rgb8();
-            let (w, h) = (img.width() as usize, img.height() as usize);
-            let elev: Vec<f32> = img
-                .pixels()
-                .map(|p| p[0] as f32 * 256.0 + p[1] as f32 + p[2] as f32 / 256.0 - 32768.0)
-                .collect();
+            let (elev, w, h) = terrarium(source)?;
             Ok(encode_dem(&elev, w, h))
         }
         Layer::Lidar => {
@@ -61,6 +57,57 @@ pub fn bake(layer: Layer, source: &[u8]) -> Result<Vec<u8>, BakeError> {
             Ok(out)
         }
     }
+}
+
+/// Wysokości z PNG Terrarium: (metry, szerokość, wysokość).
+pub fn terrarium(source: &[u8]) -> Result<(Vec<f32>, usize, usize), BakeError> {
+    let img = image::load_from_memory(source)
+        .map_err(|e| BakeError(format!("PNG terenu: {e}")))?
+        .to_rgb8();
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let elev = img
+        .pixels()
+        .map(|p| p[0] as f32 * 256.0 + p[1] as f32 + p[2] as f32 / 256.0 - 32768.0)
+        .collect();
+    Ok((elev, w, h))
+}
+
+pub fn has_holes(elev: &[f32]) -> bool {
+    elev.iter().any(|e| *e < HOLE_M)
+}
+
+/// Uzupełnienie dziur: z kafla nadrzędnego (`off`, `k` – położenie w nim), a bez niego średnią
+/// z reszty kafla. `false`, gdy nie ma z czego uzupełnić.
+pub fn fill_holes(elev: &mut [f32], w: usize, h: usize, parent: Option<(&Dem, [f32; 2], f32)>) -> bool {
+    let valid: Vec<f32> = elev.iter().copied().filter(|e| *e >= HOLE_M).collect();
+    if parent.is_none() && valid.is_empty() {
+        return false;
+    }
+    let mean = valid.iter().sum::<f32>() / valid.len().max(1) as f32;
+    for y in 0..h {
+        for x in 0..w {
+            let v = &mut elev[y * w + x];
+            if *v >= HOLE_M {
+                continue;
+            }
+            *v = match parent {
+                Some((d, off, k)) => {
+                    let fx = off[0] + (x as f32 + 0.5) / w as f32 * k;
+                    let fy = off[1] + (y as f32 + 0.5) / h as f32 * k;
+                    let px = ((fx * d.w as f32) as usize).min(d.w - 1);
+                    let py = ((fy * d.h as f32) as usize).min(d.h - 1);
+                    d.elev[py * d.w + px]
+                }
+                None => mean,
+            };
+        }
+    }
+    true
+}
+
+/// Kafel terenu w starszym formacie, do pobrania od nowa.
+pub fn dem_stale(blob: &[u8]) -> bool {
+    blob.len() > 1 && blob[0] == DEM_TAG && blob[1] != DEM_VERSION && blob[1] != DEM_VERSION_LIDAR
 }
 
 pub fn encode_dem(elev: &[f32], w: usize, h: usize) -> Vec<u8> {
@@ -151,6 +198,32 @@ mod tests {
         for (a, b) in elev.iter().zip(&d.elev) {
             assert!((a - b).abs() <= 0.0625 + 1e-4, "{a} {b}");
         }
+    }
+
+    #[test]
+    fn holes_are_filled_from_parent() {
+        let parent = Dem { w: 2, h: 2, elev: vec![1000.0, 1100.0, 1200.0, 1300.0] };
+        // cały kafel bez danych: prawa górna ćwiartka rodzica
+        let mut e = vec![-32768.0; 4];
+        assert!(has_holes(&e));
+        assert!(fill_holes(&mut e, 2, 2, Some((&parent, [0.5, 0.0], 0.5))));
+        assert_eq!(e, vec![1100.0; 4]);
+        // pojedyncze błędne piksele bez rodzica: średnia z reszty
+        let mut e = vec![1000.0, -11116.0, 1200.0, 1400.0];
+        assert!(fill_holes(&mut e, 2, 2, None));
+        assert_eq!(e[1], 1200.0);
+        assert!(!has_holes(&e));
+        // nie ma z czego uzupełnić
+        assert!(!fill_holes(&mut [-32768.0; 4], 2, 2, None));
+    }
+
+    #[test]
+    fn old_terrain_tiles_are_stale() {
+        let mut b = encode_dem(&[100.0; 4], 2, 2);
+        assert!(!dem_stale(&b));
+        b[1] = 1;
+        assert!(dem_stale(&b) && decode_dem(&b).is_none());
+        assert!(!dem_stale(&[JPEG_TAG, 1, 2]));
     }
 
     #[test]

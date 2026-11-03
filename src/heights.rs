@@ -129,22 +129,13 @@ impl Heights {
         }
     }
 
-    /// Najdokładniejszy kafel na dysku dla punktu (od `MAX_Z` w dół do `min_z`).
-    fn best_local(&self, lon: f64, lat: f64, min_z: u8) -> Option<(TileId, Arc<Dem>)> {
-        (min_z..=MAX_Z)
-            .rev()
-            .find_map(|z| {
-                let t = crate::geo::tile_at(lon, lat, z);
-                self.local(t).map(|d| (t, d))
-            })
-    }
-
     /// Wysokość w punkcie: najdokładniejsze dane na dysku, a gdy brak – pobrany kafel `ANALYSIS_Z`.
+    /// Bliskie poziomy tylko z dysku: wolne usługi LiDAR nie mogą wstrzymywać szlaków i nazw.
     pub fn sample(&self, lon: f64, lat: f64) -> Option<f32> {
-        if let Some((t, _)) = self.best_local(lon, lat, ANALYSIS_Z) {
-            return self.sample_at(lon, lat, t.z, true);
-        }
-        self.sample_at(lon, lat, ANALYSIS_Z, true)
+        (ANALYSIS_Z..=MAX_Z)
+            .rev()
+            .find_map(|z| self.sample_with(lon, lat, z, |t| self.local(t)))
+            .or_else(|| self.sample_at(lon, lat, ANALYSIS_Z, true))
             .or_else(|| self.sample_at(lon, lat, 10, true))
     }
 
@@ -157,6 +148,10 @@ impl Heights {
 
     /// Dwuliniowe próbkowanie na poziomie `z` (piksele sąsiednich kafli też, jeśli potrzeba).
     pub fn sample_at(&self, lon: f64, lat: f64, z: u8, load: bool) -> Option<f32> {
+        self.sample_with(lon, lat, z, |t| if load { self.load(t) } else { self.cached(t) })
+    }
+
+    fn sample_with(&self, lon: f64, lat: f64, z: u8, tile: impl Fn(TileId) -> Option<Arc<Dem>>) -> Option<f32> {
         let n = (1u64 << z) as f64 * 256.0;
         let px = lon_to_x(lon) * n - 0.5;
         let py = lat_to_y(lat) * n - 0.5;
@@ -174,7 +169,7 @@ impl Heights {
             let dem = match &last {
                 Some((lt, d)) if *lt == t => d.clone(),
                 _ => {
-                    let d = if load { self.load(t) } else { self.cached(t) }?;
+                    let d = tile(t)?;
                     last = Some((t, d.clone()));
                     d
                 }

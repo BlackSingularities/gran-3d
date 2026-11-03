@@ -21,8 +21,8 @@ pub enum Tab {
 
 fn metric(ui: &mut egui::Ui, k: &str, v: String) {
     ui.vertical(|ui| {
-        ui.label(RichText::new(k.to_uppercase()).size(9.5).color(theme::PAPER_3).extra_letter_spacing(1.0));
-        ui.label(RichText::new(v).size(15.0).strong());
+        ui.add(egui::Label::new(RichText::new(k.to_string()).size(11.0).color(theme::PAPER_3)).extend());
+        ui.add(egui::Label::new(RichText::new(v).size(15.0).strong()).extend());
     });
 }
 
