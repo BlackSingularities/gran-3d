@@ -17,7 +17,8 @@ use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Once, RwLock};
 
 use crate::geo::TileId;
 
@@ -95,25 +96,75 @@ fn write_at(f: &File, buf: &[u8], offset: u64) -> io::Result<()> {
     }
 }
 
-/// Otwarta paczka: plik i blokada zapisu (odczyty są pozycyjne i idą równolegle).
+/// Otwarta paczka: plik, indeks w pamięci i koniec danych. Odczyty są pozycyjne i idą równolegle,
+/// zapisy szeregują się na `end`. Indeks wczytuje pierwszy użytkownik po włożeniu paczki do mapy –
+/// dzięki temu nigdy nie zastąpi nowszych wpisów starszym odczytem z dysku.
 struct Open {
     file: File,
-    write: Mutex<()>,
+    ready: Once,
+    index: RwLock<Vec<Slot>>,
+    end: Mutex<u64>,
+    used: AtomicU64,
+}
+
+impl Open {
+    fn new(file: File) -> Self {
+        Self {
+            file,
+            ready: Once::new(),
+            index: RwLock::new(vec![Slot::Empty; SLOTS]),
+            end: Mutex::new(DATA_AT),
+            used: AtomicU64::new(0),
+        }
+    }
+
+    fn load(&self) {
+        self.ready.call_once(|| {
+            let mut raw = vec![0u8; SLOTS * ENTRY];
+            if read_at(&self.file, &mut raw, INDEX_AT).is_ok() {
+                let mut index = self.index.write().unwrap();
+                for (slot, e) in index.iter_mut().zip(raw.chunks_exact(ENTRY)) {
+                    *slot = parse_entry(e);
+                }
+            }
+            let len = self.file.metadata().map(|m| m.len()).unwrap_or(0);
+            *self.end.lock().unwrap() = len.max(DATA_AT);
+        });
+    }
+}
+
+fn parse_entry(e: &[u8]) -> Slot {
+    let offset = u64::from_le_bytes(e[0..8].try_into().unwrap());
+    let len = u32::from_le_bytes(e[8..12].try_into().unwrap());
+    let crc = u32::from_le_bytes(e[12..16].try_into().unwrap());
+    match (offset, len) {
+        (0, _) => Slot::Empty,
+        (MISSING_OFFSET, 0) => Slot::Missing,
+        _ => Slot::Data { offset, len, crc },
+    }
 }
 
 /// Zbiór paczek pod jednym katalogiem z pamięcią otwartych plików.
 pub struct Packs {
     root: PathBuf,
     open: Mutex<HashMap<PackKey, Arc<Open>>>,
+    max_open: usize,
+    clock: AtomicU64,
 }
 
-const MAX_OPEN: usize = 192;
+const MAX_OPEN: usize = 1024;
 
 impl Packs {
     pub fn new(root: PathBuf) -> Self {
+        Self::with_limit(root, MAX_OPEN)
+    }
+
+    fn with_limit(root: PathBuf, max_open: usize) -> Self {
         Self {
             root,
             open: Mutex::new(HashMap::new()),
+            max_open,
+            clock: AtomicU64::new(0),
         }
     }
 
@@ -125,22 +176,24 @@ impl Packs {
     }
 
     fn get(&self, key: PackKey, layer_dir: &str, create: bool) -> io::Result<Option<Arc<Open>>> {
-        if let Some(o) = self.open.lock().unwrap().get(&key) {
-            return Ok(Some(o.clone()));
+        let cached = self.open.lock().unwrap().get(&key).cloned();
+        if let Some(o) = cached {
+            o.used.store(self.clock.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+            o.load();
+            return Ok(Some(o));
         }
         let path = self.path(&key, layer_dir);
         let file = if create {
             if let Some(d) = path.parent() {
                 fs::create_dir_all(d)?;
             }
-            let new = !path.exists();
             let f = OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create(true)
                 .truncate(false)
                 .open(&path)?;
-            if new || f.metadata()?.len() < DATA_AT {
+            if f.metadata()?.len() < DATA_AT {
                 let mut head = vec![0u8; DATA_AT as usize];
                 head[..8].copy_from_slice(MAGIC);
                 head[8] = key.layer;
@@ -170,35 +223,23 @@ impl Packs {
                 format!("uszkodzona paczka {}", path.display()),
             ));
         }
-        let o = Arc::new(Open {
-            file,
-            write: Mutex::new(()),
-        });
-        let mut map = self.open.lock().unwrap();
-        if map.len() >= MAX_OPEN {
-            map.clear();
-        }
-        Ok(Some(map.entry(key).or_insert(o).clone()))
-    }
-
-    fn slot(o: &Open, i: usize) -> io::Result<Slot> {
-        let mut e = [0u8; ENTRY];
-        read_at(&o.file, &mut e, INDEX_AT + (i * ENTRY) as u64)?;
-        let offset = u64::from_le_bytes(e[0..8].try_into().unwrap());
-        let len = u32::from_le_bytes(e[8..12].try_into().unwrap());
-        let crc = u32::from_le_bytes(e[12..16].try_into().unwrap());
-        Ok(match (offset, len) {
-            (0, _) => Slot::Empty,
-            (MISSING_OFFSET, 0) => Slot::Missing,
-            _ => Slot::Data { offset, len, crc },
-        })
+        let o = {
+            let mut map = self.open.lock().unwrap();
+            if map.len() >= self.max_open && !map.contains_key(&key) {
+                evict(&mut map, self.max_open);
+            }
+            map.entry(key).or_insert_with(|| Arc::new(Open::new(file))).clone()
+        };
+        o.used.store(self.clock.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+        o.load();
+        Ok(Some(o))
     }
 
     /// Stan kafla bez czytania danych.
     pub fn state(&self, layer: u8, layer_dir: &str, t: TileId) -> Slot {
         let (key, i) = PackKey::of(layer, t);
         match self.get(key, layer_dir, false) {
-            Ok(Some(o)) => Self::slot(&o, i).unwrap_or(Slot::Empty),
+            Ok(Some(o)) => o.index.read().unwrap()[i],
             _ => Slot::Empty,
         }
     }
@@ -207,7 +248,8 @@ impl Packs {
     pub fn read(&self, layer: u8, layer_dir: &str, t: TileId) -> Option<Vec<u8>> {
         let (key, i) = PackKey::of(layer, t);
         let o = self.get(key, layer_dir, false).ok()??;
-        let Slot::Data { offset, len, crc } = Self::slot(&o, i).ok()? else {
+        let slot = o.index.read().unwrap()[i];
+        let Slot::Data { offset, len, crc } = slot else {
             return None;
         };
         let mut buf = vec![0u8; len as usize];
@@ -225,24 +267,21 @@ impl Packs {
     ) -> io::Result<()> {
         let (key, i) = PackKey::of(layer, t);
         let o = self.get(key, layer_dir, true)?.expect("paczka utworzona");
-        let _guard = o.write.lock().unwrap();
-        let entry = match data {
+        let mut end = o.end.lock().unwrap();
+        let mut e = [0u8; ENTRY];
+        match data {
             Some(d) => {
-                let offset = o.file.metadata()?.len().max(DATA_AT);
-                write_at(&o.file, d, offset)?;
-                let mut e = [0u8; ENTRY];
-                e[0..8].copy_from_slice(&offset.to_le_bytes());
+                write_at(&o.file, d, *end)?;
+                e[0..8].copy_from_slice(&end.to_le_bytes());
                 e[8..12].copy_from_slice(&(d.len() as u32).to_le_bytes());
                 e[12..16].copy_from_slice(&crc32fast::hash(d).to_le_bytes());
-                e
+                *end += d.len() as u64;
             }
-            None => {
-                let mut e = [0u8; ENTRY];
-                e[0..8].copy_from_slice(&MISSING_OFFSET.to_le_bytes());
-                e
-            }
-        };
-        write_at(&o.file, &entry, INDEX_AT + (i * ENTRY) as u64)
+            None => e[0..8].copy_from_slice(&MISSING_OFFSET.to_le_bytes()),
+        }
+        write_at(&o.file, &e, INDEX_AT + (i * ENTRY) as u64)?;
+        o.index.write().unwrap()[i] = parse_entry(&e);
+        Ok(())
     }
 
     /// Zamknięcie paczki (przed usunięciem pliku przez sprzątacza).
@@ -253,6 +292,21 @@ impl Packs {
     #[cfg(test)]
     pub fn forget_all(&self) {
         self.open.lock().unwrap().clear();
+    }
+}
+
+/// Zamknięcie najdawniej używanych paczek. Paczki trzymanej przez inny wątek nie wolno zamknąć:
+/// kolejne otwarcie dałoby drugi egzemplarz z własną blokadą zapisu i dwa wątki nadpisałyby sobie dane.
+/// Nowe odwołania powstają tylko pod blokadą mapy, więc licznik 1 oznacza, że paczka jest wolna.
+fn evict(map: &mut HashMap<PackKey, Arc<Open>>, limit: usize) {
+    let mut idle: Vec<(u64, PackKey)> = map
+        .iter()
+        .filter(|(_, o)| Arc::strong_count(o) == 1)
+        .map(|(k, o)| (o.used.load(Ordering::Relaxed), *k))
+        .collect();
+    idle.sort_unstable_by_key(|e| e.0);
+    for (_, k) in idle.into_iter().take((limit / 4).max(1)) {
+        map.remove(&k);
     }
 }
 
@@ -318,6 +372,38 @@ mod tests {
         // nadpisanie: nowe dane wygrywają
         packs.write(0, "dem", t, Some(b"nowy teren")).unwrap();
         assert_eq!(packs.read(0, "dem", t).as_deref(), Some(&b"nowy teren"[..]));
+        packs.forget_all();
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Wiele wątków, mało uchwytów: paczki są ciągle wymieniane, a żaden kafel nie może zginąć.
+    #[test]
+    fn concurrent_writes_survive_eviction() {
+        let dir = std::env::temp_dir().join(format!("gran-pack-race-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let packs = Packs::with_limit(dir.clone(), 2);
+        let tile = |n: u32| TileId::new(12, 2000 + n % 64, 1400 + n / 64);
+        let payload = |n: u32| format!("kafel-{n}-").repeat(1 + (n % 7) as usize).into_bytes();
+        const TILES: u32 = 64 * 16;
+        std::thread::scope(|s| {
+            for w in 0..8u32 {
+                let (packs, tile, payload) = (&packs, &tile, &payload);
+                s.spawn(move || {
+                    for n in (0..TILES).filter(|n| n % 8 == w) {
+                        packs.write(0, "dem", tile(n), Some(&payload(n))).unwrap();
+                        assert!(packs.read(0, "dem", tile(n)).is_some());
+                    }
+                });
+            }
+        });
+        for n in 0..TILES {
+            assert_eq!(packs.read(0, "dem", tile(n)), Some(payload(n)), "kafel {n}");
+        }
+        // po zamknięciu wszystkiego indeks wraca z dysku
+        packs.forget_all();
+        for n in 0..TILES {
+            assert_eq!(packs.read(0, "dem", tile(n)), Some(payload(n)), "kafel {n} z dysku");
+        }
         packs.forget_all();
         let _ = fs::remove_dir_all(dir);
     }
