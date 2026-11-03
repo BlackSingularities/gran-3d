@@ -1,121 +1,72 @@
 # GRAŃ — atlas szlaków górskich 3D
 
-Trójwymiarowy atlas polskich gór działający w całości w przeglądarce. Łączy rzeczywisty numeryczny model terenu z siecią znakowanych szlaków z OpenStreetMap i dokłada do tego narzędzia analityczne: wysokość względną, wyznaczanie tras z wariantami, pole widoczności, linię wzroku, cienie o dowolnej porze dnia i przelot kamery nad trasą.
+Natywny program dla Windows (Rust, wgpu, egui): trójwymiarowy atlas gór łączący rzeczywisty model terenu z siecią znakowanych szlaków z OpenStreetMap, z narzędziami analitycznymi — wysokością względną, wyznaczaniem tras z wariantami, polem widoczności, linią wzroku, cieniami o dowolnej porze dnia i przelotem kamery nad trasą.
 
-GRAŃ to **aplikacja na Windows i Androida** dystrybuowana przez [GitHub Releases](https://github.com/BlackSingularities/gran-3d/releases) – nie jest publikowana jako strona WWW. Repozytorium nie zawiera żadnych danych gór: teren, szlaki i dane okolic pobierane są w tle w miarę oglądania mapy, a w menedżerze map (przycisk „Mapy” albo klawisz `D`) można zaznaczyć kwadrat do 10 000 km² w dowolnym miejscu Europy do pracy bez internetu.
+Jeden plik `Gran.exe`, bez przeglądarki, Node i lokalnego serwera. Dystrybucja przez [redzikowski.com](https://redzikowski.com/portfolio/gran-3d) (pliki z GitHub Releases tego repozytorium). Repozytorium nie zawiera danych gór: teren, zdjęcia, szlaki i punkty pobierane są w miarę oglądania mapy, a w menedżerze map (przycisk „Mapy” albo `D`) można zapisać obszary do pracy bez internetu.
 
 ## Instalacja
 
 | platforma | plik | uwagi |
 | --- | --- | --- |
-| Windows 10/11 (64-bit) | `GRAN-Setup-<wersja>.exe` | instalator z wyborem folderu (domyślnie `Program Files`), skróty, deinstalacja z Panelu sterowania, automatyczne aktualizacje |
-| Android 7.0+ | `GRAN-<wersja>.apk` | instalacja z pliku (zezwolenie na „nieznane aplikacje”) |
+| Windows 10/11 (64-bit) | `GRAN-Setup-<wersja>.exe` | instalator dla wszystkich użytkowników (`Program Files`, okno UAC, wybór folderu), skróty, deinstalacja z Panelu sterowania, aktualizacje z redzikowski.com |
 
-Przy pierwszym uruchomieniu wybierasz sposób przechowywania danych map: **zachowywanie** z limitem pojemności (1–500 GB, najdawniej używane kafle są usuwane automatycznie) albo **usuwanie przy każdym zamknięciu**. Ustawienie zmienisz w zakładce **Jakość → Dane i pamięć** (Windows także `Ctrl+,`).
+Instalacja na wersji 1.x (Electron) usuwa ją jej własnym deinstalatorem i zachowuje dane. Przy pierwszym uruchomieniu kreator pyta o **folder na dane map** (podfolder `GRAN-dane`), **maksymalny rozmiar** (1–500 GB) i obszary do pobrania na start. Kafle terenu wersji 1.x (także LiDAR) są importowane w tle.
 
-## Architektura aplikacji
+## Funkcje
 
-Interfejs (Vite + Three.js, `src/`) rozmawia z lokalnym serwerem danych (`server/index.mjs` + `scripts/`), który pobiera i wypieka teren, szlaki i pokrycie terenu. Serwer nasłuchuje wyłącznie na `127.0.0.1`.
+### Teren
+- Teren kaflowy z poziomami szczegółów (drzewo czwórkowe Web Mercator, siatka 64×64 na kafel, fartuchy maskujące szczeliny, krzywizna Ziemi), dane wczytywane w wątkach wokół kamery, a do czasu wczytania – fragmenty kafli nadrzędnych.
+- **Ortofotomapa** GUGiK (PL), ČÚZK (CZ) i ZBGIS (SK) do ~0,6 m na bliskich kaflach w stylu satelitarnym, a w obszarach „LiDAR i ortofoto” – **model LiDAR 3 m** (NMT GUGiK w PUWG-1992 przeliczany do Web Mercatora, DMR 5G ČÚZK).
+- **Pokrycie terenu z OSM** (wody, lasy, kosodrzewina, piargi) wypiekane do masek sektorów i używane w cieniowaniu.
+- Style: **teren** (piętra roślinności zależne od wysokości, nachylenia i ekspozycji, śnieg według daty, barwy jesieni), **satelita** (Sentinel-2 cloudless), **mapa**, **hipsometria**, **nachylenie jak na mapach lawinowych**, **ekspozycja**.
+- **Słońce według daty i godziny** (NOAA, czas polski), **cienie rzucane przez rzeźbę** liczone w tle, perspektywa powietrzna i niebo z poświatą Słońca.
+- Poziomice z automatycznym cięciem, siatka kilometrowa, przewyższenie ×1–3, MSAA i skalowanie rozdzielczości renderu.
 
-- **Windows** – Electron (`electron/`): powłoka uruchamia serwer jako proces Node wbudowany w Electron, okno pierwszego uruchomienia (`electron/setup.html`), instalator NSIS (`build/`), aktualizacje `electron-updater`.
-- **Android** – Capacitor (`mobile/`): serwer działa w silniku Node.js osadzonym w aplikacji (`capacitor-nodejs`), wypiekanie w wątkach roboczych zamiast procesów, ustawienia danych w oknie aplikacji (`src/ui/storage.ts`), most natywny do zapisu plików (`MainActivity.java`).
+### Trasy
+- Graf szlaków z relacji `route=hiking|foot` OSM (kolory PTTK z `osmc:symbol`) w sektorach ~50×50 km łączonych bez szwów; wysokości z modelu terenu co ~10 m.
+- **Warianty naraz**: najszybsza, najkrótsza (po powierzchni), najmniej podejść, najłatwiejsza (unika T4–T6) i objazdy metodą kar; zbieżne warianty łączone.
+- Dowolna liczba punktów pośrednich, przeciąganie punktów, menu pod prawym przyciskiem.
+- **Trasa przez teren**: A* po modelu (16 kierunków), funkcja Toblera, limit nachylenia.
+- Metryki: dystans w rzucie i po powierzchni, linia prosta i krętość, podejścia/zejścia z histerezą, czas wg **reguły PTTK** lub **DIN 33466** z tempem i skalą SAC, **punkty GOT PTTK**, maks. nachylenie, ocena trudności.
+- **Profil wysokości** barwiony nachyleniem, z pasem kolorów szlaków, mijanymi punktami, wariantami w tle i kursorem zsynchronizowanym z mapą.
+- **Przelot kamery** nad trasą, eksport i import **GPX** (także przeciągnięciem pliku na okno), **link `gran://`** z widokiem i punktami trasy (rejestrowany przez instalator, otwierany też z wyszukiwarki).
+
+### Analizy
+- **Soczewki** (`H` `W` `O`): ta sama wysokość (pas ± lub poziomica), wysokość względna, widoczność z miejsca pod kursorem; kliknięcie przypina, `Esc` odpina.
+- **Pole widoczności** (32 km, krzywizna Ziemi i refrakcja, oko 1,7/10/30/100 m) z powierzchnią i listą widocznych szczytów.
+- **Pomiar po terenie** i **linia wzroku** między dwoma punktami.
+- **Panorama** z dowolnego miejsca z odległościami do szczytów.
+
+### Interfejs
+Wyszukiwarka (`/`) szczytów, schronisk, przełęczy, szlaków (także po kolorze) i miejsc w Europie (Nominatim), panel informacji, karta „Mapa i światło”, presety jakości z licznikiem klatek, skróty klawiszowe (`?`), kompas, podziałka, odczyt kursora (współrzędne, wysokość, nachylenie, ekspozycja), zrzut ekranu (`S`).
+
+## Dane na dysku
+
+```text
+<folder>\GRAN-dane\
+  areas.json                    obszary zapisane do pracy bez internetu
+  tiles\dem\z\bx_by.gpk         teren (u16 co 1/8 m + LZ4), paczki 16×16 kafli
+  tiles\sat\z\bx_by.gpk         zdjęcia satelitarne (JPEG), paczki 16×16 kafli
+  tiles\ortho\z\bx_by.gpk       ortofotomapa krajowa (JPEG 512 px)
+  sectors\9_x_y.json.lz4        szlaki i punkty OSM sektora
+  land\9_x_y.png                pokrycie terenu sektora (R woda, G las, B skały/zarośla)
+```
+
+Po przekroczeniu limitu najdawniej używane paczki są usuwane; zapisane obszary i model globalny (do z6) zostają. Ustawienia: `%APPDATA%\GRAN\gran.json` (i `datadir.txt` dla deinstalatora).
+
+Źródła: teren **Terrarium** (AWS Open Data: SRTM, EU-DEM), LiDAR **NMT GUGiK** i **DMR 5G ČÚZK** (import z wersji 1.x), zdjęcia **Sentinel-2 cloudless 2020 © EOX** (CC BY-NC-SA 4.0), szlaki i punkty **© OpenStreetMap** (ODbL) przez Overpass API.
 
 ## Budowanie
 
 ```bash
-npm install
-npm run dev              # tryb deweloperski w przeglądarce: http://localhost:5190
-npm run dev:desktop      # aplikacja desktopowa (Electron) lokalnie
-npm run dist:win         # instalator Windows → release/
-npm run dist:android     # APK (wymaga Android SDK, JDK 21 i `npm install --prefix mobile`)
+cargo run              # tryb deweloperski
+cargo test
+cargo build --release  # target/release/Gran.exe
 ```
 
-Wydanie: podbij `version` w `package.json` i scal zmiany do `main` – jeśli tej wersji nie ma jeszcze w Releases, workflow `.github/workflows/build.yml` zbuduje instalator i APK, utworzy tag `v<wersja>` i opublikuje oba pliki w jednym wydaniu. Bez podbicia wersji push na `main` daje tylko kontrolną kompilację. Opis wydania: opcjonalny plik `build/release-notes/<wersja>.md` (bez niego – automatyczna lista zmian). Ręcznie: tag `v<wersja>` albo commit z `[release]` w treści.
+Instalator: `makensis /DVERSION=<wersja> build\gran.nsi` (NSIS 3). Wydanie: podbij `version` w `Cargo.toml`, dodaj `build/release-notes/<wersja>.md` i scal zmiany do `main` – workflow `.github/workflows/build.yml` uruchomi testy, zbuduje i podpisze program oraz instalator, utworzy tag `v<wersja>` i opublikuje wydanie z `latest.yml`. Podpis cyfrowy (sekrety): `WIN_CSC_LINK` (certyfikat .pfx w base64) i `WIN_CSC_KEY_PASSWORD`.
 
-Podpis cyfrowy (sekrety repozytorium): Windows – `WIN_CSC_LINK` (certyfikat .pfx w base64) i `WIN_CSC_KEY_PASSWORD`; Android – `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
-
-Poziomy pakietów:
-- **Standard**: globalny model terenu ~10–25 m (Terrarium), szlaki, szczyty, schroniska i pokrycie terenu z OpenStreetMap w całej Europie.
-- **LiDAR 3 / 6 / 12 m** (do wyboru przy pobieraniu, z szacunkiem rozmiaru i czasu): kafle terenu z NMT GUGiK (Polska) i DMR 5G ČÚZK (Czechy). Przetwarzanie odbywa się blokami ~6×6 km, więc zużycie pamięci nie zależy od wielkości kwadratu. Wystarczy, że źródło LiDAR obejmuje część kwadratu; reszta korzysta z modelu globalnego z płynnym przejściem.
-
-Każdy kwadrat ma własny `data/<id>/region.json` z granicami `bbox`, wybraną jakością i wykrytymi źródłami danych. 
-## Funkcje
-
-### Teren
-- **Model LiDAR 3–12 m** z darmowych danych krajowych: **NMT GUGiK** (Polska, lotnicze skanowanie laserowe) i **DMR 5G ČÚZK** (Czechy). W kwadracie pokrytym tylko częściowo reszta korzysta z modelu globalnego, z płynnym przejściem na granicy.
-- **Teren kaflowy z poziomami szczegółowości** (drzewo czwórkowe Web Mercator, kafle 259×259 z ramką, fartuchy maskujące szczeliny), doczytywany w wątkach roboczych wokół kamery; suwak szczegółowości w zakładce „Mapa i światło”.
-- **Ortofotomapa** z usług krajowych składana na każdy kafel: **GUGiK** (PL), **ZBGIS** (SK), **ČÚZK** (CZ) – do ~0,8 m/px; w tle mozaika Sentinel‑2.
-- **Realistyczne cieniowanie**: piętra roślinności (regiel, kosodrzewina, hale, turnie) zależne od wysokości, nachylenia i ekspozycji; **rzeczywiste pokrycie terenu z OSM** (stawy, lasy, kosodrzewina, piargi) wypiekane do maski rastrowej; mikrorzeźba proceduralna na skałach; odbicia nieba i odblaski słońca na wodzie.
-- **Słońce według daty i godziny** (algorytm NOAA), **cienie rzucane** liczone na GPU przez śledzenie promieni w modelu wysokości, okluzja nieba (sky‑view factor), perspektywa powietrzna.
-- **Sezonowość**: granica śniegu zależna od daty (dłużej na stokach północnych i w żlebach), barwy jesieni w reglu dolnym.
-- Style: teren, **Sentinel‑2 cloudless** (mozaika satelitarna dopasowana do siatki), mapa turystyczna, hipsometria, **klasy nachylenia jak na mapach lawinowych**, ekspozycja stoków.
-- Poziomice z automatycznym cięciem (10/20/50/100 m), siatka kilometrowa, przewyższenie pionowe ×1–3, przekrój geologiczny na bokach bryły.
-
-### Trasy
-- Graf szlaków zbudowany z relacji `route=hiking` OSM (kolory PTTK z `osmc:symbol`), wysokości próbkowane z DEM co 8–12 m.
-- **Warianty naraz**: najszybsza, najkrótsza (dystans rzeczywisty 3D), najmniej podejść, najłatwiejsza (unika odcinków T4–T6) oraz objazdy wyznaczane metodą kar — zbieżne warianty są łączone z wieloma etykietami.
-- Dowolna liczba punktów pośrednich, przeciągane znaczniki, punkty przyklejane do szlaków w dowolnym miejscu krawędzi.
-- **Trasa przez teren**: A* po siatce DEM (ruchy 16‑kierunkowe) z funkcją Toblera i limitem nachylenia — do analizy rzeźby i porównania ze szlakiem.
-- Metryki: dystans w rzucie i **rzeczywisty (po powierzchni)**, linia prosta i krętość, suma podejść/zejść (z histerezą przeciw szumowi DEM), czas wg **reguły PTTK** lub **DIN 33466** z tempem i korektą za skalę trudności SAC, **punkty GOT PTTK**, maks. nachylenie, ocena trudności.
-- **Profil wysokości** kolorowany nachyleniem, z pasem kolorów szlaków, nazwami mijanych szczytów/przełęczy/schronisk, wariantami w tle i synchronizacją kursora z mapą.
-- **Przelot kamery** wzdłuż trasy, eksport **GPX**, import GPX (przeciągnij plik na mapę), link z zapisanym widokiem i punktami trasy.
-
-### Analizy
-- **Soczewka kursora** (panel pod narzędziami, klawisze `H` `W` `O`): teren na żywo pokazuje wokół kursora **tę samą wysokość** – jako poziomicę lub pas ±5–50 m, **wysokość względną** albo **widoczność** z miejsca pod kursorem. Kliknięcie przypina soczewkę w punkcie (panel pokazuje wtedy statystyki i listy szczytów), `Esc` ją odpina.
-- **Wysokość względna**: dowolny punkt staje się poziomem 0 — teren w skali rozbieżnej, izolinia „tej samej wysokości”, pierścienie odległości, odsetek terenu wyżej/niżej, szczyty z Δh; w odczycie kursora Δh, odległość, kąt i azymut.
-- **Pole widoczności** (viewshed) z uwzględnieniem krzywizny Ziemi i refrakcji, wysokość obserwatora 1,7/10/30/100 m, powierzchnia widoczna i lista widocznych szczytów.
-- **Pomiar po terenie** i **linia wzroku** między dwoma punktami z miejscem przeszkody na profilu.
-- **Panorama** z dowolnego miejsca (kamera na wysokości oczu, etykiety z odległościami).
-
-### Interfejs
-**Jakość renderowania** (zakładka „Mapa i światło”): presety od minimalnej do ultra oraz rozdzielczość renderu 25–100%, zasięg szczegółów, limit poziomu LiDAR (3/6/12/25 m), gęstość siatki kafli, rozdzielczość zdjęć lotniczych, gęstość etykiet, automatyczne obniżanie rozdzielczości i limit 30 kl./s – z licznikiem wydajności na żywo.
-
-Wyszukiwarka (`/`) szczytów, schronisk, przełęczy i szlaków (także po kolorze), menu kontekstowe pod prawym przyciskiem, skróty klawiszowe (`?`), kompas, podziałka, odczyt kursora (współrzędne, wysokość, nachylenie, ekspozycja), adaptacyjna rozdzielczość renderowania.
-
-## Dane
-
-Dane kwadratu (w `data/<id>/`) przygotowują skrypty `scripts/bake.mjs` i `scripts/bake-hd.mjs` – normalnie uruchamiane przez mapę pobierania, a diagnostycznie także ręcznie:
-
-| plik | zawartość | źródło |
-| --- | --- | --- |
-| `dem.bin` | wysokości `uint16` (dm) w siatce Web Mercator | kafle **Terrarium** (Mapzen / AWS Open Data: SRTM, EU‑DEM i in.) |
-| `meta.json` | wymiary i położenie siatki | — |
-| `trails.json` | graf szlaków: węzły, krawędzie z geometrią i wysokościami, relacje | **© OpenStreetMap** (ODbL) przez Overpass API |
-| `pois.json` | szczyty, przełęcze, schroniska, stawy, wodospady, jaskinie | **© OpenStreetMap** (ODbL) |
-| `landcover.png` | maska R woda / G las / B skały (255) i zarośla (110), 2× gęstsza od DEM | **© OpenStreetMap** (ODbL) |
-
-Obraz satelitarny ładowany na żądanie: **Sentinel‑2 cloudless 2020 © EOX IT Services** (CC BY‑NC‑SA 4.0), dane Copernicus.
-
-| `tiles/{z}/{x}/{y}.png` + `tiles/index.json` | piramida kafli wysokości HD (RGB: `(R·65536 + G·256 + B)/10 − 1000` m) | **NMT GUGiK** (LiDAR, geoportal.gov.pl), **DMR 5G © ČÚZK**, Terrarium |
-
-Ortofoto (ładowane na żądanie z usług WMS/ArcGIS): **© GUGiK** (geoportal.gov.pl), **© ÚGKK SR** (ZBGIS), **© ČÚZK**.
-
-Nazwy miejscowości do starszych obszarów: `node scripts/places.mjs`.
-
-Ręczne przygotowanie lub odświeżenie danych (np. po zmianach w OSM):
-
-```bash
-npm run bake -- moj-kwadrat     # etap 1: teren globalny, szlaki, punkty, pokrycie terenu
-npm run bake:hd -- moj-kwadrat  # etap 2: LiDAR → piramida kafli, model analityczny i wysokości szlaków
-```
-
-Etap 2 pobiera setki MB danych LiDAR (GUGiK udostępnia NMT w układzie PUWG‑1992 – przeliczenie do Web Mercatora jest w `scripts/lib/puwg.mjs`). Słowacki DMR 5.0 nie ma publicznej usługi z surowymi wysokościami (tylko wysyłka na dysku), dlatego słowacka strona gór korzysta z modelu globalnego.
-
-Pobrane kafle i odpowiedzi Overpass są buforowane w katalogu `.cache` wewnątrz folderu danych.
-
-## Architektura
-
-```
-src/
-  core/      dem.ts (siatka, próbkowanie, raycasting), graph.ts (graf szlaków, Dijkstra, warianty),
-             metrics.ts (czasy, GOT, profil), sun.ts (położenie Słońca), gpx.ts, store.ts
-  scene/     engine.ts (kamera, sterowanie, przeloty), terrain.ts + shaders.ts (teren, przebiegi GPU),
-             trails.ts, routes.ts, overlay.ts (etykiety i znaczniki HTML)
-  workers/   terrain.worker.ts (widoczność, A* po terenie)
-  ui/        panel.ts, chrome.ts, profile.ts, icons.ts
-```
-
-Uwaga: model terenu o rozdzielczości ~25 m wygładza najostrzejsze granie (np. Gerlach 2655 m ma w modelu ~2590 m) — nazwy i wysokości szczytów pochodzą z OSM, a różnicę widać w karcie szczytu. Trasy przez teren to analiza rzeźby, a nie zachęta do schodzenia ze szlaków w parkach narodowych.
+Zmienne do testów: `GRAN_WIZARD_PAGE=folder|limit|areas`, `GRAN_CAPTURE=plik.png` i `GRAN_CAPTURE_AFTER=sekundy`; `APPDATA` / `LOCALAPPDATA` w katalogu tymczasowym dają czyste ustawienia.
 
 ---
 

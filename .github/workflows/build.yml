@@ -1,16 +1,14 @@
-# GRAŃ – budowanie aplikacji (Windows .exe i Android .apk) oraz wydania na GitHub Releases.
+# GRAŃ – kompilacja programu (Rust), instalator Windows (NSIS) i wydanie na GitHub Releases.
+# Program pobiera aktualizacje przez redzikowski.com (kopia wydań z GitHuba), więc wydanie musi zawierać
+# instalator i latest.yml (suma SHA-512, którą program sprawdza przed instalacją).
 #
-#  • push na main z nową wersją w package.json (brak tagu v<wersja>) → wydanie automatycznie
-#  • push tagu v*        → oba pliki publikowane w jednym wydaniu (z latest.yml dla aktualizacji Windows)
-#  • commit z „[release]” w treści → to samo; tag v<wersja z package.json> tworzy workflow
-#  • push / pull request → kontrolna kompilacja (artefakty przebiegu, bez publikacji)
+#  • push na main z nową wersją w Cargo.toml (brak tagu v<wersja>) → wydanie automatycznie
+#  • push tagu v*        → wydanie tej wersji
+#  • commit z „[release]” w treści → to samo; tag v<wersja z Cargo.toml> tworzy workflow
+#  • push / pull request → kontrolna kompilacja i testy (artefakty przebiegu, bez publikacji)
 #
 # Podpis Windows (Authenticode) – sekrety repozytorium:
 #   WIN_CSC_LINK (certyfikat .pfx w base64), WIN_CSC_KEY_PASSWORD
-# Podpis Android – sekrety repozytorium:
-#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
-# Bez sekretów Androida APK jest podpisywany kluczem jednorazowym (instaluje się, ale kolejna
-# wersja z innym kluczem wymaga odinstalowania poprzedniej).
 name: Build
 
 on:
@@ -32,13 +30,16 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
       new: ${{ steps.v.outputs.new }}
     steps:
       - uses: actions/checkout@v4
       - id: v
         name: Wersja i czy ma już wydanie
         run: |
-          tag="v$(node -p "require('./package.json').version")"
+          version=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          tag="v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
             echo "new=false" >> "$GITHUB_OUTPUT"
@@ -47,119 +48,87 @@ jobs:
             echo "new=true" >> "$GITHUB_OUTPUT"
             echo "Nowa wersja $tag – bez wydania."
           fi
-      - name: Wersja tagu zgodna z package.json
+      - name: Wersja tagu zgodna z Cargo.toml
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          v=$(node -p "require('./package.json').version")
-          if [ "v$v" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} nie pasuje do wersji v$v z package.json"
+          if [ "${{ steps.v.outputs.tag }}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} nie pasuje do wersji ${{ steps.v.outputs.tag }} z Cargo.toml"
             exit 1
           fi
 
   windows:
     needs: version
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - name: Zależności
-        run: npm ci
-      - name: Sprawdzenie typów i kompilacja
-        run: npm run build
-      - name: Instalator
-        run: npx electron-builder --win --x64 --publish never
-      - name: Weryfikacja podpisu
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Testy
+        run: cargo test --locked
+      - name: Kompilacja
+        run: cargo build --release --locked
+      - name: Certyfikat
         if: env.CSC_LINK != ''
         shell: pwsh
         run: |
-          $exe = Get-ChildItem release -Filter 'GRAN-Setup-*.exe' | Select-Object -First 1
-          $sig = Get-AuthenticodeSignature $exe.FullName
-          Write-Host "$($exe.Name): $($sig.Status) – $($sig.SignerCertificate.Subject)"
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:CSC_LINK))
+          $st = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          "SIGNTOOL=$($st.FullName)" >> $env:GITHUB_ENV
+      - name: Podpis programu
+        if: env.CSC_LINK != ''
+        shell: pwsh
+        run: '& $env:SIGNTOOL sign /f "$env:RUNNER_TEMP\cert.pfx" /p "$env:CSC_KEY_PASSWORD" /fd sha256 /tr http://timestamp.digicert.com /td sha256 target\release\Gran.exe'
+      - name: NSIS
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            if (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe") { "${env:ProgramFiles(x86)}\NSIS" >> $env:GITHUB_PATH }
+            else { choco install nsis -y --no-progress; "${env:ProgramFiles(x86)}\NSIS" >> $env:GITHUB_PATH }
+          }
+      - name: Instalator
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          makensis /V3 "/DVERSION=$env:VERSION" "/DEXE=..\target\release\Gran.exe" "/DOUT=..\release\GRAN-Setup-$env:VERSION.exe" build\gran.nsi
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Podpis instalatora
+        if: env.CSC_LINK != ''
+        shell: pwsh
+        run: |
+          & $env:SIGNTOOL sign /f "$env:RUNNER_TEMP\cert.pfx" /p "$env:CSC_KEY_PASSWORD" /fd sha256 /tr http://timestamp.digicert.com /td sha256 "release\GRAN-Setup-$env:VERSION.exe"
+          $sig = Get-AuthenticodeSignature "release\GRAN-Setup-$env:VERSION.exe"
+          Write-Host "$($sig.Status) – $($sig.SignerCertificate.Subject)"
           if ($sig.Status -ne 'Valid') { exit 1 }
+      - name: latest.yml (suma SHA-512 dla aktualizatora)
+        shell: pwsh
+        run: |
+          $name = "GRAN-Setup-$env:VERSION.exe"
+          $file = "release\$name"
+          $bytes = [IO.File]::ReadAllBytes($file)
+          $sha = [Convert]::ToBase64String([Security.Cryptography.SHA512]::Create().ComputeHash($bytes))
+          $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+          @"
+          version: $env:VERSION
+          files:
+            - url: $name
+              sha512: $sha
+              size: $($bytes.Length)
+          path: $name
+          sha512: $sha
+          releaseDate: '$date'
+          "@ -replace '(?m)^          ', '' | Set-Content -Encoding utf8NoBOM release\latest.yml
+          Get-Content release\latest.yml
       - uses: actions/upload-artifact@v4
         with:
           name: windows
           path: |
             release/GRAN-Setup-*.exe
-            release/GRAN-Setup-*.exe.blockmap
             release/latest.yml
-          if-no-files-found: error
-          retention-days: 14
-
-  android:
-    needs: version
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            mobile/package-lock.json
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: gradle
-      - name: Zależności
-        run: |
-          npm ci
-          npm ci --prefix mobile
-      - name: Sprawdzenie typów i kompilacja interfejsu
-        run: npm run build
-      - name: Zasoby aplikacji i synchronizacja Capacitor
-        working-directory: mobile
-        run: npm run sync
-      - name: Klucz podpisu
-        env:
-          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          ks="$RUNNER_TEMP/gran.keystore"
-          if [ -n "$KS_B64" ]; then
-            echo "$KS_B64" | base64 -d > "$ks"
-            {
-              echo "GRAN_ANDROID_KEYSTORE_PASSWORD=$KS_PASS"
-              echo "GRAN_ANDROID_KEY_ALIAS=$KS_ALIAS"
-              echo "GRAN_ANDROID_KEY_PASSWORD=$KEY_PASS"
-            } >> "$GITHUB_ENV"
-          else
-            echo "::warning::Brak sekretu ANDROID_KEYSTORE_BASE64 – APK podpisany kluczem jednorazowym."
-            pass=$(openssl rand -hex 16)
-            keytool -genkeypair -keystore "$ks" -storepass "$pass" -keypass "$pass" -alias gran \
-              -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=GRAN, O=BlackSingularities, C=PL" >/dev/null
-            echo "::add-mask::$pass"
-            {
-              echo "GRAN_ANDROID_KEYSTORE_PASSWORD=$pass"
-              echo "GRAN_ANDROID_KEY_ALIAS=gran"
-              echo "GRAN_ANDROID_KEY_PASSWORD=$pass"
-            } >> "$GITHUB_ENV"
-          fi
-          echo "GRAN_ANDROID_KEYSTORE=$ks" >> "$GITHUB_ENV"
-      - name: APK
-        working-directory: mobile/android
-        run: ./gradlew --no-daemon assembleRelease
-      - name: Weryfikacja podpisu
-        run: |
-          apk=$(ls mobile/android/app/build/outputs/apk/release/GRAN-*-release.apk)
-          "$ANDROID_HOME"/build-tools/$(ls "$ANDROID_HOME"/build-tools | sort -V | tail -1)/apksigner verify --print-certs "$apk" | head -3
-          mkdir -p out && cp "$apk" "out/GRAN-$(node -p "require('./package.json').version").apk"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android
-          path: out/*.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -168,7 +137,7 @@ jobs:
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.outputs.new == 'true') ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
-    needs: [version, windows, android]
+    needs: [version, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -179,10 +148,10 @@ jobs:
       - run: ls -la dist-release
       - name: Opis wydania
         run: |
-          v="${{ needs.version.outputs.tag }}"
-          f="build/release-notes/${v#v}.md"
+          v="${{ needs.version.outputs.version }}"
+          f="build/release-notes/$v.md"
           if [ -f "$f" ]; then cp "$f" notes.md
-          else printf 'Pliki: instalator Windows (`GRAN-Setup-%s.exe`, aktualizuje się automatycznie) i Android (`GRAN-%s.apk`).\n' "${v#v}" "${v#v}" > notes.md
+          else printf 'Instalator Windows `GRAN-Setup-%s.exe` – do pobrania ze strony https://redzikowski.com/portfolio/gran-3d. Zainstalowany program sam proponuje kolejne wersje.\n' "$v" > notes.md
           fi
       - uses: softprops/action-gh-release@v2
         with:
