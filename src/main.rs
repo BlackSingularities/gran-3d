@@ -44,7 +44,7 @@ fn main() -> eframe::Result<()> {
             .with_min_inner_size([1024.0, 640.0])
             .with_icon(icon),
         renderer: eframe::Renderer::Wgpu,
-        vsync: true,
+        vsync: settings::Settings::load().vsync,
         persist_window: true,
         ..Default::default()
     };

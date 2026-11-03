@@ -63,6 +63,27 @@ pub fn bake(layer: Layer, source: &[u8]) -> Result<Vec<u8>, BakeError> {
     }
 }
 
+/// Czy wysokości wyglądają na prawdziwy teren. Brak danych w Terrarium to wartości rzędu −32768 m,
+/// a skok ponad 1500 m między sąsiednimi pikselami nie zdarza się w żadnym modelu na tych poziomach.
+pub fn elev_plausible(elev: &[f32], w: usize) -> bool {
+    const MAX_JUMP: f32 = 1500.0;
+    elev.iter().all(|e| (-12_000.0..=9_000.0).contains(e))
+        && elev.chunks_exact(w.max(1)).all(|row| row.windows(2).all(|p| (p[0] - p[1]).abs() <= MAX_JUMP))
+}
+
+/// Plik Terrarium jest prawdziwym terenem (kontrola kafli importowanych z wersji 1.x).
+pub fn terrarium_plausible(source: &[u8]) -> bool {
+    let Ok(img) = image::load_from_memory(source) else {
+        return false;
+    };
+    let img = img.to_rgb8();
+    let elev: Vec<f32> = img
+        .pixels()
+        .map(|p| p[0] as f32 * 256.0 + p[1] as f32 + p[2] as f32 / 256.0 - 32768.0)
+        .collect();
+    elev_plausible(&elev, img.width() as usize)
+}
+
 pub fn encode_dem(elev: &[f32], w: usize, h: usize) -> Vec<u8> {
     let q: Vec<u16> = elev
         .iter()
@@ -151,6 +172,16 @@ mod tests {
         for (a, b) in elev.iter().zip(&d.elev) {
             assert!((a - b).abs() <= 0.0625 + 1e-4, "{a} {b}");
         }
+    }
+
+    #[test]
+    fn implausible_terrain_is_rejected() {
+        assert!(elev_plausible(&[800.0, 810.0, 790.0, 805.0], 2));
+        assert!(elev_plausible(&[-4000.0, -3990.0], 2));
+        assert!(!elev_plausible(&[800.0, -32768.0], 2));
+        assert!(!elev_plausible(&[100.0, 2500.0], 2));
+        // skok między końcem wiersza a początkiem następnego nie jest sąsiedztwem
+        assert!(elev_plausible(&[100.0, 110.0, 3000.0, 3010.0], 2));
     }
 
     #[test]

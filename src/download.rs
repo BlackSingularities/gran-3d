@@ -380,6 +380,10 @@ impl Job {
                     Ok(s) => s,
                     Err(e) => return Outcome::Failed(format!("{}: {e}", path.display())),
                 };
+                // zepsuty kafel pomijamy: widok dociągnie w jego miejsce poprawny z sieci
+                if !bake::terrarium_plausible(&src) {
+                    return Outcome::Skipped;
+                }
                 match bake::bake(Layer::Dem, &src) {
                     Ok(baked) => match store.write(Layer::Dem, *t, Some(&baked)) {
                         Ok(()) => Outcome::Saved(src.len() as u64),

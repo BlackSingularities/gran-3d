@@ -881,7 +881,7 @@ fn quality_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(theme::kicker(&format!("Jakość renderowania · {}", a.prefs.quality.label())));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(RichText::new(format!("{:.0} kl./s", a.fps())).small().color(theme::TEAL));
+            ui.label(RichText::new(format!("{:.0} kl./s · {:.1} ms", a.fps(), 1000.0 / a.fps().max(1.0))).small().color(theme::TEAL));
         });
     });
     ui.horizontal_wrapped(|ui| {
