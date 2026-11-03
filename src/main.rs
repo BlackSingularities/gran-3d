@@ -9,6 +9,7 @@ mod app;
 mod areas;
 mod bake;
 mod download;
+mod engine;
 mod fmt;
 mod geo;
 mod gpx;
