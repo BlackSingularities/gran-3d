@@ -297,12 +297,13 @@ fn vector_url() -> Result<String, String> {
     if let Some(u) = URL.lock().unwrap().clone() {
         return Ok(u);
     }
-    let v: serde_json::Value = agent()
+    let body = agent()
         .get("https://tiles.openfreemap.org/planet")
         .call()
         .map_err(|e| e.to_string())?
-        .into_json()
+        .into_string()
         .map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let u = v["tiles"][0].as_str().ok_or("brak adresu kafli wektorowych")?.to_string();
     *URL.lock().unwrap() = Some(u.clone());
     Ok(u)
