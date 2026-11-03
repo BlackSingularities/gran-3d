@@ -2,23 +2,23 @@
 
 Trójwymiarowy atlas polskich gór działający w całości w przeglądarce. Łączy rzeczywisty numeryczny model terenu z siecią znakowanych szlaków z OpenStreetMap i dokłada do tego narzędzia analityczne: wysokość względną, wyznaczanie tras z wariantami, pole widoczności, linię wzroku, cienie o dowolnej porze dnia i przelot kamery nad trasą.
 
-GRAŃ to **aplikacja na Windows i Androida** dystrybuowana przez [GitHub Releases](https://github.com/BlackSingularities/gran-3d/releases) – nie jest publikowana jako strona WWW. Repozytorium nie zawiera żadnych danych gór: teren, szlaki i dane okolic pobierane są w tle w miarę oglądania mapy, a w menedżerze map (przycisk „Mapy” albo klawisz `D`) można zaznaczyć kwadrat do 10 000 km² w dowolnym miejscu Europy do pracy bez internetu.
+GRAŃ to **aplikacja na Windows** dystrybuowana przez [redzikowski.com](https://redzikowski.com/portfolio/gran-3d) (pliki pochodzą z GitHub Releases tego repozytorium) – nie jest publikowana jako strona WWW. Repozytorium nie zawiera żadnych danych gór: teren, szlaki i dane okolic pobierane są w tle w miarę oglądania mapy, a w menedżerze map (przycisk „Mapy” albo klawisz `D`) można zaznaczyć kwadrat do 10 000 km² w dowolnym miejscu Europy do pracy bez internetu.
 
 ## Instalacja
 
 | platforma | plik | uwagi |
 | --- | --- | --- |
-| Windows 10/11 (64-bit) | `GRAN-Setup-<wersja>.exe` | instalator z wyborem folderu (domyślnie `Program Files`), skróty, deinstalacja z Panelu sterowania, automatyczne aktualizacje |
-| Android 7.0+ | `GRAN-<wersja>.apk` | instalacja z pliku (zezwolenie na „nieznane aplikacje”) |
+| Windows 10/11 (64-bit) | `GRAN-Setup-<wersja>.exe` | instalator dla wszystkich użytkowników (uprawnienia administratora, domyślnie `Program Files`, z wyborem folderu), skróty, deinstalacja z Panelu sterowania, aktualizacje z redzikowski.com |
 
-Przy pierwszym uruchomieniu wybierasz sposób przechowywania danych map: **zachowywanie** z limitem pojemności (1–500 GB, najdawniej używane kafle są usuwane automatycznie) albo **usuwanie przy każdym zamknięciu**. Ustawienie zmienisz w zakładce **Jakość → Dane i pamięć** (Windows także `Ctrl+,`).
+Przy pierwszym uruchomieniu wybierasz **folder na dane map** i ich **maksymalny rozmiar** (1–500 GB). Wszystko, co program pobiera – kafle terenu, zdjęcia lotnicze (bufor przeglądarki), szlaki, dane okolic i zapisane obszary – trafia na stałe do podfolderu `GRAN-dane`. Po przekroczeniu limitu najdawniej używane kafle są usuwane w tle, zapisane obszary zostają. Przy zmianie folderu (zakładka **Jakość → Dane i pamięć** albo `Ctrl+,`) program proponuje przeniesienie dotychczasowych danych.
+
+Aktualizacje: program pyta `https://redzikowski.com/api/github/repos/BlackSingularities/gran-3d/releases/latest` (kopia GitHub Releases udostępniana przez serwer strony), pobiera instalator przez redzikowski.com, sprawdza sumę SHA-512 z `latest.yml` i uruchamia go z podniesieniem uprawnień (UAC) w trybie cichym.
 
 ## Architektura aplikacji
 
 Interfejs (Vite + Three.js, `src/`) rozmawia z lokalnym serwerem danych (`server/index.mjs` + `scripts/`), który pobiera i wypieka teren, szlaki i pokrycie terenu. Serwer nasłuchuje wyłącznie na `127.0.0.1`.
 
-- **Windows** – Electron (`electron/`): powłoka uruchamia serwer jako proces Node wbudowany w Electron, okno pierwszego uruchomienia (`electron/setup.html`), instalator NSIS (`build/`), aktualizacje `electron-updater`.
-- **Android** – Capacitor (`mobile/`): serwer działa w silniku Node.js osadzonym w aplikacji (`capacitor-nodejs`), wypiekanie w wątkach roboczych zamiast procesów, ustawienia danych w oknie aplikacji (`src/ui/storage.ts`), most natywny do zapisu plików (`MainActivity.java`).
+- **Windows** – Electron (`electron/`): powłoka uruchamia serwer jako proces Node wbudowany w Electron, okno pierwszego uruchomienia i ustawień danych (`electron/setup.html`), instalator NSIS (`build/`), aktualizator w `electron/main.cjs`.
 
 ## Budowanie
 
@@ -27,12 +27,11 @@ npm install
 npm run dev              # tryb deweloperski w przeglądarce: http://localhost:5190
 npm run dev:desktop      # aplikacja desktopowa (Electron) lokalnie
 npm run dist:win         # instalator Windows → release/
-npm run dist:android     # APK (wymaga Android SDK, JDK 21 i `npm install --prefix mobile`)
 ```
 
-Wydanie: podbij `version` w `package.json` i scal zmiany do `main` – jeśli tej wersji nie ma jeszcze w Releases, workflow `.github/workflows/build.yml` zbuduje instalator i APK, utworzy tag `v<wersja>` i opublikuje oba pliki w jednym wydaniu. Bez podbicia wersji push na `main` daje tylko kontrolną kompilację. Opis wydania: opcjonalny plik `build/release-notes/<wersja>.md` (bez niego – automatyczna lista zmian). Ręcznie: tag `v<wersja>` albo commit z `[release]` w treści.
+Wydanie: podbij `version` w `package.json` i scal zmiany do `main` – jeśli tej wersji nie ma jeszcze w Releases, workflow `.github/workflows/build.yml` zbuduje instalator Windows, utworzy tag `v<wersja>` i opublikuje go razem z `latest.yml`; redzikowski.com podaje nowe wydanie programom i na stronie pobierania. Bez podbicia wersji push na `main` daje tylko kontrolną kompilację. Opis wydania: opcjonalny plik `build/release-notes/<wersja>.md` (bez niego – automatyczna lista zmian). Ręcznie: tag `v<wersja>` albo commit z `[release]` w treści.
 
-Podpis cyfrowy (sekrety repozytorium): Windows – `WIN_CSC_LINK` (certyfikat .pfx w base64) i `WIN_CSC_KEY_PASSWORD`; Android – `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
+Podpis cyfrowy (sekrety repozytorium): `WIN_CSC_LINK` (certyfikat .pfx w base64) i `WIN_CSC_KEY_PASSWORD`.
 
 Poziomy pakietów:
 - **Standard**: globalny model terenu ~10–25 m (Terrarium), szlaki, szczyty, schroniska i pokrycie terenu z OpenStreetMap w całej Europie.

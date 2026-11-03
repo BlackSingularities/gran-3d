@@ -2,13 +2,15 @@
 //
 // Powłoka uruchamia lokalny serwer aplikacji (server/index.mjs) jako osobny proces Node
 // wbudowany w Electron, nasłuchujący wyłącznie na 127.0.0.1, i otwiera go w oknie aplikacji.
-// Przy pierwszym uruchomieniu użytkownik wybiera sposób przechowywania danych:
-//   • „keep”    – kafle i dane okolic zostają na dysku, z limitem pojemności (najdawniej używane są usuwane),
-//   • „session” – wszystko jest usuwane przy każdym zamknięciu programu.
+// Przy pierwszym uruchomieniu użytkownik wybiera folder na dane map i ich maksymalny rozmiar.
+// Wszystko, co program pobiera (kafle terenu, zdjęcia lotnicze, szlaki, dane okolic, zaznaczone obszary),
+// trafia na stałe do tego jednego folderu; po przekroczeniu limitu najdawniej używane kafle są usuwane.
+// Aktualizacje: wydania z redzikowski.com (kopia GitHub Releases), instalator sprawdzany sumą SHA-512.
 'use strict';
 
 const { app, BrowserWindow, dialog, ipcMain, Menu, net, session, shell } = require('electron');
 const { spawn, spawnSync } = require('node:child_process');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const netNode = require('node:net');
@@ -32,17 +34,19 @@ if (!app.requestSingleInstanceLock()) {
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
 const LOCAL_ROOT = path.join(process.env.LOCALAPPDATA || app.getPath('userData'), 'GRAN');
 const DEFAULT_DATA_DIR = path.join(LOCAL_ROOT, 'data');
-const SESSION_DIR = path.join(LOCAL_ROOT, 'session');
 const DATA_SUBDIR = 'GRAN-dane';
+// dawny tryb „usuwaj przy zamknięciu” (do wersji 1.0.3) – pozostałości są sprzątane przy starcie
+const LEGACY_SESSION_DIR = path.join(LOCAL_ROOT, 'session');
+// ścieżka folderu danych dla deinstalatora (UTF-16 LE, czytana przez build/installer.nsh)
+const DATADIR_FILE = path.join(app.getPath('userData'), 'datadir.txt');
 const LIMITS_GB = { min: 1, max: 500, def: 10 };
 
 function readSettings() {
   try {
     const s = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-    if (s.mode !== 'keep' && s.mode !== 'session') return null;
+    if (!s || typeof s !== 'object' || !(Number(s.limitGB) > 0)) return null;
     return {
-      mode: s.mode,
-      limitGB: clamp(Number(s.limitGB) || LIMITS_GB.def, LIMITS_GB.min, LIMITS_GB.max),
+      limitGB: clamp(Math.round(Number(s.limitGB)), LIMITS_GB.min, LIMITS_GB.max),
       dataDir: typeof s.dataDir === 'string' && s.dataDir ? s.dataDir : DEFAULT_DATA_DIR,
       autoUpdate: s.autoUpdate !== false,
       window: s.window ?? null,
@@ -55,22 +59,30 @@ function readSettings() {
 function writeSettings(s) {
   fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2));
+  try {
+    fs.writeFileSync(DATADIR_FILE, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(s.dataDir, 'utf16le')]));
+  } catch {
+    /* tylko dla deinstalatora */
+  }
 }
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 let settings = readSettings();
 
-/** Katalog danych i bufora dla bieżącego trybu. */
+/** Folder danych, bufor surowych pobrań i bufor przeglądarki (zdjęcia lotnicze) – wszystko w jednym miejscu. */
 function storageDirs(s = settings) {
-  const base = s.mode === 'session' ? SESSION_DIR : s.dataDir;
-  return { data: base, cache: path.join(base, '.cache') };
+  const cache = path.join(s.dataDir, '.cache');
+  return { data: s.dataDir, cache, browser: path.join(cache, 'browser') };
 }
 
-// pamięć podręczna przeglądarki (kafle zdjęć, odpowiedzi HTTP) – mała część limitu, maks. 512 MB
+/** Część limitu na bufor przeglądarki (kafle zdjęć lotniczych i satelitarnych): 5%, 64–512 MB. */
+const browserCacheMB = (s) => Math.round(clamp(s.limitGB * 1024 * 0.05, 64, 512));
+
+// bufor przeglądarki w folderze danych, z własnym limitem – reszta limitu należy do serwera danych
 if (settings) {
-  const mb = Math.round(clamp(settings.limitGB * 1024 * 0.05, 64, 512));
-  app.commandLine.appendSwitch('disk-cache-size', String(mb * 1024 * 1024));
+  app.commandLine.appendSwitch('disk-cache-dir', storageDirs().browser);
+  app.commandLine.appendSwitch('disk-cache-size', String(browserCacheMB(settings) * 1024 * 1024));
 }
 
 // ------------------------------------------------------------------ pomocnicze
@@ -169,7 +181,7 @@ function startServer() {
         HOST: '127.0.0.1',
         GRAN_DATA_DIR: dirs.data,
         GRAN_CACHE_DIR: dirs.cache,
-        GRAN_LIMIT_MB: String(Math.round(settings.limitGB * 1024)),
+        GRAN_LIMIT_MB: String(Math.round(settings.limitGB * 1024) - browserCacheMB(settings)),
         GRAN_ADMIN_TOKEN: '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -349,7 +361,7 @@ function openSetup(kind) {
     minHeight: 620,
     show: false,
     resizable: true,
-    title: kind === 'first' ? `${APP_NAME} – pierwsze uruchomienie` : `${APP_NAME} – dane i pamięć`,
+    title: kind === 'first' ? `${APP_NAME} – pierwsze uruchomienie` : `${APP_NAME} – dane map`,
     backgroundColor: BG,
     icon: fs.existsSync(ICON) ? ICON : undefined,
     parent: kind === 'settings' && mainWin ? mainWin : undefined,
@@ -373,19 +385,17 @@ function openSetup(kind) {
 
 // ------------------------------------------------------------------ IPC
 ipcMain.handle('gran:setup:get', () => {
-  const s = settings ?? { mode: 'keep', limitGB: LIMITS_GB.def, dataDir: DEFAULT_DATA_DIR, autoUpdate: true };
-  const dirs = settings ? storageDirs(settings) : null;
+  const s = settings ?? { limitGB: LIMITS_GB.def, dataDir: DEFAULT_DATA_DIR, autoUpdate: true };
   return {
     first: !settings,
     version: app.getVersion(),
-    mode: s.mode,
     limitGB: s.limitGB,
     dataDir: s.dataDir,
     autoUpdate: s.autoUpdate,
     defaultDataDir: DEFAULT_DATA_DIR,
     limits: LIMITS_GB,
-    free: freeSpace(s.mode === 'session' ? SESSION_DIR : s.dataDir),
-    used: dirs ? dirSize(dirs.data) : 0,
+    free: freeSpace(s.dataDir),
+    used: settings ? dirSize(s.dataDir) : 0,
   };
 });
 
@@ -415,31 +425,99 @@ ipcMain.handle('gran:setup:pick', async () => {
 
 ipcMain.handle('gran:setup:save', async (_e, cfg) => {
   const next = {
-    mode: cfg?.mode === 'session' ? 'session' : 'keep',
     limitGB: clamp(Math.round(Number(cfg?.limitGB) || LIMITS_GB.def), LIMITS_GB.min, LIMITS_GB.max),
-    dataDir: typeof cfg?.dataDir === 'string' && cfg.dataDir ? cfg.dataDir : DEFAULT_DATA_DIR,
+    dataDir: typeof cfg?.dataDir === 'string' && cfg.dataDir ? path.resolve(cfg.dataDir) : DEFAULT_DATA_DIR,
     autoUpdate: cfg?.autoUpdate !== false,
     window: settings?.window ?? null,
   };
   const prev = settings;
+  const moved = !!prev && path.resolve(prev.dataDir) !== next.dataDir;
+  let move = false;
+  if (moved && dirSize(prev.dataDir) > 0) {
+    const nested = isInside(next.dataDir, prev.dataDir) || isInside(prev.dataDir, next.dataDir);
+    const r = await dialog.showMessageBox(setupWin ?? undefined, {
+      type: 'question',
+      title: APP_NAME,
+      message: 'Przenieść pobrane dane do nowego folderu?',
+      detail: `Z: ${prev.dataDir}\nDo: ${next.dataDir}\n\n„Przenieś dane” – zapisane obszary i kafle trafią do nowego folderu, a stary zostanie usunięty.\n„Zacznij od zera” – nowy folder zacznie się wypełniać od początku, stare dane zostaną w poprzednim miejscu.`,
+      buttons: nested ? ['Zacznij od zera', 'Anuluj'] : ['Przenieś dane', 'Zacznij od zera', 'Anuluj'],
+      defaultId: 0,
+      cancelId: nested ? 1 : 2,
+      noLink: true,
+    });
+    if (r.response === (nested ? 1 : 2)) return false;
+    move = !nested && r.response === 0;
+  }
+  if (move) {
+    restarting = true;
+    await stopServer();
+    setupWin?.setProgressBar(2); // nieokreślony postęp na pasku zadań
+    try {
+      await moveData(prev.dataDir, next.dataDir);
+    } catch (e) {
+      log(`przenoszenie danych: ${e.message}`);
+      setupWin?.setProgressBar(-1);
+      restarting = false;
+      await dialog.showMessageBox(setupWin ?? undefined, { type: 'error', title: APP_NAME, message: 'Nie udało się przenieść danych.', detail: `${e.message}\n\nDane, których nie przeniesiono, zostały w dotychczasowym folderze.` });
+      await restart();
+      return false;
+    }
+    restarting = false;
+  }
   settings = next;
   writeSettings(next);
   const resolve = setupResolve;
   setupResolve = null;
   setupWin?.close();
-  if (prev && (prev.mode !== next.mode || prev.limitGB !== next.limitGB || prev.dataDir !== next.dataDir)) {
-    await restart();
+  if (prev && (moved || prev.limitGB !== next.limitGB)) {
+    // folder i rozmiar bufora przeglądarki ustawia się przy starcie procesu – pełny restart programu
+    quitting = true;
+    await stopServer();
+    cleaned = true;
+    app.relaunch();
+    app.exit(0);
+    return true;
   }
   resolve?.(next);
   return true;
 });
+
+/** Czy `child` leży wewnątrz `parent` (albo jest nim). */
+function isInside(child, parent) {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/** Przeniesienie zawartości folderu danych: zmiana nazwy na tym samym dysku, kopia + usunięcie między dyskami. */
+async function moveData(from, to) {
+  await fs.promises.mkdir(to, { recursive: true });
+  for (const e of await fs.promises.readdir(from)) {
+    const a = path.join(from, e);
+    const b = path.join(to, e);
+    if (fs.existsSync(b)) await fs.promises.rm(b, { recursive: true, force: true });
+    try {
+      await fs.promises.rename(a, b);
+    } catch (err) {
+      if (err.code !== 'EXDEV' && err.code !== 'EPERM') throw err;
+      await fs.promises.cp(a, b, { recursive: true, force: true });
+      await fs.promises.rm(a, { recursive: true, force: true, maxRetries: 3 });
+    }
+  }
+  rmrf(from);
+}
 
 ipcMain.handle('gran:setup:clear', async () => {
   if (!settings) return 0;
   const dirs = storageDirs();
   restarting = true;
   await stopServer();
-  rmrf(dirs.data);
+  // bufor przeglądarki jest w użyciu – czyści go Chromium, resztę usuwamy z dysku
+  for (const e of fs.existsSync(dirs.data) ? fs.readdirSync(dirs.data) : []) {
+    if (e !== '.cache') rmrf(path.join(dirs.data, e));
+  }
+  for (const e of fs.existsSync(dirs.cache) ? fs.readdirSync(dirs.cache) : []) {
+    if (e !== 'browser') rmrf(path.join(dirs.cache, e));
+  }
   await session.defaultSession.clearCache();
   restarting = false;
   await restart();
@@ -456,9 +534,8 @@ ipcMain.handle('gran:open-settings', () => {
 
 ipcMain.handle('gran:info', () => ({
   version: app.getVersion(),
-  mode: settings?.mode ?? 'keep',
   limitGB: settings?.limitGB ?? LIMITS_GB.def,
-  dataDir: settings ? storageDirs().data : '',
+  dataDir: settings?.dataDir ?? '',
 }));
 
 // ------------------------------------------------------------------ cykl życia
@@ -490,9 +567,14 @@ async function main() {
       app.quit();
       return;
     }
+    // bufor przeglądarki w wybranym folderze działa od następnego startu procesu
+    cleaned = true;
+    app.relaunch();
+    app.exit(0);
+    return;
   }
-  // tryb sesji: pozostałości po awarii lub zamknięciu systemu bez wyjścia z programu
-  if (settings.mode === 'session') rmrf(SESSION_DIR);
+  if (fs.existsSync(LEGACY_SESSION_DIR)) rmrf(LEGACY_SESSION_DIR);
+  writeSettings(settings);
   try {
     await startServer();
   } catch (e) {
@@ -526,11 +608,6 @@ app.on('before-quit', (e) => {
     try {
       if (settings) writeSettings(settings);
       await stopServer();
-      if (settings?.mode === 'session') {
-        rmrf(SESSION_DIR);
-        await session.defaultSession.clearCache();
-        await session.defaultSession.clearStorageData({ storages: ['cachestorage', 'shadercache', 'serviceworkers'] });
-      }
     } catch (err) {
       log(`sprzątanie przy wyjściu: ${err.message}`);
     }
@@ -539,96 +616,167 @@ app.on('before-quit', (e) => {
   })();
 });
 
-// ------------------------------------------------------------------ aktualizacje (GitHub Releases)
-// Program sprawdza wydania przy starcie i co 6 godzin. Nowa wersja = propozycja w oknie dialogowym;
-// pobieranie dopiero po zgodzie (postęp na pasku zadań), potem instalacja z ponownym uruchomieniem.
-let updater = null;
+// ------------------------------------------------------------------ aktualizacje (redzikowski.com)
+// Program sprawdza wydania przy starcie i co 6 godzin na redzikowski.com – serwer strony udostępnia kopię
+// GitHub Releases w tym samym formacie, a pliki pobierane są przez niego. Nowa wersja = propozycja
+// w oknie dialogowym; pobieranie po zgodzie (postęp na pasku zadań), sprawdzenie sumy SHA-512 z latest.yml,
+// potem instalator z uprawnieniami administratora (okno UAC) aktualizuje program w tym samym folderze.
+const UPDATE_HOST = 'https://redzikowski.com';
+const UPDATE_FEED = `${UPDATE_HOST}/api/github/repos/BlackSingularities/gran-3d/releases/latest`;
+const UPDATE_DIR = path.join(app.getPath('temp'), 'GRAN-aktualizacja');
+
 let updateOffered = null; // wersja, o której użytkownik już wie w tej sesji
 let updateBusy = false;
-let manualCheck = false;
 
-function getUpdater() {
-  if (updater || !app.isPackaged) return updater;
+/** Porównanie wersji x.y.z: dodatnie, gdy a > b. */
+function cmpVersion(a, b) {
+  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
+  return 0;
+}
+
+async function fetchOk(url, type) {
+  const r = await net.fetch(url, { headers: { 'User-Agent': `GRAN/${app.getVersion()}` }, cache: 'no-store' });
+  if (!r.ok) throw new Error(`redzikowski.com odpowiedział kodem ${r.status}`);
+  return type === 'json' ? r.json() : type === 'text' ? r.text() : r;
+}
+
+/** Najnowsze wydanie: wersja, instalator i jego suma SHA-512 (z latest.yml tego samego wydania). */
+async function latestRelease() {
+  const rel = await fetchOk(UPDATE_FEED, 'json');
+  const version = String(rel.tag_name || '').replace(/^v/, '');
+  const exe = (rel.assets || []).find((a) => /^GRAN-Setup-.*\.exe$/i.test(a.name));
+  const yml = (rel.assets || []).find((a) => a.name === 'latest.yml');
+  return { version, exe, yml, notes: String(rel.body || '') };
+}
+
+async function expectedSha512(yml, name) {
+  if (!yml) throw new Error('Wydanie nie zawiera pliku latest.yml z sumą kontrolną.');
+  const text = await fetchOk(yml.browser_download_url, 'text');
+  // sekcja „files” z adresem instalatora, a w razie czego główne pole sha512
+  const block = text.split(/\n\s*-\s+url:\s*/).find((b) => b.trim().startsWith(name));
+  const m = (block ?? text).match(/sha512:\s*([A-Za-z0-9+/=]+)/);
+  if (!m) throw new Error('Brak sumy SHA-512 w latest.yml.');
+  return m[1];
+}
+
+/** Pobranie instalatora do katalogu tymczasowego z postępem i weryfikacją sumy. */
+async function downloadInstaller(rel) {
+  const sha = await expectedSha512(rel.yml, rel.exe.name);
+  fs.rmSync(UPDATE_DIR, { recursive: true, force: true });
+  fs.mkdirSync(UPDATE_DIR, { recursive: true });
+  const file = path.join(UPDATE_DIR, rel.exe.name);
+  const r = await fetchOk(rel.exe.browser_download_url);
+  const total = Number(r.headers.get('content-length')) || rel.exe.size || 0;
+  const hash = crypto.createHash('sha512');
+  const out = fs.createWriteStream(file);
+  let got = 0;
   try {
-    ({ autoUpdater: updater } = require('electron-updater'));
-  } catch {
-    return null;
-  }
-  updater.autoDownload = false;
-  updater.autoInstallOnAppQuit = true;
-  updater.logger = { info: log, warn: log, error: log, debug: () => {} };
-
-  updater.on('update-available', async (info) => {
-    if (updateBusy || (updateOffered === info.version && !manualCheck)) return;
-    updateOffered = info.version;
-    const r = await dialog.showMessageBox(mainWin ?? undefined, {
-      type: 'info',
-      title: APP_NAME,
-      message: `Dostępna jest nowa wersja ${info.version}.`,
-      detail: `Masz wersję ${app.getVersion()}. Pobrać i zainstalować aktualizację? Twoje dane map i ustawienia zostaną zachowane.`,
-      buttons: ['Aktualizuj teraz', 'Później'],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    });
-    if (r.response !== 0) return;
-    updateBusy = true;
-    mainWin?.setProgressBar(0.01);
-    updater.downloadUpdate().catch((err) => {
-      updateBusy = false;
-      mainWin?.setProgressBar(-1);
-      dialog.showErrorBox(APP_NAME, `Nie udało się pobrać aktualizacji: ${err?.message ?? err}`);
-    });
-  });
-  updater.on('download-progress', (p) => mainWin?.setProgressBar(Math.max(0.01, (p.percent ?? 0) / 100)));
-  updater.on('update-downloaded', async (info) => {
-    mainWin?.setProgressBar(-1);
-    const r = await dialog.showMessageBox(mainWin ?? undefined, {
-      type: 'info',
-      title: APP_NAME,
-      message: `Wersja ${info.version} jest gotowa do instalacji.`,
-      detail: 'Program zamknie się na chwilę i uruchomi ponownie w nowej wersji.',
-      buttons: ['Zainstaluj teraz', 'Przy zamknięciu programu'],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    });
-    if (r.response === 0) {
-      quitting = true;
-      await stopServer();
-      if (settings?.mode === 'session') rmrf(SESSION_DIR);
-      cleaned = true;
-      updater.quitAndInstall(false, true);
+    const reader = r.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      hash.update(value);
+      got += value.length;
+      if (!out.write(value)) await new Promise((res) => out.once('drain', res));
+      if (total) mainWin?.setProgressBar(Math.max(0.01, got / total));
     }
+  } finally {
+    await new Promise((res) => out.end(res));
+  }
+  if (hash.digest('base64') !== sha) {
+    fs.rmSync(file, { force: true });
+    throw new Error('Pobrany instalator ma niezgodną sumę kontrolną – spróbuj ponownie później.');
+  }
+  return file;
+}
+
+/** Instalator NSIS w trybie cichym z podniesieniem uprawnień (UAC); po instalacji uruchamia nową wersję. */
+function runInstaller(file) {
+  const ps = `Start-Process -FilePath '${file.replace(/'/g, "''")}' -ArgumentList '--updated','/S','--force-run' -Verb RunAs`;
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', ps], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
   });
-  updater.on('error', (err) => {
+  return new Promise((resolve) => {
+    child.once('exit', (code) => resolve(code === 0));
+    child.once('error', () => resolve(false));
+  });
+}
+
+async function offerUpdate(rel, manual) {
+  if (updateBusy || (updateOffered === rel.version && !manual)) return;
+  updateOffered = rel.version;
+  const r = await dialog.showMessageBox(mainWin ?? undefined, {
+    type: 'info',
+    title: APP_NAME,
+    message: `Dostępna jest nowa wersja ${rel.version}.`,
+    detail: `Masz wersję ${app.getVersion()}. Pobrać i zainstalować aktualizację${rel.exe.size ? ` (${Math.round(rel.exe.size / 2 ** 20)} MB)` : ''}? Dane map i ustawienia zostaną zachowane. Instalacja wymaga potwierdzenia uprawnień administratora.`,
+    buttons: ['Aktualizuj teraz', 'Później'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  });
+  if (r.response !== 0) return;
+  updateBusy = true;
+  mainWin?.setProgressBar(0.01);
+  let file;
+  try {
+    file = await downloadInstaller(rel);
+  } catch (err) {
     updateBusy = false;
     mainWin?.setProgressBar(-1);
     log(`aktualizacje: ${err?.message ?? err}`);
+    dialog.showErrorBox(APP_NAME, `Nie udało się pobrać aktualizacji: ${err?.message ?? err}`);
+    return;
+  }
+  mainWin?.setProgressBar(-1);
+  const go = await dialog.showMessageBox(mainWin ?? undefined, {
+    type: 'info',
+    title: APP_NAME,
+    message: `Wersja ${rel.version} jest gotowa do instalacji.`,
+    detail: 'Program zamknie się, Windows poprosi o zgodę administratora, a po instalacji GRAŃ uruchomi się ponownie w nowej wersji.',
+    buttons: ['Zainstaluj teraz', 'Później'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
   });
-  return updater;
+  updateBusy = false;
+  if (go.response !== 0) return;
+  quitting = true;
+  if (settings) writeSettings(settings);
+  await stopServer();
+  if (!(await runInstaller(file))) {
+    quitting = false;
+    await restart();
+    dialog.showErrorBox(APP_NAME, 'Instalacja aktualizacji została przerwana (brak zgody administratora?). Spróbuj ponownie przyciskiem „Sprawdź aktualizacje”.');
+    return;
+  }
+  cleaned = true;
+  app.exit(0);
 }
 
 /** Sprawdzenie wydań. Wynik dla okna ustawień: aktualna / dostępna wersja X / błąd. */
 async function checkUpdates(manual = false) {
-  const u = getUpdater();
-  if (!u) return { state: 'dev', current: app.getVersion() };
-  if (!manual && !net.isOnline()) return { state: 'offline', current: app.getVersion() };
-  manualCheck = manual;
+  const current = app.getVersion();
+  if (!app.isPackaged) return { state: 'dev', current };
+  if (!net.isOnline()) return { state: 'offline', current };
   try {
-    const r = await u.checkForUpdates();
-    const latest = r?.updateInfo?.version ?? app.getVersion();
-    const newer = r?.isUpdateAvailable ?? latest !== app.getVersion();
-    return { state: newer ? 'available' : 'latest', current: app.getVersion(), latest };
+    const rel = await latestRelease();
+    if (!rel.version || !rel.exe || cmpVersion(rel.version, current) <= 0) return { state: 'latest', current, latest: rel.version || current };
+    void offerUpdate(rel, manual);
+    return { state: 'available', current, latest: rel.version };
   } catch (err) {
     log(`aktualizacje: ${err?.message ?? err}`);
-    return { state: 'error', current: app.getVersion(), error: String(err?.message ?? err) };
-  } finally {
-    manualCheck = false;
+    return { state: 'error', current, error: String(err?.message ?? err) };
   }
 }
 
 function setupUpdater() {
+  // pozostałość po poprzedniej aktualizacji
+  fs.rm(UPDATE_DIR, { recursive: true, force: true }, () => {});
   if (!app.isPackaged || settings?.autoUpdate === false) return;
   setTimeout(() => void checkUpdates(), 15_000);
   setInterval(() => void checkUpdates(), 6 * 60 * 60 * 1000).unref();

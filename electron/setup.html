@@ -53,17 +53,6 @@ button, input { font: inherit; color: inherit; }
 h1 { font-family: var(--display); font-size: 30px; font-weight: 700; letter-spacing: -0.035em; line-height: 1.02; margin: 4px 0 8px; }
 .lead { color: var(--paper-2); max-width: 600px; margin: 0 0 18px; font-size: 13.5px; }
 
-.choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.choice { position: relative; text-align: left; cursor: pointer; padding: 16px 16px 15px 48px; border-radius: 14px;
-  background: rgba(16,22,27,0.82); border: 1px solid var(--hair); transition: border-color .15s, background .15s, transform .15s; }
-.choice:hover { border-color: var(--hair-2); background: rgba(22,30,36,0.9); }
-.choice.is-on { border-color: var(--brass); background: linear-gradient(180deg, rgba(217,181,111,0.12), rgba(16,22,27,0.9)); }
-.choice i { position: absolute; left: 16px; top: 17px; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--paper-3); }
-.choice.is-on i { border-color: var(--brass); }
-.choice.is-on i::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--brass); }
-.choice b { display: block; font-family: var(--display); font-size: 16.5px; font-weight: 650; letter-spacing: -0.02em; margin-bottom: 5px; }
-.choice span { display: block; color: var(--paper-3); font-size: 12.5px; }
-
 .section { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--hair); }
 .section[hidden] { display: none; }
 .row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
@@ -82,6 +71,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
 .warn { color: var(--warn); }
 
 .path { display: flex; gap: 8px; align-items: center; }
+.section--first { margin-top: 4px; padding-top: 0; border-top: 0; }
 .path code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px;
   background: rgba(0,0,0,0.3); border: 1px solid var(--hair); border-radius: 9px; padding: 8px 10px; color: var(--paper-2); user-select: text; }
 
@@ -105,7 +95,6 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
 .foot .kicker { color: var(--paper-4); }
 .foot .actions { display: flex; gap: 10px; }
 
-@media (max-width: 700px) { .choices { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -121,31 +110,20 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
 
   <main class="body">
     <div class="kicker" id="kick">Pierwsze uruchomienie</div>
-    <h1 id="title">Gdzie trzymać dane map?</h1>
-    <p class="lead" id="lead">Grań pobiera kafle terenu LiDAR, zdjęcia lotnicze, szlaki i dane okolic w miarę oglądania mapy. Wybierz, czy mają zostawać na dysku, czy znikać po każdym zamknięciu programu. Zmienisz to później w zakładce „Jakość” albo skrótem <b>Ctrl+,</b>.</p>
+    <h1 id="title">Gdzie zapisywać mapy?</h1>
+    <p class="lead" id="lead">Grań pobiera kafle terenu LiDAR, zdjęcia lotnicze, szlaki i dane okolic w miarę oglądania mapy, a zaznaczone obszary zapisuje do pracy bez internetu. Wszystko trafia na stałe do jednego folderu – wybierz go i ustal, ile miejsca może zająć. Zmienisz to później w zakładce „Jakość” albo skrótem <b>Ctrl+,</b>.</p>
 
-    <div class="choices" role="radiogroup">
-      <button class="choice" data-mode="keep" role="radio">
-        <i></i><b>Zachowuj dane na dysku</b>
-        <span>Odwiedzone okolice wczytują się od razu, a zaznaczone obszary działają bez internetu. Po przekroczeniu limitu najdawniej używane kafle są usuwane automatycznie.</span>
-      </button>
-      <button class="choice" data-mode="session" role="radio">
-        <i></i><b>Usuwaj przy każdym zamknięciu</b>
-        <span>Po wyjściu z programu na dysku nie zostają żadne kafle ani dane map. Każde uruchomienie pobiera teren od nowa.</span>
-      </button>
-    </div>
+    <section class="section section--first" id="dir-sec">
+      <div class="row"><label>Folder na dane map</label></div>
+      <div class="path"><code id="dir"></code><button class="btn" id="pick">Wybierz folder…</button><button class="btn" id="reset" title="Przywróć folder domyślny">Domyślny</button></div>
+      <p class="note" id="dir-note"></p>
+    </section>
 
     <section class="section">
-      <div class="row"><label for="limit">Maksymalna pojemność danych</label><output id="limit-o"></output></div>
+      <div class="row"><label for="limit">Maksymalny rozmiar danych</label><output id="limit-o"></output></div>
       <input type="range" id="limit" min="0" step="1" />
       <div class="ticks"><span>1 GB</span><span>10 GB</span><span>50 GB</span><span>500 GB</span></div>
       <p class="note" id="free-note"></p>
-    </section>
-
-    <section class="section" id="dir-sec">
-      <div class="row"><label>Folder danych</label></div>
-      <div class="path"><code id="dir"></code><button class="btn" id="pick">Zmień…</button><button class="btn" id="reset" title="Przywróć folder domyślny">Domyślny</button></div>
-      <p class="note" id="dir-note"></p>
     </section>
 
     <section class="section" id="usage-sec" hidden>
@@ -157,7 +135,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px;
 
     <section class="section">
       <div class="usage">
-        <button class="toggle" id="upd"><i></i>Sprawdzaj aktualizacje i proponuj instalację</button>
+        <button class="toggle" id="upd"><i></i>Sprawdzaj aktualizacje na redzikowski.com i proponuj instalację</button>
         <button class="btn" id="chk" hidden>Sprawdź teraz</button>
       </div>
       <p class="note" id="chk-note"></p>
@@ -185,7 +163,7 @@ const fmtBytes = (b) => {
 const plain = (h) => h.replace(/<\/?small>/g, ' ').trim();
 
 const kind = new URLSearchParams(location.search).get('kind') === 'settings' ? 'settings' : 'first';
-const state = { mode: 'keep', limitGB: 10, dataDir: '', autoUpdate: true, free: null, defaultDataDir: '' };
+const state = { limitGB: 10, dataDir: '', autoUpdate: true, free: null, defaultDataDir: '' };
 
 function nearestStep(gb) {
   let best = 0;
@@ -194,11 +172,6 @@ function nearestStep(gb) {
 }
 
 function render() {
-  document.querySelectorAll('.choice').forEach((el) => {
-    const on = el.dataset.mode === state.mode;
-    el.classList.toggle('is-on', on);
-    el.setAttribute('aria-checked', String(on));
-  });
   const r = $('limit');
   const i = nearestStep(state.limitGB);
   r.max = String(STEPS.length - 1);
@@ -206,30 +179,27 @@ function render() {
   r.style.setProperty('--p', `${(i / (STEPS.length - 1)) * 100}%`);
   $('limit-o').innerHTML = `${state.limitGB}<small>GB</small>`;
   const freeGB = state.free == null ? null : state.free / 1024 ** 3;
-  $('free-note').innerHTML = state.mode === 'session'
-    ? `Limit obowiązuje w trakcie jednej sesji – po zamknięciu programu wszystko jest usuwane.${freeGB != null ? ` Wolne miejsce na dysku: <b>${plain(fmtBytes(state.free))}</b>.` : ''}`
-    : `Kafle, zdjęcia i dane okolic nie przekroczą tej wartości – najstarsze są usuwane w tle.${freeGB != null ? ` Wolne miejsce na dysku: <b>${plain(fmtBytes(state.free))}</b>.` : ''}`;
+  $('free-note').innerHTML = `Po przekroczeniu limitu najdawniej używane kafle są usuwane w tle; obszary zaznaczone do pracy bez internetu zostają.${freeGB != null ? ` Wolne miejsce na dysku: <b>${plain(fmtBytes(state.free))}</b>.` : ''}`;
   if (freeGB != null && state.limitGB > freeGB) $('free-note').innerHTML += ` <span class="warn">Limit jest większy niż wolne miejsce.</span>`;
-  $('dir-sec').hidden = state.mode !== 'keep';
   $('dir').textContent = state.dataDir;
   $('dir').title = state.dataDir;
   $('reset').hidden = state.dataDir === state.defaultDataDir;
   $('dir-note').textContent = kind === 'settings' && state.dataDir !== initialDir
-    ? 'Dotychczasowe dane nie są przenoszone – nowy folder zacznie się wypełniać od zera.'
-    : '';
+    ? 'Po zapisaniu program zapyta, czy przenieść dotychczasowe dane do nowego folderu, i uruchomi się ponownie.'
+    : 'W wybranym miejscu powstaje podfolder „GRAN-dane” – program nie dotyka innych plików.';
   $('upd').classList.toggle('is-on', state.autoUpdate);
 }
 
 let initialDir = '';
 async function init() {
   const s = await window.granSetup.get();
-  Object.assign(state, { mode: s.mode, limitGB: s.limitGB, dataDir: s.dataDir, autoUpdate: s.autoUpdate, free: s.free, defaultDataDir: s.defaultDataDir });
+  Object.assign(state, { limitGB: s.limitGB, dataDir: s.dataDir, autoUpdate: s.autoUpdate, free: s.free, defaultDataDir: s.defaultDataDir });
   initialDir = s.dataDir;
   $('ver').textContent = `atlas szlaków 3D · wersja ${s.version}`;
   if (kind === 'settings') {
     $('kick').textContent = 'Ustawienia';
-    $('title').textContent = 'Dane i pamięć';
-    $('lead').textContent = 'Sposób przechowywania kafli terenu, zdjęć lotniczych i danych okolic. Zmiana trybu, limitu lub folderu uruchamia ponownie lokalny serwer danych – widok mapy zostanie odświeżony.';
+    $('title').textContent = 'Dane map';
+    $('lead').textContent = 'Folder i maksymalny rozmiar danych map: kafli terenu, zdjęć lotniczych, szlaków i zapisanych obszarów. Zmiana folderu lub limitu uruchamia program ponownie.';
     $('ok').textContent = 'Zapisz';
     $('cancel').textContent = 'Anuluj';
     $('usage-sec').hidden = false;
@@ -239,10 +209,6 @@ async function init() {
   render();
 }
 
-document.querySelectorAll('.choice').forEach((el) => el.addEventListener('click', async () => {
-  state.mode = el.dataset.mode;
-  render();
-}));
 $('limit').addEventListener('input', (e) => {
   state.limitGB = STEPS[Number(e.target.value)];
   render();
@@ -280,6 +246,11 @@ $('clear').addEventListener('click', async () => {
   const b = $('clear');
   b.disabled = true;
   b.textContent = 'Usuwanie…';
+  if (!confirm('Usunąć wszystkie pobrane dane map, także zapisane obszary?')) {
+    b.disabled = false;
+    b.textContent = 'Wyczyść dane teraz';
+    return;
+  }
   await window.granSetup.clear();
   const s = await window.granSetup.get();
   $('used').innerHTML = fmtBytes(s.used);
@@ -287,7 +258,8 @@ $('clear').addEventListener('click', async () => {
 });
 $('ok').addEventListener('click', async () => {
   $('ok').disabled = true;
-  await window.granSetup.save({ mode: state.mode, limitGB: state.limitGB, dataDir: state.dataDir, autoUpdate: state.autoUpdate });
+  const ok = await window.granSetup.save({ limitGB: state.limitGB, dataDir: state.dataDir, autoUpdate: state.autoUpdate });
+  if (!ok) $('ok').disabled = false;
 });
 $('cancel').addEventListener('click', () => window.granSetup.cancel());
 document.addEventListener('keydown', (e) => {

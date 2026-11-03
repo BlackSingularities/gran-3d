@@ -4,11 +4,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('granDesktop', {
-  /** Wersja programu, tryb przechowywania danych, limit i katalog danych. */
+  /** Wersja programu, limit i folder danych map. */
   info: () => ipcRenderer.invoke('gran:info'),
-  /** Okno „Dane i pamięć” (to samo co przy pierwszym uruchomieniu). */
+  /** Okno „Dane map” (to samo co przy pierwszym uruchomieniu). */
   openSettings: () => ipcRenderer.invoke('gran:open-settings'),
-  /** Sprawdzenie, czy w GitHub Releases jest nowsza wersja (propozycja aktualizacji pojawia się sama). */
+  /** Sprawdzenie, czy na redzikowski.com jest nowsza wersja (propozycja aktualizacji pojawia się sama). */
   checkUpdates: () => ipcRenderer.invoke('gran:update:check'),
 });
 

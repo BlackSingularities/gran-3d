@@ -607,7 +607,7 @@ input[type='date'] {
   :root { --panel-w: 330px; }
   .searchbar { display: none; }
 }
-/* telefony: zob. sekcja „Telefony” na końcu pliku */
+/* wąskie okna: zob. sekcja na końcu pliku */
 
 /* ---------- menedżer map ---------- */
 .maps { position: absolute; inset: 0; z-index: 90; display: grid; place-items: center; background: rgba(4, 6, 8, 0.62); backdrop-filter: blur(5px); }
@@ -775,38 +775,8 @@ input[type='date'] {
 .jobpill__row .spinner { width: 9px; height: 9px; }
 .jobpill__row b { color: var(--paper); font-weight: 600; }
 
-/* ---------- okno „Dane i pamięć” (Android) ---------- */
-.stg { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 16px; background: rgba(4, 6, 8, 0.72); backdrop-filter: blur(10px); }
-.stg[hidden] { display: none; }
-.stg__box { width: min(720px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 24px 24px 18px; border-radius: 20px; background: var(--glass-2); border: 1px solid var(--hair-2); box-shadow: var(--shadow); }
-.stg__lead { color: var(--paper-2); margin: 0 0 16px; font-size: 13.5px; }
-.stg__choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.stg__choice { position: relative; text-align: left; padding: 14px 14px 13px 44px; border-radius: 14px; background: rgba(16, 22, 27, 0.82); border: 1px solid var(--hair); color: inherit; font: inherit; cursor: pointer; }
-.stg__choice.is-on { border-color: var(--brass); background: linear-gradient(180deg, rgba(217, 181, 111, 0.12), rgba(16, 22, 27, 0.9)); }
-.stg__choice i { position: absolute; left: 14px; top: 15px; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--paper-3); }
-.stg__choice.is-on i { border-color: var(--brass); }
-.stg__choice.is-on i::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--brass); }
-.stg__choice b { display: block; font-family: var(--display); font-size: 16px; font-weight: 650; letter-spacing: -0.02em; margin-bottom: 4px; }
-.stg__choice span { display: block; color: var(--paper-3); font-size: 12.5px; }
-.stg__sec { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--hair); }
-.stg__row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 6px; color: var(--paper-2); }
-.stg output { font-family: var(--display); font-size: 22px; font-weight: 650; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.stg output small { font-family: var(--mono); font-size: 11px; color: var(--paper-3); margin-left: 3px; font-weight: 400; }
-.stg input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 26px; background: transparent; margin: 0; }
-.stg input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(90deg, var(--brass) var(--p, 50%), var(--ink-4) var(--p, 50%)); }
-.stg input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; margin-top: -8px; border-radius: 50%; background: var(--paper); border: 3px solid var(--brass); }
-.stg__ticks { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--paper-4); }
-.stg__usage { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.stg__danger { color: var(--signal); border-color: var(--signal-dim); }
-.stg__foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
-@media (max-width: 640px) {
-  .stg { padding: 0; place-items: stretch; }
-  .stg__box { max-height: none; height: 100%; border-radius: 0; padding: calc(20px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); }
-  .stg__choices { grid-template-columns: 1fr; }
-}
-
 /* =====================================================================
-   Telefony (≤ 760 px) – układ w stylu Androida (Material 3):
+   Wąskie okna i ekrany dotykowe (≤ 760 px) – układ kompaktowy:
    pigułka wyszukiwania u góry, stały pasek nawigacji na dole, panel jako arkusz
    z nagłówkiem zawsze widocznym nad paskiem, celownik i przycisk akcji na środku.
    ===================================================================== */
@@ -996,17 +966,3 @@ input[type='date'] {
   input[type=range] { height: 30px; }
 }
 
-/* ---------- propozycja aktualizacji (Android) ---------- */
-.upd {
-  position: absolute; top: calc(78px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 55;
-  width: min(420px, calc(100vw - 24px)); padding: 14px 14px 12px 16px; border-radius: 18px;
-  background: var(--glass-2); border: 1px solid var(--brass); backdrop-filter: blur(16px); box-shadow: var(--shadow); animation: pop 0.2s ease-out;
-}
-.upd[hidden] { display: none; }
-.upd .kicker { color: var(--brass); }
-.upd__title { font-family: var(--display); font-size: 18px; font-weight: 650; letter-spacing: -0.02em; margin-top: 3px; }
-.upd__sub { font-size: 12px; color: var(--paper-3); margin-top: 2px; }
-.upd__bar { height: 4px; margin-top: 10px; border-radius: 4px; background: var(--ink-4); overflow: hidden; }
-.upd__bar[hidden] { display: none; }
-.upd__bar i { display: block; height: 100%; width: 0; background: var(--brass); transition: width 0.2s; }
-.upd__btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
