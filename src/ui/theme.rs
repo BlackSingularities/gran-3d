@@ -17,7 +17,17 @@ pub const TEAL: Color32 = Color32::from_rgb(63, 214, 198);
 pub const OK: Color32 = Color32::from_rgb(134, 224, 127);
 pub const WARN: Color32 = Color32::from_rgb(247, 201, 72);
 
+pub use egui_phosphor::regular as icon;
+
+/// Ikona z podpisem na przycisku.
+pub fn ic(glyph: &str, text: &str) -> String {
+    format!("{glyph}  {text}")
+}
+
 pub fn apply(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+    ctx.set_fonts(fonts);
     let mut v = Visuals::dark();
     v.panel_fill = INK_1;
     v.window_fill = INK_1;

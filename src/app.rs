@@ -1,6 +1,7 @@
 //! Główna aplikacja: kreator przy pierwszym starcie, potem atlas 3D; menedżer map (mapa 2D z panelem
 //! danych) pod klawiszem D. Pobieranie obszarów idzie kolejką w tle; sprzątacz pilnuje limitu rozmiaru.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -12,9 +13,10 @@ use eframe::egui::{self, RichText};
 use crate::areas::{self, Area, Level};
 use crate::download::{fmt_duration, Job, JobState, Progress};
 use crate::engine::{self, Engine};
-use crate::geo::BBox;
+use crate::geo::{BBox, TileId};
+use crate::library;
 use crate::settings::{data_dir_in, Settings, LIMIT_STEPS_GB};
-use crate::store::{detect, fmt_bytes, free_space, legacy_tiles, Store, IMPORTED_MARK};
+use crate::store::{detect, fmt_bytes, free_space, legacy_tiles, Layer, Store, IMPORTED_MARK};
 use crate::ui::map::{MapLayer, MapView, Overlay};
 use crate::ui::theme;
 use crate::ui::wizard::{self, DownloadView, Wizard};
@@ -43,6 +45,8 @@ struct NewArea {
     bbox: BBox,
     name: String,
     level: Level,
+    /// Plan dla każdego poziomu liczony w tle: (bajty do pobrania, kafle do pobrania, część już obecna).
+    plans: Arc<Mutex<HashMap<Level, (u64, u64, f32)>>>,
 }
 
 /// Przeniesienie folderu danych w tle.
@@ -61,6 +65,9 @@ pub struct App {
     engine: Engine,
     /// Import kafli terenu wersji 1.x z katalogu `.cache\dem`.
     import: Option<(PathBuf, Arc<Job>)>,
+    /// Część każdego obszaru obecna w bibliotece, liczona w tle.
+    area_cov: Arc<Mutex<HashMap<String, f32>>>,
+    last_cov: Option<Instant>,
     usage: Arc<Usage>,
     last_gc: Instant,
     selecting: bool,
@@ -101,6 +108,8 @@ impl App {
             wizard: (!settings.setup_done).then(|| Wizard::new(settings.clone())),
             engine: Engine::new(store.clone()),
             import: None,
+            area_cov: Arc::default(),
+            last_cov: None,
             settings,
             store,
             areas,
@@ -196,6 +205,23 @@ impl App {
         }
     }
 
+    /// Odświeżenie stanu biblioteki w menedżerze: mapa pokrycia i procent obszarów.
+    fn refresh_library(&mut self) {
+        if self.last_cov.is_some_and(|t| t.elapsed() < Duration::from_secs(15)) {
+            return;
+        }
+        self.last_cov = Some(Instant::now());
+        // poziom 11 ma każdy obszar, a komórka ~15 km jest dość dokładna na całą Europę
+        self.map.coverage = self.store.covered_tiles(Layer::Sat, 11).iter().map(|t: &TileId| t.bbox()).collect();
+        let (store, areas, cov) = (self.store.clone(), self.areas.clone(), self.area_cov.clone());
+        thread::spawn(move || {
+            for a in areas {
+                let f = library::plan(&a.bbox, a.level, |l, t| store.has(l, t)).fraction();
+                cov.lock().unwrap().insert(a.id, f);
+            }
+        });
+    }
+
     fn pump_queue(&mut self) {
         if let Some((dir, job)) = self.import.clone() {
             let p = job.progress();
@@ -224,6 +250,7 @@ impl App {
                     ),
                 });
             }
+            self.last_cov = None;
             self.collect_garbage();
         }
     }
@@ -344,9 +371,9 @@ impl App {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Grań").size(22.0).strong());
-                    ui.label(theme::kicker("mapy do pobrania"));
+                    ui.label(theme::kicker("biblioteka map"));
                     ui.add_space(20.0);
-                    if ui.add(theme::primary("← Atlas 3D")).on_hover_text("Powrót do widoku 3D (D, Esc)").clicked() {
+                    if ui.add(theme::primary(&theme::ic(theme::icon::CUBE, "Atlas 3D"))).on_hover_text("Powrót do widoku 3D (D, Esc)").clicked() {
                         self.manager = false;
                     }
                     ui.add_space(10.0);
@@ -354,7 +381,7 @@ impl App {
                     ui.selectable_value(&mut self.map.layer, MapLayer::Satellite, "Satelita");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
-                            .button("Ustawienia")
+                            .button(theme::ic(theme::icon::GEAR, "Ustawienia"))
                             .on_hover_text("Folder i rozmiar danych map (Ctrl+,)")
                             .clicked()
                         {
@@ -386,10 +413,14 @@ impl App {
             ui.label(RichText::new(self.settings.data_dir.display().to_string()).small().monospace().color(theme::PAPER_3));
             ui.add_space(12.0);
 
+            if self.engine.busy() {
+                self.downloads_card(ui);
+                ui.add_space(8.0);
+            }
             ui.horizontal(|ui| {
-                ui.label(theme::kicker("Obszary bez internetu"));
+                ui.label(theme::kicker("Obszary w bibliotece"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let label = if self.selecting { "Zaznacz na mapie…" } else { "+ Dodaj" };
+                    let label = if self.selecting { theme::ic(theme::icon::CROSSHAIR, "Zaznacz na mapie…") } else { theme::ic(theme::icon::PLUS, "Dodaj") };
                     if ui.add(egui::Button::new(label).selected(self.selecting)).on_hover_text("Przeciągnij prostokąt na mapie").clicked() {
                         self.selecting = !self.selecting;
                     }
@@ -414,6 +445,8 @@ impl App {
             let mut delete = None;
             let mut retry = None;
             let mut show3d = None;
+            let mut upgrade = None;
+            let cov = self.area_cov.lock().unwrap().clone();
             egui::ScrollArea::vertical().show(ui, |ui| {
                 if self.areas.is_empty() {
                     ui.label(RichText::new("Brak zapisanych obszarów. Kliknij „Dodaj” i zaznacz prostokąt na mapie, a teren i zdjęcia będą dostępne bez internetu.").color(theme::PAPER_3));
@@ -426,26 +459,36 @@ impl App {
                             if ui.link(RichText::new(&a.name).strong()).on_hover_text("Pokaż na mapie").clicked() {
                                 self.map.fit(&a.bbox, egui::vec2(900.0, 700.0));
                             }
-                            if ui.small_button("3D").on_hover_text("Pokaż w atlasie 3D").clicked() {
+                            if ui.small_button(theme::icon::CUBE).on_hover_text("Pokaż w atlasie 3D").clicked() {
                                 show3d = Some(a.bbox);
                             }
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.small_button("Usuń").on_hover_text("Usuń obszar i jego kafle").clicked() {
+                                if ui.small_button(theme::icon::TRASH).on_hover_text("Usuń obszar i jego kafle").clicked() {
                                     delete = Some(a.id.clone());
+                                }
+                                if a.level < Level::Lidar {
+                                    ui.menu_button(theme::icon::ARROW_UP, |ui| {
+                                        for l in Level::ALL.into_iter().filter(|l| *l > a.level) {
+                                            if ui.button(l.name()).on_hover_text(l.hint()).clicked() {
+                                                upgrade = Some((a.id.clone(), l));
+                                                ui.close();
+                                            }
+                                        }
+                                    }).response.on_hover_text("Podnieś poziom: pobierze tylko brakujące dane");
                                 }
                                 if let Some(p) = &p {
                                     let paused = p.state == JobState::Paused;
-                                    if ui.small_button(if paused { "Wznów" } else { "Pauza" }).clicked() {
+                                    if ui.small_button(if paused { theme::icon::PLAY } else { theme::icon::PAUSE }).on_hover_text(if paused { "Wznów" } else { "Wstrzymaj" }).clicked() {
                                         self.engine.set_paused(&a.id, !paused);
                                     }
                                 }
-                                if !a.complete && p.is_none() && ui.small_button("Dokończ").on_hover_text("Dokończ pobieranie").clicked() {
+                                if !a.complete && p.is_none() && ui.small_button(theme::icon::DOWNLOAD_SIMPLE).on_hover_text("Dokończ pobieranie").clicked() {
                                     retry = Some(a.id.clone());
                                 }
                             });
                         });
-                        let e = a.estimate();
-                        ui.label(RichText::new(format!("{} · {:.0} km² · ~{}", a.level.name(), a.bbox.km2(), fmt_bytes(e.bytes))).small().color(theme::PAPER_3));
+                        let share = cov.get(&a.id).map(|f| format!(" · w bibliotece {:.0}%", f * 100.0)).unwrap_or_default();
+                        ui.label(RichText::new(format!("{} · {:.0} km²{share}", a.level.name(), a.bbox.km2())).small().color(theme::PAPER_3));
                         match (&p, a.complete) {
                             (Some(p), _) => {
                                 theme::bar(ui, p.fraction(), theme::BRASS);
@@ -453,10 +496,10 @@ impl App {
                                 ui.label(RichText::new(format!("{:.0}%{eta}", p.fraction() * 100.0)).small().monospace().color(theme::PAPER_3));
                             }
                             (None, true) => {
-                                ui.label(RichText::new("dostępny bez internetu").small().color(theme::OK));
+                                ui.label(RichText::new(theme::ic(theme::icon::CHECK_CIRCLE, "dostępny bez internetu")).small().color(theme::OK));
                             }
                             (None, false) => {
-                                ui.label(RichText::new("pobieranie przerwane").small().color(theme::WARN));
+                                ui.label(RichText::new(theme::ic(theme::icon::WARNING, "niepełny – pobierz brakujące")).small().color(theme::WARN));
                             }
                         }
                     });
@@ -474,9 +517,58 @@ impl App {
                     self.engine.add_area(a);
                 }
             }
+            if let Some((id, level)) = upgrade {
+                self.engine.cancel(&id);
+                if let Some(a) = self.areas.iter_mut().find(|a| a.id == id) {
+                    a.level = level;
+                    a.complete = false;
+                }
+                if let Some(a) = self.areas.iter().find(|a| a.id == id) {
+                    self.engine.add_area(a);
+                }
+                self.save_areas();
+                self.last_cov = None;
+            }
             if let Some(b) = show3d {
                 self.atlas.fit_bbox(&b);
                 self.manager = false;
+            }
+        });
+    }
+
+    /// Postęp całego pobierania: prędkość, pauza i stan każdego serwera.
+    fn downloads_card(&self, ui: &mut egui::Ui) {
+        let st = self.engine.stats();
+        theme::card(true).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.label(theme::kicker("Pobieranie"));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let (glyph, tip) = if st.paused { (theme::icon::PLAY, "Wznów wszystko") } else { (theme::icon::PAUSE, "Wstrzymaj wszystko") };
+                    if ui.small_button(glyph).on_hover_text(tip).clicked() {
+                        self.engine.set_all_paused(!st.paused);
+                    }
+                });
+            });
+            let frac = st.done as f32 / st.total.max(1) as f32;
+            theme::bar(ui, frac, theme::BRASS);
+            let left = st.total.saturating_sub(st.done);
+            let eta = (st.tiles_per_s > 0.1).then(|| fmt_duration(Duration::from_secs_f64(left as f64 / st.tiles_per_s)));
+            ui.label(RichText::new(format!(
+                "{} · {:.0} kafli/s · {} kafli{}",
+                fmt_rate(st.bytes_per_s),
+                st.tiles_per_s,
+                left,
+                eta.map(|e| format!(" · zostało {e}")).unwrap_or_default()
+            )).small().monospace().color(theme::PAPER_2));
+            for (s, (name, _)) in st.sources.iter().zip(engine::SOURCES) {
+                if s.active + s.queued == 0 && s.last_error.is_none() {
+                    continue;
+                }
+                let line = ui.label(RichText::new(format!("{name}: {} połączeń · w kolejce {}", s.active, s.queued)).small().color(if s.last_error.is_some() { theme::WARN } else { theme::PAPER_3 }));
+                if let Some(e) = &s.last_error {
+                    line.on_hover_text(format!("Ostatni błąd: {e}"));
+                }
             }
         });
     }
@@ -485,28 +577,41 @@ impl App {
         let Some(na) = &mut self.new_area else { return };
         let mut open = true;
         let mut add = false;
-        egui::Window::new("Nowy obszar bez internetu").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).open(&mut open).show(ctx, |ui| {
+        egui::Window::new("Nowy obszar w bibliotece").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).open(&mut open).show(ctx, |ui| {
             ui.set_width(420.0);
             ui.label(theme::kicker("Nazwa"));
             ui.text_edit_singleline(&mut na.name);
             ui.label(RichText::new(format!("{} · {:.0} km²", na.bbox.label(), na.bbox.km2())).small().color(theme::PAPER_3));
             ui.add_space(6.0);
             ui.label(theme::kicker("Poziom szczegółów"));
+            let plans = na.plans.lock().unwrap().clone();
+            if plans.len() < Level::ALL.len() {
+                ui.ctx().request_repaint_after(Duration::from_millis(200));
+            }
             for l in Level::ALL {
-                let e = areas::estimate(&na.bbox, l);
-                ui.radio_value(&mut na.level, l, format!("{} – ~{}", l.name(), fmt_bytes(e.bytes)));
+                let txt = match plans.get(&l) {
+                    Some((_, 0, _)) => format!("{} – wszystko już w bibliotece", l.name()),
+                    Some((bytes, _, have)) if *have > 0.0 => format!("{} – do pobrania ~{} · już masz {:.0}%", l.name(), fmt_bytes(*bytes), have * 100.0),
+                    Some((bytes, _, _)) => format!("{} – do pobrania ~{}", l.name(), fmt_bytes(*bytes)),
+                    None => format!("{} – liczenie…", l.name()),
+                };
+                ui.radio_value(&mut na.level, l, txt);
                 ui.label(RichText::new(l.hint()).small().color(theme::PAPER_3));
             }
             let free = free_space(&self.settings.data_dir);
-            let e = areas::estimate(&na.bbox, na.level);
-            if free.is_some_and(|f| e.bytes > f) {
+            let bytes = plans.get(&na.level).map_or_else(|| areas::estimate(&na.bbox, na.level).bytes, |p| p.0);
+            let covered = library::covered_by(&self.areas, &na.bbox, na.level).map(|a| a.name.clone());
+            if let Some(name) = &covered {
+                ui.label(RichText::new(theme::ic(theme::icon::CHECK_CIRCLE, &format!("Masz już ten teren w obszarze „{name}”."))).color(theme::OK));
+            }
+            if free.is_some_and(|f| bytes > f) {
                 ui.label(RichText::new("Za mało wolnego miejsca na dysku.").color(theme::SIGNAL));
-            } else if e.bytes + self.usage.bytes.load(Ordering::Relaxed) > self.settings.limit_bytes() {
+            } else if bytes + self.usage.bytes.load(Ordering::Relaxed) > self.settings.limit_bytes() {
                 ui.label(RichText::new("Obszar przekroczy limit danych – zwiększ go w ustawieniach, inaczej zabraknie miejsca na kafle oglądanych okolic.").color(theme::WARN));
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                add = ui.add(theme::primary("Pobierz")).clicked();
+                add = ui.add_enabled(covered.is_none(), theme::primary(&theme::ic(theme::icon::DOWNLOAD_SIMPLE, "Pobierz"))).clicked();
             });
         });
         if add {
@@ -624,7 +729,7 @@ impl App {
                     ui.label(RichText::new("Grań").size(22.0).strong());
                     ui.label(theme::kicker("atlas szlaków 3D"));
                     ui.add_space(16.0);
-                    let search = egui::Button::new(RichText::new("Szukaj szczytu, szlaku, miejscowości…   /").color(theme::PAPER_3))
+                    let search = egui::Button::new(RichText::new(theme::ic(theme::icon::MAGNIFYING_GLASS, "Szukaj szczytu, szlaku, miejscowości…   /")).color(theme::PAPER_3))
                         .min_size(egui::vec2(320.0, 30.0));
                     if ui.add(search).clicked() {
                         self.atlas.search = Some(Default::default());
@@ -639,17 +744,23 @@ impl App {
                             }
                         });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("?").on_hover_text("Skróty i sterowanie (?)").clicked() {
+                        if ui.button(theme::icon::QUESTION).on_hover_text("Skróty i sterowanie (?)").clicked() {
                             self.atlas.help = !self.atlas.help;
                         }
-                        if ui.button("Ustawienia").on_hover_text("Folder i rozmiar danych map (Ctrl+,)").clicked() {
+                        if ui.button(theme::icon::GEAR).on_hover_text("Folder i rozmiar danych map (Ctrl+,)").clicked() {
                             self.settings_open = Some(self.settings.clone());
                         }
-                        let label = if self.engine.busy() { "Mapy ⟳" } else { "Mapy" };
-                        if ui.button(label).on_hover_text("Obszary do pracy bez internetu, zajętość dysku (D)").clicked() {
+                        let label = if self.engine.busy() {
+                            let st = self.engine.stats();
+                            let pct = st.done as f32 / st.total.max(1) as f32 * 100.0;
+                            format!("{}  {pct:.0}% · {}", theme::icon::DOWNLOAD_SIMPLE, fmt_rate(st.bytes_per_s))
+                        } else {
+                            theme::ic(theme::icon::MAP_TRIFOLD, "Biblioteka")
+                        };
+                        if ui.button(label).on_hover_text("Pobrane obszary, pobieranie, zajętość dysku (D)").clicked() {
                             self.manager = true;
                         }
-                        if !self.atlas.prefs.panel_open && ui.button("Panel").on_hover_text("P").clicked() {
+                        if !self.atlas.prefs.panel_open && ui.button(theme::icon::SIDEBAR).on_hover_text("P").clicked() {
                             self.atlas.prefs.panel_open = true;
                         }
                         if let Update::Available(rel) = &self.update {
@@ -884,6 +995,7 @@ impl eframe::App for App {
             {
                 self.manager = false;
             }
+            self.refresh_library();
             self.top_bar(ctx);
             self.data_panel(ctx);
             egui::CentralPanel::default()
@@ -910,10 +1022,19 @@ impl eframe::App for App {
                                 areas::MAX_AREA_KM2
                             ));
                         } else {
+                            let plans: Arc<Mutex<HashMap<Level, (u64, u64, f32)>>> = Arc::default();
+                            let (store, slot) = (self.store.clone(), plans.clone());
+                            thread::spawn(move || {
+                                for l in Level::ALL {
+                                    let p = library::plan(&b, l, |layer, t| store.has(layer, t));
+                                    slot.lock().unwrap().insert(l, (p.bytes_new, p.tiles_new, p.fraction()));
+                                }
+                            });
                             self.new_area = Some(NewArea {
                                 bbox: b,
                                 name: String::new(),
                                 level: Level::Standard,
+                                plans,
                             });
                         }
                     }
@@ -950,6 +1071,10 @@ fn sectors_of(areas: &[Area]) -> Vec<SectorId> {
     out.sort();
     out.dedup();
     out
+}
+
+fn fmt_rate(bytes_per_s: f64) -> String {
+    format!("{:.1} MB/s", bytes_per_s / 1_048_576.0).replace('.', ",")
 }
 
 fn wiz_started(areas: &[Area]) -> bool {

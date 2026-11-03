@@ -101,6 +101,19 @@ impl Coverage {
         }
     }
 
+    /// Kafle warstwy na poziomie `z` z danymi na dysku.
+    pub fn tiles_at(&self, layer: Layer, z: u8) -> Vec<TileId> {
+        let packs = self.packs.read().unwrap();
+        let mut out = Vec::new();
+        for (k, b) in packs.iter().filter(|(k, _)| k.layer == layer.id() && k.z == z) {
+            for i in (0..256usize).filter(|i| bit(&b.data, *i)) {
+                let (dx, dy) = ((i % 16) as u32, (i / 16) as u32);
+                out.push(TileId::new(z, k.bx * 16 + dx, k.by * 16 + dy));
+            }
+        }
+        out
+    }
+
     pub fn remove_pack(&self, key: &PackKey) {
         self.packs.write().unwrap().remove(key);
     }

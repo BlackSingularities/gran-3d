@@ -58,32 +58,32 @@ pub fn toolbar(a: &mut Atlas, ctx: &egui::Context) {
                         .selected(on);
                     ui.add(b).on_hover_text(tip).clicked()
                 };
-                if tool(ui, a.tool == Tool::Explore, "◎", "Teren", "Eksploracja (1)") {
+                if tool(ui, a.tool == Tool::Explore, theme::icon::COMPASS, "Teren", "Eksploracja (1)") {
                     a.tool = Tool::Explore;
                 }
-                if tool(ui, a.tool == Tool::Route, "⤳", "Trasa", "Planowanie trasy (2)") {
+                if tool(ui, a.tool == Tool::Route, theme::icon::PATH, "Trasa", "Planowanie trasy (2)") {
                     a.tool = Tool::Route;
                     a.prefs.panel_open = true;
                     a.tab = Tab::Info;
                 }
-                if tool(ui, a.tool == Tool::Measure, "⟷", "Pomiar", "Pomiar i linia wzroku (3)") {
+                if tool(ui, a.tool == Tool::Measure, theme::icon::RULER, "Pomiar", "Pomiar i linia wzroku (3)") {
                     a.tool = Tool::Measure;
                     a.prefs.panel_open = true;
                     a.tab = Tab::Info;
                 }
                 ui.add_space(10.0);
                 ui.label(theme::kicker("Soczewka"));
-                if tool(ui, a.lens == Lens::Band, "≋", "Wys.", "Ta sama wysokość (H): pas albo poziomica na wysokości kursora") {
+                if tool(ui, a.lens == Lens::Band, theme::icon::WAVES, "Wys.", "Ta sama wysokość (H): pas albo poziomica na wysokości kursora") {
                     a.set_lens(Lens::Band);
                 }
-                if tool(ui, a.lens == Lens::Rel, "±", "Wzgl.", "Wysokość względna (W): teren barwiony różnicą wysokości") {
+                if tool(ui, a.lens == Lens::Rel, theme::icon::PLUS_MINUS, "Wzgl.", "Wysokość względna (W): teren barwiony różnicą wysokości") {
                     a.set_lens(Lens::Rel);
                 }
-                if tool(ui, a.lens == Lens::Vis, "◉", "Widać", "Widoczność (O): co widać z miejsca pod kursorem") {
+                if tool(ui, a.lens == Lens::Vis, theme::icon::EYE, "Widać", "Widoczność (O): co widać z miejsca pod kursorem") {
                     a.set_lens(Lens::Vis);
                 }
                 ui.add_space(10.0);
-                if tool(ui, a.panorama.is_some(), "⛰", "Pano", "Panorama z miejsca pod środkiem widoku") {
+                if tool(ui, a.panorama.is_some(), theme::icon::MOUNTAINS, "Pano", "Panorama z miejsca pod środkiem widoku") {
                     if a.panorama.is_some() {
                         a.exit_panorama();
                     } else {
@@ -91,7 +91,7 @@ pub fn toolbar(a: &mut Atlas, ctx: &egui::Context) {
                         a.enter_panorama(lon, lat);
                     }
                 }
-                if tool(ui, a.flight.is_some(), "✈", "Przelot", "Przelot nad trasą (F)") {
+                if tool(ui, a.flight.is_some(), theme::icon::AIRPLANE_TILT, "Przelot", "Przelot nad trasą (F)") {
                     a.toggle_flight();
                 }
             });
@@ -112,7 +112,7 @@ pub fn side_panel(a: &mut Atlas, ctx: &egui::Context) {
                 ui.selectable_value(&mut a.tab, Tab::Map, "Mapa i światło");
                 ui.selectable_value(&mut a.tab, Tab::Quality, "Jakość");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("✕").on_hover_text("Ukryj panel (P)").clicked() {
+                    if ui.small_button(theme::icon::X).on_hover_text("Ukryj panel (P)").clicked() {
                         a.prefs.panel_open = false;
                     }
                 });
@@ -215,13 +215,13 @@ fn region_info(a: &mut Atlas, ui: &mut egui::Ui) {
     }
     ui.add_space(10.0);
     ui.horizontal_wrapped(|ui| {
-        if ui.button("Kopiuj link do widoku").on_hover_text("Adres gran:// otwiera ten widok w GRANI (także u innych)").clicked() {
+        if ui.button(theme::ic(theme::icon::LINK, "Kopiuj link do widoku")).on_hover_text("Adres gran:// otwiera ten widok w GRANI (także u innych)").clicked() {
             let l = a.share_link();
             ui.ctx().copy_text(l);
             a.notify("Skopiowano link do widoku – wklej go do wyszukiwarki GRANI albo otwórz w systemie.");
         }
     });
-    if ui.button("Wczytaj ślad GPX…").on_hover_text("albo przeciągnij plik .gpx na mapę").clicked() {
+    if ui.button(theme::ic(theme::icon::FILE_ARROW_UP, "Wczytaj ślad GPX…")).on_hover_text("albo przeciągnij plik .gpx na mapę").clicked() {
         if let Some(p) = rfd::FileDialog::new().add_filter("GPX", &["gpx"]).pick_file() {
             a.import_gpx(&p);
         }
@@ -295,7 +295,7 @@ fn close_row(a: &mut Atlas, ui: &mut egui::Ui, kicker: &str) {
     ui.horizontal(|ui| {
         ui.label(theme::kicker(kicker));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.small_button("✕").clicked() {
+            if ui.small_button(theme::icon::X).clicked() {
                 a.selection = Selection::None;
             }
         });
@@ -491,7 +491,7 @@ fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
             ui.label(RichText::new(tag).strong().color(theme::BRASS));
             ui.label(w.name.clone().unwrap_or_else(|| fmt::decimal(w.lon, w.lat)));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("✕").clicked() {
+                if ui.small_button(theme::icon::X).clicked() {
                     remove = Some(i);
                 }
                 ui.label(RichText::new(fmt::ele(w.e as f64)).monospace().small().color(theme::PAPER_3));
@@ -593,12 +593,12 @@ fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
             if ui.button(if a.prefs.profile_open { "Ukryj profil" } else { "Profil" }).clicked() {
                 a.prefs.profile_open = !a.prefs.profile_open;
             }
-            if ui.button("Kopiuj link").on_hover_text("Link gran:// z widokiem i punktami trasy").clicked() {
+            if ui.button(theme::ic(theme::icon::LINK, "Kopiuj link")).on_hover_text("Link gran:// z widokiem i punktami trasy").clicked() {
                 let l = a.share_link();
                 ui.ctx().copy_text(l);
                 a.notify("Skopiowano link z trasą.");
             }
-            if ui.button("Eksport GPX").on_hover_text("G").clicked() {
+            if ui.button(theme::ic(theme::icon::EXPORT, "Eksport GPX")).on_hover_text("G").clicked() {
                 a.export_gpx();
             }
             if ui.button(if a.flight.is_some() { "Zatrzymaj przelot" } else { "Przelot" }).on_hover_text("F").clicked() {
@@ -916,17 +916,17 @@ fn quality_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     ui.label(theme::kicker("Dane i pamięć"));
     ui.label(RichText::new("Folder danych, limit rozmiaru i obszary do pracy bez internetu.").small().color(theme::PAPER_3));
     ui.horizontal(|ui| {
-        if ui.button("Mapy do pobrania (D)").clicked() {
+        if ui.button(theme::ic(theme::icon::MAP_TRIFOLD, "Biblioteka map (D)")).clicked() {
             a.requests.open_data = true;
         }
-        if ui.button("Folder i limit (Ctrl+,)").clicked() {
+        if ui.button(theme::ic(theme::icon::GEAR, "Folder i limit (Ctrl+,)")).clicked() {
             a.requests.open_settings = true;
         }
     });
     ui.add_space(12.0);
     ui.label(theme::kicker("Program"));
     ui.label(RichText::new(format!("GRAŃ {}", env!("CARGO_PKG_VERSION"))).strong());
-    if ui.button("Sprawdź aktualizacje").clicked() {
+    if ui.button(theme::ic(theme::icon::ARROWS_CLOCKWISE, "Sprawdź aktualizacje")).clicked() {
         a.requests.check_updates = true;
     }
     if ui.button("Skróty klawiszowe (?)").clicked() {
@@ -954,7 +954,7 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
                 let s = route.stats;
                 ui.label(RichText::new(format!("{} · ↑ {} · ↓ {} · {}", fmt::dist(s.len2), fmt::ele(s.up), fmt::ele(s.down), fmt::time(s.time))).small().color(theme::PAPER_3));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("✕").clicked() {
+                    if ui.small_button(theme::icon::X).clicked() {
                         a.prefs.profile_open = false;
                     }
                 });
