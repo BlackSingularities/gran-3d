@@ -73,6 +73,8 @@ pub struct MapView {
     rx: Receiver<Loaded>,
     store: Arc<Mutex<Store>>,
     drag_from: Option<[f64; 2]>,
+    /// Komórki z kaflami w bibliotece (lekka warstwa pod obszarami).
+    pub coverage: Vec<BBox>,
 }
 
 const MAX_TEXTURES: usize = 900;
@@ -114,6 +116,7 @@ impl MapView {
             rx,
             store,
             drag_from: None,
+            coverage: Vec::new(),
         }
     }
 
@@ -233,6 +236,13 @@ impl MapView {
         }
 
         self.paint_tiles(&painter, rect);
+
+        for b in &self.coverage {
+            let r = self.bbox_rect(rect, b);
+            if r.intersects(rect) {
+                painter.rect_filled(r, 0.0, theme::TEAL.gamma_multiply(0.16));
+            }
+        }
 
         for o in overlays {
             let r = self.bbox_rect(rect, &o.bbox);

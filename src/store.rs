@@ -150,6 +150,11 @@ impl Store {
         std::thread::spawn(move || store.scan());
     }
 
+    /// Kafle warstwy na poziomie `z` obecne w bibliotece (do mapy pokrycia).
+    pub fn covered_tiles(&self, layer: Layer, z: u8) -> Vec<TileId> {
+        self.coverage.tiles_at(layer, z)
+    }
+
     /// Usługi nie mają LiDAR-u dla tego kafla – nie pytamy o niego ponownie.
     pub fn note_no_lidar(&self, t: TileId) {
         self.coverage.note_no_lidar(t);
