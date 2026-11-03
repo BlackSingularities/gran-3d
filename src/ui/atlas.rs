@@ -160,7 +160,7 @@ impl Default for Prefs {
         let c = Camera::default();
         let (s, d, md, mi) = Quality::High.values();
         Prefs {
-            style: Style::Terrain,
+            style: Style::Satellite,
             exag: 1.0,
             trails: true,
             labels: true,
@@ -183,7 +183,7 @@ impl Default for Prefs {
             rel_range: 400.0,
             vs_eye: 1.7,
             camera: (c.lon, c.lat, c.height, c.heading, c.pitch, c.distance),
-            panel_open: true,
+            panel_open: false,
             profile_open: true,
         }
     }
@@ -250,7 +250,6 @@ enum JobResult {
 /// Prośby atlasu do aplikacji.
 #[derive(Default)]
 pub struct Requests {
-    pub open_data: bool,
     pub open_settings: bool,
     pub check_updates: bool,
 }
@@ -523,7 +522,7 @@ impl Atlas {
         self.start_fly(to, 1.2);
     }
 
-    fn start_fly(&mut self, to: Camera, dur: f32) {
+    pub fn start_fly(&mut self, to: Camera, dur: f32) {
         self.flight = None;
         self.fly = Some(FlyTo { from: self.cam, to, t0: Instant::now(), dur });
     }
@@ -1137,7 +1136,7 @@ impl Atlas {
                 K::Slash => self.search = Some(crate::ui::search::Search::default()),
                 K::M => {
                     self.prefs.panel_open = true;
-                    self.tab = crate::ui::panels::Tab::Map;
+                    self.tab = crate::ui::panels::Tab::Layers;
                 }
                 K::P => self.prefs.panel_open = !self.prefs.panel_open,
                 K::T => self.prefs.trails = !self.prefs.trails,
@@ -1164,7 +1163,6 @@ impl Atlas {
                 }
                 K::G => self.export_gpx(),
                 K::S => self.screenshot(ctx),
-                K::D => self.requests.open_data = true,
                 K::OpenBracket => self.shift_hour(-0.5),
                 K::CloseBracket => self.shift_hour(0.5),
                 K::Plus | K::Equals => self.prefs.exag = ((self.prefs.exag + 0.1) * 10.0).round() / 10.0,
@@ -1198,7 +1196,7 @@ impl Atlas {
         }
     }
 
-    fn min_dist(&self) -> f64 {
+    pub fn min_dist(&self) -> f64 {
         if self.panorama.is_some() {
             1.0
         } else {
@@ -1420,7 +1418,7 @@ impl Atlas {
             let (blit, _) = r.render(&view, &scene, &lines, ppp);
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, blit));
             let loading = r.tiles.loading;
-            self.status_line = if loading > 0 { format!("wczytywanie terenu · {loading}") } else { String::new() };
+            self.status_line = if loading > 0 { format!("wczytywanie mapy · {loading}") } else { String::new() };
         }
         self.last_view = Some(view);
         self.overlays(ui, rect, &view);
@@ -1910,8 +1908,8 @@ impl Atlas {
         }
 
         // kompas
-        let c = rect.right_top() + Vec2::new(-38.0, 38.0);
-        p.circle(c, 22.0, Color32::from_black_alpha(140), Stroke::new(1.0, theme::INK_4));
+        let c = rect.right_bottom() + Vec2::new(-43.0, -312.0);
+        p.circle(c, 22.0, Color32::from_rgba_unmultiplied(26, 29, 35, 242), Stroke::new(1.0, theme::INK_4));
         let h = (-self.cam.heading).to_radians() as f32;
         let dir = Vec2::new(h.sin(), -h.cos());
         p.line_segment([c - dir * 14.0, c + dir * 14.0], Stroke::new(1.5, theme::PAPER_3));
@@ -1969,7 +1967,7 @@ impl Atlas {
             }
         }
         let bar = Rect::from_min_max(rect.left_bottom() - Vec2::new(0.0, 24.0), rect.right_bottom());
-        p.rect_filled(bar, 0.0, Color32::from_black_alpha(150));
+        p.rect_filled(bar, 0.0, Color32::from_black_alpha(130));
         p.text(bar.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, info, FontId::monospace(11.5), theme::PAPER_2);
         let attr = match self.prefs.style {
             Style::Satellite => "Sentinel-2 cloudless 2020 © EOX · ortofoto © GUGiK, © ČÚZK, © ÚGKK SR · szlaki © OpenStreetMap",
@@ -1979,11 +1977,10 @@ impl Atlas {
 
         // stan wczytywania i tryby
         let mut chips: Vec<String> = Vec::new();
-        if let (Some(s), _, _) = self.world.status() {
-            let _ = s;
-            chips.push("pobieranie szlaków okolicy…".into());
-        } else if let (_, Some(e), _) = self.world.status() {
-            chips.push(format!("szlaki: {}", short(&e)));
+        match self.world.status() {
+            (Some(_), _) => chips.push("pobieranie nazw i szlaków…".into()),
+            (_, Some(e)) => chips.push(format!("nazwy i szlaki: {}", short(&e))),
+            _ => {}
         }
         if !self.status_line.is_empty() {
             chips.push(self.status_line.clone());
@@ -2009,12 +2006,13 @@ impl Atlas {
         if let Some(t) = lens_txt {
             chips.push(format!("{t}{}", if self.lens_pin.is_some() { " (przypięta · Esc)" } else { " · klik przypina" }));
         }
-        let mut y = rect.top() + 12.0;
+        let mut y = rect.top() + 16.0;
         for c in chips {
             let g = p.layout_no_wrap(c, FontId::proportional(12.0), theme::PAPER);
-            let r = Rect::from_min_size(Pos2::new(rect.left() + 12.0, y), g.size() + Vec2::new(16.0, 8.0));
-            p.rect_filled(r, 8.0, Color32::from_black_alpha(170));
-            p.galley(r.min + Vec2::new(8.0, 4.0), g, theme::PAPER);
+            let size = g.size() + Vec2::new(20.0, 10.0);
+            let r = Rect::from_min_size(Pos2::new(rect.center().x - size.x / 2.0, y), size);
+            p.rect_filled(r, 12.0, Color32::from_rgba_unmultiplied(26, 29, 35, 235));
+            p.galley(r.min + Vec2::new(10.0, 5.0), g, theme::PAPER);
             y += r.height() + 6.0;
         }
 

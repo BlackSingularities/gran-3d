@@ -1,11 +1,10 @@
-//! Pobieranie kafli: pojedyncze kafle (na żądanie i dla silnika obszarów) oraz zadanie importu.
+//! Pobieranie kafli na żądanie: pobrany kafel jest od razu wypiekany i zapisywany na dysku.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::bake;
 use crate::geo::TileId;
@@ -16,6 +15,11 @@ const USER_AGENT: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (+https://redzikowski.com/portfolio/gran-3d)"
 );
+
+/// Od tego poziomu teren może pochodzić z LiDAR-u.
+const LIDAR_MIN_Z: u8 = 14;
+/// LiDAR różniący się od modelu globalnego o tyle metrów to błąd usługi, nie teren.
+const LIDAR_MAX_DIFF: f32 = 200.0;
 
 /// Kafel pobierany właśnie przez ten wątek. Inny wątek chcący ten sam kafel czeka i bierze go z dysku.
 struct Claim(Layer, TileId);
@@ -144,20 +148,17 @@ fn fetch_any(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchErr
         }
         Layer::Lidar => {
             let mut h = crate::national::fetch_lidar(t)?;
-            // braki (granica, morze) z modelu globalnego
-            if h.iter().any(|v| v.is_nan()) {
-                let base = get(store, Layer::Dem, t).ok().and_then(|b| bake::decode_dem(&b));
-                let mean = {
-                    let v: Vec<f32> = h.iter().copied().filter(|v| !v.is_nan()).collect();
-                    v.iter().sum::<f32>() / v.len().max(1) as f32
-                };
-                for (i, v) in h.iter_mut().enumerate() {
-                    if v.is_nan() {
-                        *v = match &base {
-                            Some(d) if d.w == 256 && d.h == 256 => d.elev[i],
-                            _ => mean,
-                        };
-                    }
+            // braki (granica, morze) i błędne wartości usług – z modelu globalnego
+            let base = get(store, Layer::Dem, t).ok().and_then(|b| bake::decode_dem(&b)).filter(|d| d.w == 256 && d.h == 256);
+            let mean = {
+                let v: Vec<f32> = h.iter().copied().filter(|v| !v.is_nan()).collect();
+                v.iter().sum::<f32>() / v.len().max(1) as f32
+            };
+            for (i, v) in h.iter_mut().enumerate() {
+                match &base {
+                    Some(d) if v.is_nan() || (*v - d.elev[i]).abs() > LIDAR_MAX_DIFF => *v = d.elev[i],
+                    None if v.is_nan() => *v = mean,
+                    _ => {}
                 }
             }
             Ok(h.iter().flat_map(|v| v.to_le_bytes()).collect())
@@ -195,243 +196,23 @@ pub fn get(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError
     }
 }
 
-/// Wynik jednego elementu zadania.
-pub enum Outcome {
-    /// Już był na dysku.
-    Skipped,
-    /// Zapisany (rozmiar danych ze źródła).
-    Saved(u64),
-    /// Źródło go nie ma – zapamiętane, nie ponawiamy.
-    Missing,
-    Failed(String),
-}
-
-/// Pobranie, wypieczenie i zapis kafla (element zadania obszaru).
-pub fn download_tile(store: &Store, layer: Layer, t: TileId) -> Outcome {
-    if store.has(layer, t) {
-        return Outcome::Skipped;
-    }
-    let _claim = Claim::take(layer, t);
-    if store.has(layer, t) {
-        return Outcome::Skipped;
-    }
-    match fetch_any(store, layer, t) {
-        Ok(src) => match bake::bake(layer, &src) {
-            Ok(baked) => match store.write(layer, t, Some(&baked)) {
-                Ok(()) => Outcome::Saved(src.len() as u64),
-                Err(e) => Outcome::Failed(format!("zapis na dysk: {e}")),
-            },
-            Err(e) => Outcome::Failed(e.to_string()),
-        },
-        Err(FetchError::Missing) => {
-            // brak LiDAR nie może zablokować modelu globalnego w tej samej paczce
-            if layer == Layer::Lidar {
-                store.note_no_lidar(t);
-            } else {
-                let _ = store.write(layer, t, None);
+/// Kafel terenu do widoku: na bliskich poziomach najpierw LiDAR, gdzie sięgają usługi,
+/// a gdy go nie ma albo serwer nie odpowiada – model globalny.
+pub fn get_terrain(store: &Store, t: TileId) -> Result<Vec<u8>, FetchError> {
+    if t.z >= LIDAR_MIN_Z && crate::national::has_lidar(t) {
+        let _claim = Claim::take(Layer::Lidar, t);
+        if !store.has(Layer::Lidar, t) {
+            match fetch_any(store, Layer::Lidar, t) {
+                Ok(src) => {
+                    if let Ok(baked) = bake::bake(Layer::Lidar, &src) {
+                        let _ = store.write(Layer::Lidar, t, Some(&baked));
+                        return Ok(baked);
+                    }
+                }
+                Err(FetchError::Missing) => store.note_no_lidar(t),
+                Err(FetchError::Network(e)) => log::warn!("LiDAR {}/{}/{}: {e}", t.z, t.x, t.y),
             }
-            Outcome::Missing
-        }
-        Err(FetchError::Network(e)) => Outcome::Failed(e),
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum JobState {
-    Running,
-    Paused,
-    Done,
-    Cancelled,
-    Failed,
-}
-
-/// Zadanie pobierania zestawu kafli – stan czytany przez interfejs bez blokowania.
-pub struct Job {
-    pub label: String,
-    pub total: usize,
-    done: AtomicUsize,
-    skipped: AtomicUsize,
-    missing: AtomicUsize,
-    failed: AtomicUsize,
-    bytes: AtomicU64,
-    cancel: AtomicBool,
-    state: Mutex<JobState>,
-    last_error: Mutex<Option<String>>,
-    started: Instant,
-}
-
-#[derive(Clone, Debug)]
-pub struct Progress {
-    pub done: usize,
-    pub total: usize,
-    pub failed: usize,
-    pub bytes: u64,
-    pub state: JobState,
-    pub eta: Option<Duration>,
-    pub last_error: Option<String>,
-}
-
-impl Progress {
-    /// Zadanie zakończone wcześniej (albo niepotrzebne, bo wszystko jest już na dysku).
-    pub fn complete() -> Self {
-        Progress {
-            done: 1,
-            total: 1,
-            failed: 0,
-            bytes: 0,
-            state: JobState::Done,
-            eta: None,
-            last_error: None,
         }
     }
-
-    pub fn fraction(&self) -> f32 {
-        if self.total == 0 {
-            1.0
-        } else {
-            self.done as f32 / self.total as f32
-        }
-    }
-}
-
-impl Job {
-    /// Zadanie w tle na `total` elementach wykonywanych równolegle przez `work` (pobieranie kafli,
-    /// import). Elementy już obecne na dysku zwracają `Skipped`, więc przerwane zadanie po ponownym
-    /// uruchomieniu dokańcza tylko brakujące.
-    pub fn run<F>(label: String, total: usize, threads: usize, work: F) -> Arc<Job>
-    where
-        F: Fn(usize) -> Outcome + Send + Sync + 'static,
-    {
-        let job = Arc::new(Job {
-            label,
-            total,
-            done: AtomicUsize::new(0),
-            skipped: AtomicUsize::new(0),
-            missing: AtomicUsize::new(0),
-            failed: AtomicUsize::new(0),
-            bytes: AtomicU64::new(0),
-            cancel: AtomicBool::new(false),
-            state: Mutex::new(JobState::Running),
-            last_error: Mutex::new(None),
-            started: Instant::now(),
-        });
-        let work = Arc::new(work);
-        let next = Arc::new(AtomicUsize::new(0));
-        let j = job.clone();
-        thread::Builder::new()
-            .name("zadanie".into())
-            .spawn(move || {
-                let workers: Vec<_> = (0..threads.max(1))
-                    .map(|_| {
-                        let (j, work, next) = (j.clone(), work.clone(), next.clone());
-                        thread::spawn(move || loop {
-                            if j.cancel.load(Ordering::Relaxed) {
-                                break;
-                            }
-                            let i = next.fetch_add(1, Ordering::Relaxed);
-                            if i >= j.total {
-                                break;
-                            }
-                            match work(i) {
-                                Outcome::Skipped => {
-                                    j.skipped.fetch_add(1, Ordering::Relaxed);
-                                }
-                                Outcome::Saved(n) => {
-                                    j.bytes.fetch_add(n, Ordering::Relaxed);
-                                }
-                                Outcome::Missing => {
-                                    j.missing.fetch_add(1, Ordering::Relaxed);
-                                }
-                                Outcome::Failed(e) => j.fail(e),
-                            }
-                            j.done.fetch_add(1, Ordering::Relaxed);
-                        })
-                    })
-                    .collect();
-                for w in workers {
-                    let _ = w.join();
-                }
-                let failed = j.failed.load(Ordering::Relaxed);
-                *j.state.lock().unwrap() = if j.cancel.load(Ordering::Relaxed) {
-                    JobState::Cancelled
-                } else if failed > 0 && failed * 20 > j.total.max(1) {
-                    JobState::Failed
-                } else {
-                    JobState::Done
-                };
-            })
-            .expect("wątek zadania");
-        job
-    }
-
-    /// Import kafli terenu wersji 1.x (PNG Terrarium, także LiDAR) do paczek.
-    pub fn import_legacy(store: Store, files: Vec<(TileId, std::path::PathBuf)>) -> Arc<Job> {
-        let threads = thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4)
-            .min(12);
-        Job::run(
-            "Import danych wersji 1.x".into(),
-            files.len(),
-            threads,
-            move |i| {
-                let (t, path) = &files[i];
-                let src = match std::fs::read(path) {
-                    Ok(s) => s,
-                    Err(e) => return Outcome::Failed(format!("{}: {e}", path.display())),
-                };
-                // zepsuty kafel pomijamy: widok dociągnie w jego miejsce poprawny z sieci
-                if !bake::terrarium_plausible(&src) {
-                    return Outcome::Skipped;
-                }
-                match bake::bake(Layer::Dem, &src) {
-                    Ok(baked) => match store.write(Layer::Dem, *t, Some(&baked)) {
-                        Ok(()) => Outcome::Saved(src.len() as u64),
-                        Err(e) => Outcome::Failed(e.to_string()),
-                    },
-                    Err(e) => Outcome::Failed(format!("{}: {e}", path.display())),
-                }
-            },
-        )
-    }
-
-    fn fail(&self, e: String) {
-        self.failed.fetch_add(1, Ordering::Relaxed);
-        *self.last_error.lock().unwrap() = Some(e);
-    }
-
-    pub fn cancel(&self) {
-        self.cancel.store(true, Ordering::Relaxed);
-    }
-
-    pub fn progress(&self) -> Progress {
-        let done = self.done.load(Ordering::Relaxed);
-        let skipped = self.skipped.load(Ordering::Relaxed);
-        let elapsed = self.started.elapsed();
-        let fetched = done.saturating_sub(skipped);
-        let left = self.total.saturating_sub(done);
-        let eta = (fetched > 20 && elapsed.as_secs_f64() > 3.0)
-            .then(|| Duration::from_secs_f64(elapsed.as_secs_f64() / fetched as f64 * left as f64));
-        Progress {
-            done,
-            total: self.total,
-            failed: self.failed.load(Ordering::Relaxed),
-            bytes: self.bytes.load(Ordering::Relaxed),
-            state: *self.state.lock().unwrap(),
-            eta,
-            last_error: self.last_error.lock().unwrap().clone(),
-        }
-    }
-}
-
-/// „3 min 20 s”, „45 s”, „1 h 05 min”.
-pub fn fmt_duration(d: Duration) -> String {
-    let s = d.as_secs();
-    if s >= 3600 {
-        format!("{} h {:02} min", s / 3600, (s % 3600) / 60)
-    } else if s >= 60 {
-        format!("{} min {:02} s", s / 60, s % 60)
-    } else {
-        format!("{s} s")
-    }
+    get(store, Layer::Dem, t)
 }

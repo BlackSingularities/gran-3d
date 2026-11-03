@@ -175,14 +175,14 @@ pub fn exists(root: &Path, id: SectorId) -> bool {
 
 pub(crate) fn overpass(query: &str, prefer: usize) -> Result<serde_json::Value, String> {
     let mut last = String::new();
-    for attempt in 0..OVERPASS.len() * 2 {
+    for attempt in 0..OVERPASS.len() {
         let url = OVERPASS[(prefer + attempt) % OVERPASS.len()];
-        if attempt >= OVERPASS.len() {
-            std::thread::sleep(Duration::from_secs(4 * attempt as u64));
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_secs(2 * attempt as u64));
         }
         let r = agent()
             .post(url)
-            .timeout(Duration::from_secs(300))
+            .timeout(Duration::from_secs(200))
             .set("Content-Type", "application/x-www-form-urlencoded")
             .send_string(&format!("data={}", urlencode(query)));
         match r {
@@ -192,7 +192,11 @@ pub(crate) fn overpass(query: &str, prefer: usize) -> Result<serde_json::Value, 
                     last = e.to_string();
                     continue;
                 }
-                match serde_json::from_slice(&buf) {
+                match serde_json::from_slice::<serde_json::Value>(&buf) {
+                    // przekroczony czas lub limit to kod 200 z uwagą i uciętymi danymi – nie wolno ich zapisać
+                    Ok(v) if v["remark"].as_str().is_some_and(|r| r.contains("error")) => {
+                        last = format!("Overpass: {}", v["remark"].as_str().unwrap_or(""));
+                    }
                     Ok(v) => return Ok(v),
                     Err(e) => last = format!("odpowiedź Overpass: {e}"),
                 }
@@ -271,24 +275,152 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Pobranie i przetworzenie sektora (blokujące, ~10–60 s).
-pub fn fetch(id: SectorId) -> Result<SectorData, String> {
+/// Punkty i nazwy sektora: z kafli wektorowych (ułamek sekundy), a gdy niedostępne – z Overpass.
+/// Publiczne serwery Overpass bywają przeciążone na minuty, a etykiety nie mogą na nie czekać.
+pub fn fetch_pois(id: SectorId) -> Result<Vec<Poi>, String> {
+    match vector_pois(id) {
+        Ok(p) => Ok(p),
+        Err(e) => {
+            log::warn!("kafle wektorowe: {e}");
+            overpass_pois(id)
+        }
+    }
+}
+
+/// Poziom kafli wektorowych z punktami (wyżej źródło ogranicza liczbę szczytów na kafel).
+const VECTOR_Z: u8 = 12;
+const VECTOR_LAYERS: [&str; 4] = ["mountain_peak", "place", "poi", "water_name"];
+
+/// Adres kafli: bieżąca wersja danych z opisu zestawu.
+fn vector_url() -> Result<String, String> {
+    static URL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    if let Some(u) = URL.lock().unwrap().clone() {
+        return Ok(u);
+    }
+    let body = agent()
+        .get("https://tiles.openfreemap.org/planet")
+        .call()
+        .map_err(|e| e.to_string())?
+        .into_string()
+        .map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let u = v["tiles"][0].as_str().ok_or("brak adresu kafli wektorowych")?.to_string();
+    *URL.lock().unwrap() = Some(u.clone());
+    Ok(u)
+}
+
+fn vector_pois(id: SectorId) -> Result<Vec<Poi>, String> {
+    let url = vector_url()?;
+    let k = 1u32 << (VECTOR_Z - SECTOR_Z);
+    let tiles: Vec<TileId> = (0..k * k)
+        .map(|i| TileId::new(VECTOR_Z, id.x * k + i % k, id.y * k + i / k))
+        .collect();
+    use rayon::prelude::*;
+    let parts: Vec<Result<Vec<Poi>, String>> = tiles.par_iter().map(|t| vector_tile(&url, *t)).collect();
+    let mut out = Vec::new();
+    let mut failed = None;
+    for p in parts {
+        match p {
+            Ok(mut v) => out.append(&mut v),
+            Err(e) => failed = Some(e),
+        }
+    }
+    match failed {
+        Some(e) if out.is_empty() => Err(e),
+        _ => {
+            out.sort_by(|a, b| (&a.name, a.lon.to_bits()).cmp(&(&b.name, b.lon.to_bits())));
+            out.dedup_by(|a, b| a.name == b.name && (a.lon - b.lon).abs() < 1e-4 && (a.lat - b.lat).abs() < 1e-4);
+            Ok(out)
+        }
+    }
+}
+
+fn vector_tile(url: &str, t: TileId) -> Result<Vec<Poi>, String> {
+    let u = url.replace("{z}", &t.z.to_string()).replace("{x}", &t.x.to_string()).replace("{y}", &t.y.to_string());
+    let r = match agent().get(&u).call() {
+        Ok(r) => r,
+        // kafel bez danych (np. morze)
+        Err(ureq::Error::Status(404, _)) => return Ok(Vec::new()),
+        Err(e) => return Err(e.to_string()),
+    };
+    let mut buf = Vec::new();
+    r.into_reader().take(16 << 20).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    let n = (1u64 << t.z) as f64;
+    Ok(crate::mvt::points(&buf, &VECTOR_LAYERS)
+        .iter()
+        .filter_map(|p| {
+            let lon = crate::geo::x_to_lon((t.x as f64 + p.x) / n);
+            let lat = crate::geo::y_to_lat((t.y as f64 + p.y) / n);
+            vector_poi(p, lon, lat)
+        })
+        .collect())
+}
+
+/// Punkt kafla na punkt programu (schemat OpenMapTiles).
+fn vector_poi(p: &crate::mvt::Point, lon: f64, lat: f64) -> Option<Poi> {
+    let class = p.text("class").unwrap_or("");
+    let sub = p.text("subclass").unwrap_or("");
+    let (kind, place) = match p.layer.as_str() {
+        "mountain_peak" => match class {
+            "peak" | "volcano" => (PoiKind::Peak, ""),
+            "saddle" => (PoiKind::Saddle, ""),
+            _ => return None,
+        },
+        "place" => match class {
+            "city" | "town" | "village" | "hamlet" => (PoiKind::Place, class),
+            _ => return None,
+        },
+        "water_name" => (PoiKind::Lake, ""),
+        "poi" => match sub {
+            "alpine_hut" | "wilderness_hut" => (PoiKind::Hut, ""),
+            "shelter" => (PoiKind::Shelter, ""),
+            "viewpoint" => (PoiKind::Viewpoint, ""),
+            "waterfall" => (PoiKind::Waterfall, ""),
+            "cave_entrance" => (PoiKind::Cave, ""),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let name = p.text("name").filter(|n| !n.is_empty())?;
+    Some(Poi {
+        kind,
+        name: name.to_string(),
+        lon,
+        lat,
+        ele: p.number("ele").map(|e| e as f32),
+        wiki: String::new(),
+        osm: String::new(),
+        place: place.to_string(),
+        pop: 0,
+    })
+}
+
+fn overpass_pois(id: SectorId) -> Result<Vec<Poi>, String> {
+    let b = id.bbox();
+    let bb = format!("{:.6},{:.6},{:.6},{:.6}", b.s, b.w, b.n, b.e);
+    let poi_q = format!(
+        "[out:json][timeout:90];(node[\"natural\"~\"^(peak|saddle|volcano)$\"][\"name\"]({bb});node[\"place\"~\"^(city|town|village|hamlet)$\"][\"name\"]({bb});node[\"mountain_pass\"=\"yes\"][\"name\"]({bb});nwr[\"tourism\"~\"^(alpine_hut|wilderness_hut)$\"]({bb});nwr[\"amenity\"=\"shelter\"][\"name\"]({bb});nwr[\"natural\"=\"water\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb});node[\"natural\"=\"cave_entrance\"][\"name\"]({bb});node[\"tourism\"=\"viewpoint\"][\"name\"]({bb}););out center tags;"
+    );
+    let pj = overpass(&poi_q, 1)?;
+    Ok(parse(id, &serde_json::Value::Null, &pj).pois)
+}
+
+/// Szlaki sektora (blokujące, duże zapytanie) połączone z pobranymi wcześniej punktami.
+pub fn fetch_trails(id: SectorId, pois: Vec<Poi>) -> Result<SectorData, String> {
     let b = id.bbox();
     let bb = format!("{:.6},{:.6},{:.6},{:.6}", b.s, b.w, b.n, b.e);
     let trails_q = format!(
-        "[out:json][timeout:240];relation[\"route\"~\"^(hiking|foot)$\"]({bb})->.r;way(r.r)({bb})->.w;.r out body;.w out body;.w >;out skel qt;"
+        "[out:json][timeout:180];relation[\"route\"~\"^(hiking|foot)$\"]({bb})->.r;way(r.r)({bb})->.w;.r out body;.w out body;.w >;out skel qt;"
     );
-    let poi_q = format!(
-        "[out:json][timeout:120];(node[\"natural\"~\"^(peak|saddle|volcano)$\"][\"name\"]({bb});node[\"place\"~\"^(city|town|village|hamlet)$\"][\"name\"]({bb});node[\"mountain_pass\"=\"yes\"][\"name\"]({bb});nwr[\"tourism\"~\"^(alpine_hut|wilderness_hut)$\"]({bb});nwr[\"amenity\"=\"shelter\"][\"name\"]({bb});nwr[\"natural\"=\"water\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb});node[\"natural\"=\"cave_entrance\"][\"name\"]({bb});node[\"tourism\"=\"viewpoint\"][\"name\"]({bb}););out center tags;"
-    );
-    let (tj, pj) = std::thread::scope(|s| {
-        let t = s.spawn(|| overpass(&trails_q, 0));
-        let p = s.spawn(|| overpass(&poi_q, 1));
-        (t.join().unwrap(), p.join().unwrap())
-    });
-    let tj = tj?;
-    let pj = pj?;
-    Ok(parse(id, &tj, &pj))
+    let tj = overpass(&trails_q, 0)?;
+    let mut d = parse(id, &tj, &serde_json::Value::Null);
+    d.pois = pois;
+    Ok(d)
+}
+
+/// Sektor z samymi punktami – do czasu pobrania szlaków.
+pub fn partial(pois: Vec<Poi>) -> SectorData {
+    SectorData { format: FORMAT, pois, ..Default::default() }
 }
 
 fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> SectorData {

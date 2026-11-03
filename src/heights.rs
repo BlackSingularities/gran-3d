@@ -111,7 +111,7 @@ impl Heights {
             return None;
         }
         let store = self.store();
-        match download::get(&store, Layer::Dem, t)
+        match download::get_terrain(&store, t)
             .ok()
             .and_then(|b| decode_dem(&b))
         {

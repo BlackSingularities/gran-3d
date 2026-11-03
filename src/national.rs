@@ -2,7 +2,7 @@
 //! (NMT GUGiK w PUWG-1992, DMR 5G ČÚZK w Web Mercator). Zasięg krajów z Natural Earth 1:50m.
 
 use std::io::Read;
-use std::sync::OnceLock;
+use std::sync::{Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -108,7 +108,38 @@ fn merc_bounds(t: TileId) -> (f64, f64, f64, f64) {
     (x0, y0, x1, y1)
 }
 
+/// Usługi krajowe są wolne: najwyżej tyle zapytań naraz, żeby nie zająć wszystkich wątków kafli.
+const MAX_NATIONAL: usize = 6;
+
+struct Permit;
+
+impl Permit {
+    fn gate() -> &'static (Mutex<usize>, Condvar) {
+        static G: OnceLock<(Mutex<usize>, Condvar)> = OnceLock::new();
+        G.get_or_init(Default::default)
+    }
+
+    fn take() -> Permit {
+        let (m, cv) = Self::gate();
+        let mut n = m.lock().unwrap();
+        while *n >= MAX_NATIONAL {
+            n = cv.wait(n).unwrap();
+        }
+        *n += 1;
+        Permit
+    }
+}
+
+impl Drop for Permit {
+    fn drop(&mut self) {
+        let (m, cv) = Self::gate();
+        *m.lock().unwrap() -= 1;
+        cv.notify_one();
+    }
+}
+
 fn get_bytes(url: &str, limit: u64) -> Result<Vec<u8>, FetchError> {
+    let _permit = Permit::take();
     let mut last = String::new();
     for attempt in 0..3 {
         if attempt > 0 {
@@ -329,13 +360,14 @@ pub fn fetch_lidar(t: TileId) -> Result<Vec<f32>, FetchError> {
             try_pl().or_else(|_| try_cz())
         }
     }?;
-    // komórki bez danych (granica, morze) – ostatecznie oznaczone NaN; wypełnia je model globalny
+    // komórki bez danych (poza krajem usługi potrafią zwrócić 0 m) – NaN; wypełnia je model globalny
     for v in &mut r {
-        if !v.is_finite() || *v < -100.0 || *v > 9000.0 {
+        if !v.is_finite() || *v <= 1.0 || *v > 9000.0 {
             *v = f32::NAN;
         }
     }
-    if r.iter().all(|v| v.is_nan()) {
+    // pojedyncze piksele na brzegu zasięgu to nie są dane tego kafla
+    if r.iter().filter(|v| !v.is_nan()).count() * 50 < r.len() {
         return Err(FetchError::Missing);
     }
     Ok(r)

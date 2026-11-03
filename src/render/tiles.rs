@@ -118,7 +118,7 @@ pub struct Tiles {
     pub loading: usize,
 }
 
-const WORKERS: usize = 6;
+const WORKERS: usize = 16;
 
 impl Tiles {
     pub fn new(device: &wgpu::Device, queue_gpu: &wgpu::Queue, heights: Heights, ctx: eframe::egui::Context) -> Self {

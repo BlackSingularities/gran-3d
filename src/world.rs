@@ -43,9 +43,11 @@ impl Snapshot {
 #[derive(Default)]
 struct State {
     wanted: Vec<SectorId>,
-    /// Sektory, które trzeba mieć na dysku (zapisane obszary) – pobierane w tle po kolei.
-    persist: Vec<SectorId>,
     loaded: HashMap<SectorId, Arc<SectorData>>,
+    /// Wczytane na razie same punkty – szlaki jeszcze do pobrania.
+    partial: HashSet<SectorId>,
+    /// Rośnie przy każdej zmianie danych sektorów.
+    data_gen: u64,
     failed: HashMap<SectorId, Instant>,
     busy: Option<SectorId>,
     error: Option<String>,
@@ -101,8 +103,7 @@ impl World {
                 let s = self.state.0.lock().unwrap();
                 s.wanted
                     .iter()
-                    .chain(s.persist.iter())
-                    .filter(|id| s.loaded.contains_key(id) || s.persist.contains(id))
+                    .filter(|id| s.loaded.contains_key(id) && !s.partial.contains(id))
                     .find(|id| {
                         !crate::landcover::exists(&root, **id)
                             && failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(300))
@@ -141,22 +142,10 @@ impl World {
         }
     }
 
-    /// Sektory do zapisania na dysku (pobieranie obszarów bez internetu).
-    pub fn persist(&self, list: impl IntoIterator<Item = SectorId>) {
-        let (m, cv) = &*self.state;
-        let mut s = m.lock().unwrap();
-        for id in list {
-            if !s.persist.contains(&id) {
-                s.persist.push(id);
-            }
-        }
-        cv.notify_all();
-    }
-
-    /// Stan dla interfejsu: (sektor w trakcie pobierania, ostatni błąd, zaległe do zapisu).
-    pub fn status(&self) -> (Option<SectorId>, Option<String>, usize) {
+    /// Stan dla interfejsu: (sektor w trakcie pobierania, ostatni błąd).
+    pub fn status(&self) -> (Option<SectorId>, Option<String>) {
         let s = self.state.0.lock().unwrap();
-        (s.busy, s.error.clone(), s.persist.len())
+        (s.busy, s.error.clone())
     }
 
     /// Po zmianie folderu danych: wszystko od nowa.
@@ -164,99 +153,70 @@ impl World {
         let (m, cv) = &*self.state;
         let mut s = m.lock().unwrap();
         s.loaded.clear();
+        s.partial.clear();
         s.failed.clear();
+        s.data_gen += 1;
         s.changed = true;
         cv.notify_all();
     }
 
     fn run(&self, ctx: eframe::egui::Context) {
+        let mut built_gen = 0;
         loop {
-            // następne zadanie: brakujący sektor z okolicy, potem zaległe do zapisu
+            // następne zadanie: brakujący sektor z okolicy albo jego szlaki
             let (todo, rebuild) = {
                 let (m, cv) = &*self.state;
                 let mut s = m.lock().unwrap();
                 loop {
-                    let root = self.heights.store().root().to_path_buf();
-                    let failed_ok = |s: &State, id: &SectorId| {
-                        s.failed
-                            .get(id)
-                            .is_none_or(|t| t.elapsed() > Duration::from_secs(120))
-                    };
-                    let next = s
-                        .wanted
-                        .iter()
-                        .find(|id| !s.loaded.contains_key(id) && failed_ok(&s, id))
-                        .copied();
                     if s.changed {
                         s.changed = false;
                         break (None, true);
                     }
+                    let next = s
+                        .wanted
+                        .iter()
+                        .find(|id| {
+                            (!s.loaded.contains_key(id) || s.partial.contains(id))
+                                && s.failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(120))
+                        })
+                        .copied();
                     if let Some(id) = next {
-                        break (Some((id, true)), false);
+                        break (Some(id), false);
                     }
-                    if let Some(i) = s.persist.iter().position(|id| !osm::exists(&root, *id)) {
-                        let id = s.persist[i];
-                        if failed_ok(&s, &id) {
-                            break (Some((id, false)), false);
-                        }
-                    }
-                    s.persist.retain(|id| !osm::exists(&root, *id));
                     s = cv.wait_timeout(s, Duration::from_secs(30)).unwrap().0;
                 }
             };
-            if let Some((id, near)) = todo {
+            if let Some(id) = todo {
                 self.state.0.lock().unwrap().busy = Some(id);
                 ctx.request_repaint();
-                let root = self.heights.store().root().to_path_buf();
-                let data = match osm::load(&root, id) {
-                    Some(d) => Ok(d),
-                    None => osm::fetch(id).inspect(|d| {
-                        if let Err(e) = osm::save(&root, id, d) {
-                            log::error!("zapis sektora: {e}");
-                        }
-                    }),
-                };
+                self.load_sector(id);
                 let mut s = self.state.0.lock().unwrap();
                 s.busy = None;
-                match data {
-                    Ok(d) => {
-                        s.error = None;
-                        if near {
-                            s.loaded.insert(id, Arc::new(d));
-                            s.changed = true;
-                        } else {
-                            s.persist.retain(|p| *p != id);
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("sektor {}/{}: {e}", id.x, id.y);
-                        s.error = Some(e);
-                        s.failed.insert(id, Instant::now());
-                        if !near {
-                            s.persist.retain(|p| *p != id);
-                        }
-                    }
-                }
                 // nadmiar wczytanych: zostają te z okolicy
                 if s.loaded.len() > MAX_LOADED {
                     let keep: HashSet<SectorId> = s.wanted.iter().copied().collect();
                     s.loaded.retain(|k, _| keep.contains(k));
+                    s.partial.retain(|k| keep.contains(k));
                 }
+                drop(s);
                 ctx.request_repaint();
                 continue;
             }
             if rebuild {
-                let sectors: Vec<(SectorId, Arc<SectorData>)> = {
+                let (sectors, gen): (Vec<(SectorId, Arc<SectorData>)>, u64) = {
                     let s = self.state.0.lock().unwrap();
-                    s.wanted
+                    let list = s
+                        .wanted
                         .iter()
                         .filter_map(|id| s.loaded.get(id).map(|d| (*id, d.clone())))
-                        .collect()
+                        .collect();
+                    (list, s.data_gen)
                 };
                 let current: Vec<SectorId> = sectors.iter().map(|s| s.0).collect();
-                if current == self.snapshot().sectors {
+                if current == self.snapshot().sectors && gen == built_gen {
                     continue;
                 }
+                built_gen = gen;
                 let t0 = Instant::now();
                 let snap = self.build(&sectors);
                 log::info!(
@@ -268,6 +228,47 @@ impl World {
                 );
                 *self.snap.write().unwrap() = Arc::new(snap);
                 ctx.request_repaint();
+            }
+        }
+    }
+
+    /// Jeden krok wczytywania sektora: dysk, potem punkty (od razu widoczne), potem szlaki.
+    fn load_sector(&self, id: SectorId) {
+        let root = self.heights.store().root().to_path_buf();
+        let partial = {
+            let s = self.state.0.lock().unwrap();
+            s.partial.contains(&id).then(|| s.loaded.get(&id).map(|d| d.pois.clone())).flatten()
+        };
+        let result = match partial {
+            Some(pois) => osm::fetch_trails(id, pois).map(|d| {
+                if let Err(e) = osm::save(&root, id, &d) {
+                    log::error!("zapis sektora: {e}");
+                }
+                (d, false)
+            }),
+            None => match osm::load(&root, id) {
+                Some(d) => Ok((d, false)),
+                None => osm::fetch_pois(id).map(|p| (osm::partial(p), true)),
+            },
+        };
+        let mut s = self.state.0.lock().unwrap();
+        match result {
+            Ok((d, is_partial)) => {
+                s.error = None;
+                s.failed.remove(&id);
+                s.loaded.insert(id, Arc::new(d));
+                if is_partial {
+                    s.partial.insert(id);
+                } else {
+                    s.partial.remove(&id);
+                }
+                s.data_gen += 1;
+                s.changed = true;
+            }
+            Err(e) => {
+                log::warn!("sektor {}/{}: {e}", id.x, id.y);
+                s.error = Some(e);
+                s.failed.insert(id, Instant::now());
             }
         }
     }

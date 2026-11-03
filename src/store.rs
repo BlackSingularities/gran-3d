@@ -2,27 +2,26 @@
 //!
 //! ```text
 //! <folder>\GRAN-dane\
-//!   areas.json                    obszary zapisane do pracy bez internetu
 //!   tiles\dem\z\bx_by.gpk         teren (wypieczony: u16 + LZ4), paczki 16×16 kafli
 //!   tiles\sat\z\bx_by.gpk         obraz satelitarny (JPEG), paczki 16×16 kafli
+//!   tiles\ortho\z\bx_by.gpk       ortofotomapa (JPEG)
+//!   sectors\, land\                szlaki, nazwy i pokrycie terenu z OSM
 //! ```
 //!
-//! Paczki obszarów zapisanych przez użytkownika i model globalny do poziomu [`BASE_MAX_Z`] są stałe;
-//! resztę (dociągane w miarę oglądania mapy) sprzątacz usuwa od najdawniej używanych, gdy dane
-//! przekraczają limit.
+//! Wszystko zapisuje się samo w miarę oglądania. Po przekroczeniu limitu sprzątacz usuwa paczki
+//! od najdawniej używanych; model globalny do poziomu [`BASE_MAX_Z`] zostaje.
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Instant, SystemTime};
 
-use rayon::prelude::*;
-
-use crate::areas::Area;
 use crate::geo::TileId;
-use crate::library::Coverage;
 use crate::pack::{self, PackKey, Packs, Slot};
+
+const NO_LIDAR_FILE: &str = "lidar-brak.txt";
 
 /// Model globalny do tego poziomu nigdy nie jest usuwany (cała Europa to kilkadziesiąt MB).
 pub const BASE_MAX_Z: u8 = 6;
@@ -40,7 +39,6 @@ pub enum Layer {
 }
 
 impl Layer {
-    pub const ALL: [Layer; 2] = [Layer::Dem, Layer::Sat];
     /// Warstwy z własnymi paczkami na dysku (LiDAR trafia do paczek terenu).
     pub const STORED: [Layer; 3] = [Layer::Dem, Layer::Sat, Layer::Ortho];
 
@@ -79,18 +77,6 @@ impl Layer {
     pub fn max_z(self) -> u8 {
         15
     }
-
-    /// Średni rozmiar wypieczonego kafla w górach (do szacowania pobierania), w bajtach.
-    pub fn avg_bytes(self, z: u8) -> u64 {
-        match self {
-            Layer::Dem if z <= 8 => 45_000,
-            Layer::Dem => 70_000,
-            Layer::Sat if z <= 9 => 18_000,
-            Layer::Sat => 26_000,
-            Layer::Ortho => 60_000,
-            Layer::Lidar => 110_000,
-        }
-    }
 }
 
 /// Dostęp do danych: tani do klonowania (wspólne paczki i pamięć otwartych plików).
@@ -99,15 +85,18 @@ pub struct Store {
     root: PathBuf,
     packs: Arc<Packs>,
     touched: Arc<Mutex<HashMap<PackKey, Instant>>>,
-    coverage: Arc<Coverage>,
+    no_lidar: Arc<RwLock<HashSet<TileId>>>,
 }
 
 impl Store {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
+        let no_lidar = fs::read_to_string(root.join(NO_LIDAR_FILE))
+            .map(|s| s.lines().filter_map(parse_tile).collect())
+            .unwrap_or_default();
         Self {
+            no_lidar: Arc::new(RwLock::new(no_lidar)),
             packs: Arc::new(Packs::new(root.join("tiles"))),
-            coverage: Arc::new(Coverage::new(root.join("lidar-brak.txt"))),
             root,
             touched: Arc::default(),
         }
@@ -117,52 +106,27 @@ impl Store {
         &self.root
     }
 
-    /// Kafel jest na dysku albo wiadomo, że źródło go nie ma. Dla LiDAR-u: kafel terenu jest z LiDAR-u.
+    /// Kafel jest na dysku albo wiadomo, że źródło go nie ma. Dla LiDAR-u: kafel terenu jest z LiDAR-u
+    /// albo usługi nie mają dla niego danych.
     pub fn has(&self, layer: Layer, t: TileId) -> bool {
-        if let Some(known) = self.coverage.has(layer, t) {
-            return known;
-        }
         match layer {
-            Layer::Lidar => self.read(Layer::Dem, t).is_some_and(|b| crate::bake::is_lidar(&b)),
+            Layer::Lidar => {
+                self.no_lidar.read().unwrap().contains(&t)
+                    || self.read(Layer::Dem, t).is_some_and(|b| crate::bake::is_lidar(&b))
+            }
             _ => self.packs.state(layer.id(), layer.dir(), t) != Slot::Empty,
         }
     }
 
-    /// Wczytanie pokrycia z indeksów wszystkich paczek (równolegle, po pliku).
-    pub fn scan(&self) {
-        let tiles = self.root.join("tiles");
-        for layer in Layer::STORED {
-            pack::list(&tiles, layer.id(), layer.dir()).into_par_iter().for_each(|(key, path)| {
-                // tylko tam może leżeć LiDAR, a odczyt początku każdego kafla kosztuje
-                let with_head = layer == Layer::Dem && key.z >= 14;
-                match pack::scan(&path, with_head) {
-                    Ok(slots) => self.coverage.merge(key, &slots),
-                    Err(e) => log::warn!("paczka {}: {e}", path.display()),
-                }
-            });
-        }
-        self.coverage.mark_ready();
-    }
-
-    /// [`Store::scan`] w tle; do końca skanowania `has` pyta dysk.
-    pub fn start_scan(&self) {
-        let store = self.clone();
-        std::thread::spawn(move || store.scan());
-    }
-
-    /// Kafle warstwy na poziomie `z` obecne w bibliotece (do mapy pokrycia).
-    pub fn covered_tiles(&self, layer: Layer, z: u8) -> Vec<TileId> {
-        self.coverage.tiles_at(layer, z)
-    }
-
-    /// Usługi nie mają LiDAR-u dla tego kafla – nie pytamy o niego ponownie.
+    /// Usługi nie mają LiDAR-u dla tego kafla – nie pytamy o niego ponownie. Nie ma tego w paczkach,
+    /// bo znacznik braku zablokowałby w tym miejscu model globalny.
     pub fn note_no_lidar(&self, t: TileId) {
-        self.coverage.note_no_lidar(t);
-    }
-
-    #[cfg(test)]
-    pub fn release_all(&self) {
-        self.packs.forget_all();
+        if self.no_lidar.write().unwrap().insert(t) {
+            let file = fs::OpenOptions::new().create(true).append(true).open(self.root.join(NO_LIDAR_FILE));
+            if let Ok(mut f) = file {
+                let _ = writeln!(f, "{} {} {}", t.z, t.x, t.y);
+            }
+        }
     }
 
     /// Wypieczone dane kafla.
@@ -174,9 +138,7 @@ impl Store {
 
     /// Zapis wypieczonego kafla; `None` = źródło nie ma tego kafla.
     pub fn write(&self, layer: Layer, t: TileId, baked: Option<&[u8]>) -> std::io::Result<()> {
-        self.packs.write(layer.id(), layer.dir(), t, baked)?;
-        self.coverage.note(layer, t, baked.is_some());
-        Ok(())
+        self.packs.write(layer.id(), layer.dir(), t, baked)
     }
 
     /// Oznaczenie użycia paczki (czas modyfikacji = ostatnie użycie), najwyżej raz na minutę.
@@ -199,18 +161,17 @@ impl Store {
         dir_size(&self.root)
     }
 
-    /// Sprzątanie do limitu: usuwa najdawniej używane paczki, których nie chroni żaden zapisany obszar.
+    /// Sprzątanie do limitu: usuwa najdawniej używane paczki (model globalny zostaje).
     /// Zwraca (liczba usuniętych paczek, zwolnione bajty).
-    pub fn collect_garbage(&self, limit: u64, areas: &[Area]) -> (usize, u64) {
+    pub fn collect_garbage(&self, limit: u64) -> (usize, u64) {
         let mut total = self.usage();
         if total <= limit {
             return (0, 0);
         }
-        let pinned = pinned_packs(areas);
         let mut free: Vec<(SystemTime, u64, PackKey, PathBuf)> = Vec::new();
         for layer in Layer::STORED {
             for (key, path) in pack::list(&self.root.join("tiles"), layer.id(), layer.dir()) {
-                if key.z <= BASE_MAX_Z || pinned.contains(&key) {
+                if key.z <= BASE_MAX_Z {
                     continue;
                 }
                 if let Ok(m) = fs::metadata(&path) {
@@ -231,7 +192,6 @@ impl Store {
             }
             self.packs.forget(&key);
             if fs::remove_file(&path).is_ok() {
-                self.coverage.remove_pack(&key);
                 total = total.saturating_sub(size);
                 freed += size;
                 n += 1;
@@ -239,33 +199,11 @@ impl Store {
         }
         (n, freed)
     }
-
-    /// Usunięcie paczek obszaru, których nie potrzebuje żaden inny zapisany obszar.
-    pub fn remove_area_tiles(&self, area: &Area, others: &[Area]) {
-        let keep = pinned_packs(others);
-        for key in pinned_packs(std::slice::from_ref(area)) {
-            if key.z > BASE_MAX_Z && !keep.contains(&key) {
-                let dir = Layer::STORED
-                    .into_iter()
-                    .find(|l| l.id() == key.layer)
-                    .unwrap_or(Layer::Dem)
-                    .dir();
-                self.packs.forget(&key);
-                if fs::remove_file(self.packs.path(&key, dir)).is_ok() {
-                    self.coverage.remove_pack(&key);
-                }
-            }
-        }
-    }
 }
 
-/// Paczki chronione przez obszary (każda paczka, w której leży choć jeden kafel obszaru).
-fn pinned_packs(areas: &[Area]) -> HashSet<PackKey> {
-    areas
-        .iter()
-        .flat_map(|a| a.tiles())
-        .map(|(l, t)| PackKey::of(l.id(), t).0)
-        .collect()
+fn parse_tile(line: &str) -> Option<TileId> {
+    let mut p = line.split_whitespace();
+    Some(TileId::new(p.next()?.parse().ok()?, p.next()?.parse().ok()?, p.next()?.parse().ok()?))
 }
 
 pub fn dir_size(dir: &Path) -> u64 {
@@ -308,95 +246,6 @@ fn free_space_impl(dir: &Path) -> Option<u64> {
 #[cfg(not(windows))]
 fn free_space_impl(_dir: &Path) -> Option<u64> {
     None
-}
-
-/// Co leży we wskazanym folderze: dane tej wersji, kafle wersji 1.x do zaimportowania.
-#[derive(Clone, Debug, Default)]
-pub struct Found {
-    pub areas: usize,
-    pub packs: bool,
-    /// Katalog `.cache\dem` wersji 1.x (kafle terenu, także LiDAR) i liczba plików.
-    pub legacy_dem: Option<(PathBuf, usize)>,
-}
-
-impl Found {
-    /// Opis dla użytkownika: „3 obszary, kafle wersji 1.x do importu: 1520”.
-    pub fn describe(&self) -> Option<String> {
-        let mut parts = Vec::new();
-        if self.areas > 0 {
-            parts.push(format!("zapisane obszary: {}", self.areas));
-        } else if self.packs {
-            parts.push("kafle map tej wersji".to_string());
-        }
-        if let Some((_, n)) = &self.legacy_dem {
-            parts.push(format!(
-                "kafle terenu wersji 1.x (także LiDAR): {n} – zostaną zaimportowane"
-            ));
-        }
-        (!parts.is_empty()).then(|| format!("Znaleziono dane: {}.", parts.join(", ")))
-    }
-}
-
-pub fn detect(dir: &Path) -> Found {
-    let areas = crate::areas::load(dir).len();
-    let packs = dir.join("tiles").is_dir();
-    let legacy = [
-        dir.join(".cache").join("dem"),
-        dir.parent()
-            .map(|p| p.join(".cache").join("dem"))
-            .unwrap_or_default(),
-    ]
-    .into_iter()
-    .find(|d| d.is_dir() && !d.join(IMPORTED_MARK).exists())
-    .map(|d| {
-        let n = legacy_tiles(&d).len();
-        (d, n)
-    })
-    .filter(|(_, n)| *n > 0);
-    Found {
-        areas,
-        packs,
-        legacy_dem: legacy,
-    }
-}
-
-/// Znacznik zakończonego importu w katalogu kafli wersji 1.x.
-pub const IMPORTED_MARK: &str = ".gran2-zaimportowano";
-
-/// Kafle Terrarium wersji 1.x: `.cache\dem\z\x\y.png`.
-pub fn legacy_tiles(dir: &Path) -> Vec<(TileId, PathBuf)> {
-    let num = |p: &Path| {
-        p.file_stem()
-            .and_then(|s| s.to_str())
-            .and_then(|s| s.parse::<u32>().ok())
-    };
-    let mut out = Vec::new();
-    let Ok(zs) = fs::read_dir(dir) else {
-        return out;
-    };
-    for z in zs.flatten() {
-        let Some(zv) = num(&z.path()).filter(|z| *z <= 16) else {
-            continue;
-        };
-        let Ok(xs) = fs::read_dir(z.path()) else {
-            continue;
-        };
-        for x in xs.flatten() {
-            let Some(xv) = num(&x.path()) else { continue };
-            let Ok(ys) = fs::read_dir(x.path()) else {
-                continue;
-            };
-            for y in ys.flatten() {
-                let p = y.path();
-                if p.extension().is_some_and(|e| e == "png") {
-                    if let Some(yv) = num(&p) {
-                        out.push((TileId::new(zv as u8, xv, yv), p));
-                    }
-                }
-            }
-        }
-    }
-    out
 }
 
 /// „12,4 GB”, „380 MB”.

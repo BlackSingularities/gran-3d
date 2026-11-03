@@ -144,14 +144,15 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         .title_bar(false)
         .collapsible(false)
         .resizable(false)
-        .anchor(egui::Align2::CENTER_TOP, [0.0, 70.0])
-        .fixed_size([520.0, 10.0])
+        .anchor(egui::Align2::LEFT_TOP, [16.0, 16.0])
+        .fixed_size([420.0, 10.0])
         .show(ctx, |ui| {
             let r = ui.add(
                 egui::TextEdit::singleline(&mut s.q)
                     .hint_text("Szczyt, schronisko, szlak (np. „czerwony”), miejscowość…")
                     .desired_width(f32::INFINITY)
-                    .font(egui::TextStyle::Heading),
+                    .font(egui::TextStyle::Body)
+                    .margin(egui::Margin::symmetric(10, 8)),
             );
             if !s.focused {
                 r.request_focus();
@@ -214,7 +215,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
                     ui.label(RichText::new(format!("Wyszukiwanie miejsc niedostępne: {e}")).small().color(theme::WARN));
                 }
                 if hits.is_empty() && q.len() >= 2 && s.pending.is_none() {
-                    ui.label(RichText::new("Brak wyników w okolicy. Wpisz co najmniej 3 litery, żeby szukać w całej Europie.").small().color(theme::PAPER_3));
+                    theme::para(ui, "Brak wyników w okolicy. Wpisz co najmniej 3 litery, żeby szukać w całej Europie.");
                 }
             });
         });
