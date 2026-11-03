@@ -866,6 +866,7 @@ fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     theme::switch(ui, &mut a.prefs.contours, "Poziomice (C)");
     theme::switch(ui, &mut a.prefs.km_grid, "Siatka kilometrowa");
     theme::switch(ui, &mut a.prefs.shadows, "Cienie rzeźby");
+    theme::switch(ui, &mut a.prefs.detail, "Drobna rzeźba (mapa normalnych)");
     theme::switch(ui, &mut a.prefs.snow, "Śnieg");
     theme::switch(ui, &mut a.prefs.ortho, "Ortofoto (PL, CZ, SK)");
     theme::switch(ui, &mut a.prefs.landcover, "Pokrycie terenu z OSM");

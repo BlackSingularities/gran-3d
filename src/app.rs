@@ -330,7 +330,7 @@ impl App {
                             }
                             ui.add_space(12.0);
                             ui.label(theme::kicker("Źródła danych"));
-                            theme::para(ui, "Teren: Terrarium/AWS Open Data (SRTM, EU-DEM), LiDAR: NMT GUGiK, DMR 5G ČÚZK. Zdjęcia: Sentinel-2 cloudless 2020 © EOX (CC BY-NC-SA 4.0), ortofoto: GUGiK, ČÚZK, ÚGKK SR. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim.");
+                            theme::para(ui, "Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Sentinel-2 cloudless 2020 © EOX (CC BY-NC-SA 4.0), ortofoto: GUGiK, ČÚZK, ÚGKK SR. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim.");
                         }
                     });
                 });

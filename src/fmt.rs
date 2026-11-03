@@ -10,7 +10,7 @@ pub fn int(v: f64) -> String {
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
         if i > 0 && (s.len() - i) % 3 == 0 && s.len() > 4 {
-            out.push('\u{202f}');
+            out.push(' ');
         }
         out.push(c);
     }
@@ -125,7 +125,7 @@ mod tests {
         assert_eq!(dist(4321.0), "4,32 km");
         assert_eq!(time(3.42), "3 h 25 min");
         assert_eq!(time(0.5), "30 min");
-        assert_eq!(int(12450.0), "12\u{202f}450");
+        assert_eq!(int(12450.0), "12 450");
         assert_eq!(int(2499.0), "2499");
         assert_eq!(compass(350.0), "N");
         assert_eq!(hour(7.75), "07:45");

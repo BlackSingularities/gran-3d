@@ -11,40 +11,35 @@
 //! Wszystko zapisuje się samo w miarę oglądania. Po przekroczeniu limitu sprzątacz usuwa paczki
 //! od najdawniej używanych; model globalny do poziomu [`BASE_MAX_Z`] zostaje.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime};
 
 use crate::geo::TileId;
 use crate::pack::{self, PackKey, Packs, Slot};
-
-const NO_LIDAR_FILE: &str = "lidar-brak.txt";
 
 /// Model globalny do tego poziomu nigdy nie jest usuwany (cała Europa to kilkadziesiąt MB).
 pub const BASE_MAX_Z: u8 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Layer {
-    /// Wysokości terenu (Terrarium, AWS Open Data: SRTM, EU-DEM, GMTED; LiDAR zaimportowany z wersji 1.x).
+    /// Wysokości terenu (Mapterhorn: krajowe modele LiDAR; AWS Open Data jako zapas).
     Dem,
     /// Obraz satelitarny (Sentinel-2 cloudless 2020 © EOX, CC BY-NC-SA 4.0).
     Sat,
     /// Ortofotomapa z usług krajowych (GUGiK, ZBGIS, ČÚZK) na tle Sentinel-2, JPEG 512 px.
     Ortho,
-    /// Teren LiDAR (NMT GUGiK, DMR 5G ČÚZK) – zapisywany w paczkach terenu (`Dem`).
-    Lidar,
 }
 
 impl Layer {
-    /// Warstwy z własnymi paczkami na dysku (LiDAR trafia do paczek terenu).
+    /// Warstwy z własnymi paczkami na dysku.
     pub const STORED: [Layer; 3] = [Layer::Dem, Layer::Sat, Layer::Ortho];
 
     pub fn id(self) -> u8 {
         match self {
-            Layer::Dem | Layer::Lidar => 0,
+            Layer::Dem => 0,
             Layer::Sat => 1,
             Layer::Ortho => 2,
         }
@@ -52,7 +47,7 @@ impl Layer {
 
     pub fn dir(self) -> &'static str {
         match self {
-            Layer::Dem | Layer::Lidar => "dem",
+            Layer::Dem => "dem",
             Layer::Sat => "sat",
             Layer::Ortho => "ortho",
         }
@@ -69,7 +64,7 @@ impl Layer {
                 t.z, t.y, t.x
             ),
             // składane z kilku usług (`national`)
-            Layer::Ortho | Layer::Lidar => String::new(),
+            Layer::Ortho => String::new(),
         }
     }
 
@@ -85,17 +80,12 @@ pub struct Store {
     root: PathBuf,
     packs: Arc<Packs>,
     touched: Arc<Mutex<HashMap<PackKey, Instant>>>,
-    no_lidar: Arc<RwLock<HashSet<TileId>>>,
 }
 
 impl Store {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
-        let no_lidar = fs::read_to_string(root.join(NO_LIDAR_FILE))
-            .map(|s| s.lines().filter_map(parse_tile).collect())
-            .unwrap_or_default();
         Self {
-            no_lidar: Arc::new(RwLock::new(no_lidar)),
             packs: Arc::new(Packs::new(root.join("tiles"))),
             root,
             touched: Arc::default(),
@@ -106,27 +96,9 @@ impl Store {
         &self.root
     }
 
-    /// Kafel jest na dysku albo wiadomo, że źródło go nie ma. Dla LiDAR-u: kafel terenu jest z LiDAR-u
-    /// albo usługi nie mają dla niego danych.
+    /// Kafel jest na dysku albo wiadomo, że źródło go nie ma.
     pub fn has(&self, layer: Layer, t: TileId) -> bool {
-        match layer {
-            Layer::Lidar => {
-                self.no_lidar.read().unwrap().contains(&t)
-                    || self.read(Layer::Dem, t).is_some_and(|b| crate::bake::is_lidar(&b))
-            }
-            _ => self.packs.state(layer.id(), layer.dir(), t) != Slot::Empty,
-        }
-    }
-
-    /// Usługi nie mają LiDAR-u dla tego kafla – nie pytamy o niego ponownie. Nie ma tego w paczkach,
-    /// bo znacznik braku zablokowałby w tym miejscu model globalny.
-    pub fn note_no_lidar(&self, t: TileId) {
-        if self.no_lidar.write().unwrap().insert(t) {
-            let file = fs::OpenOptions::new().create(true).append(true).open(self.root.join(NO_LIDAR_FILE));
-            if let Ok(mut f) = file {
-                let _ = writeln!(f, "{} {} {}", t.z, t.x, t.y);
-            }
-        }
+        self.packs.state(layer.id(), layer.dir(), t) != Slot::Empty
     }
 
     /// Wypieczone dane kafla.
@@ -199,11 +171,6 @@ impl Store {
         }
         (n, freed)
     }
-}
-
-fn parse_tile(line: &str) -> Option<TileId> {
-    let mut p = line.split_whitespace();
-    Some(TileId::new(p.next()?.parse().ok()?, p.next()?.parse().ok()?, p.next()?.parse().ok()?))
 }
 
 pub fn dir_size(dir: &Path) -> u64 {

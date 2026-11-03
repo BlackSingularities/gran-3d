@@ -9,7 +9,7 @@ use crate::download;
 use crate::geo::{lat_to_y, lon_to_x, meters_per_pixel, BBox, TileId};
 use crate::store::{Layer, Store};
 
-/// Najwyższy poziom terenu w źródłach (Terrarium do z15, LiDAR z wersji 1.x do z16).
+/// Najwyższy poziom terenu w źródłach.
 pub const MAX_Z: u8 = 16;
 /// Poziom pobierany do analiz i szlaków, gdy na dysku nie ma nic dokładniejszego (~25 m).
 pub const ANALYSIS_Z: u8 = 12;
@@ -104,14 +104,14 @@ impl Heights {
         if let Some(d) = self.local(t) {
             return Some(d);
         }
-        if t.z > 15 {
+        if t.z > download::TERRAIN_MAX_Z {
             return None;
         }
         if self.inner.lock().unwrap().absent.get(&t) == Some(&true) {
             return None;
         }
         let store = self.store();
-        match download::get_terrain(&store, t)
+        match download::get(&store, Layer::Dem, t)
             .ok()
             .and_then(|b| decode_dem(&b))
         {

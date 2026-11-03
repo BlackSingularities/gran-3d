@@ -1,6 +1,6 @@
 [package]
 name = "gran"
-version = "2.2.1"
+version = "2.2.2"
 edition = "2021"
 rust-version = "1.85"
 description = "GRAŃ — atlas szlaków górskich 3D dla Windows"
@@ -19,7 +19,7 @@ bytemuck = { version = "1", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = { version = "2.12", default-features = false, features = ["tls", "gzip", "proxy-from-env"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 rfd = "0.15"
 egui-phosphor = "0.11"
 lz4_flex = "0.11"
@@ -31,7 +31,6 @@ sha2 = "0.10"
 base64 = "0.22"
 roxmltree = "0.21"
 open = "5"
-tiff = "0.10"
 log = "0.4"
 env_logger = { version = "0.11", default-features = false, features = ["humantime"] }
 

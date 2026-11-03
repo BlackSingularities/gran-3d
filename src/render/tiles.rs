@@ -78,6 +78,8 @@ struct GpuImg {
 struct Queue {
     list: Vec<Request>,
     inflight: HashSet<Key>,
+    /// Wątki zajęte wolnymi usługami krajowymi.
+    slow: usize,
 }
 
 /// Kafel do narysowania w tej klatce.
@@ -119,6 +121,8 @@ pub struct Tiles {
 }
 
 const WORKERS: usize = 16;
+/// Tyle wątków może czekać na usługi krajowe; reszta zawsze obsługuje szybkie źródła.
+const SLOW_WORKERS: usize = 6;
 
 impl Tiles {
     pub fn new(device: &wgpu::Device, queue_gpu: &wgpu::Queue, heights: Heights, ctx: eframe::egui::Context) -> Self {
@@ -357,7 +361,7 @@ impl Tiles {
                 continue;
             }
             // dane: najlepszy rezydentny przodek; własny kafel do wczytania
-            let dem_z = t.z.min(15);
+            let dem_z = t.z.min(download::TERRAIN_MAX_Z);
             let own = ancestor_at(t, dem_z);
             let prio = d as f32 / 1000.0;
             if !self.dem.contains_key(&own) && !self.missing.contains(&Key(Kind::Dem, own)) {
@@ -495,16 +499,21 @@ fn worker(q: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Loaded>, heights: Heights,
             let (m, cv) = &*q;
             let mut g = m.lock().unwrap();
             loop {
-                if !g.list.is_empty() {
-                    // najważniejsze: najmniejszy priorytet
-                    let (i, _) = g
-                        .list
-                        .iter()
-                        .enumerate()
-                        .min_by(|a, b| a.1.prio.total_cmp(&b.1.prio))
-                        .unwrap();
+                // najważniejsze: najmniejszy priorytet (ortofoto tylko, gdy są na nie wolne wątki)
+                let slow_free = g.slow < SLOW_WORKERS;
+                let best = g
+                    .list
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| slow_free || r.key.0 != Kind::Ortho)
+                    .min_by(|a, b| a.1.prio.total_cmp(&b.1.prio))
+                    .map(|(i, _)| i);
+                if let Some(i) = best {
                     let r = g.list.swap_remove(i);
                     if g.inflight.insert(r.key) {
+                        if r.key.0 == Kind::Ortho {
+                            g.slow += 1;
+                        }
                         break r;
                     }
                     continue;
@@ -520,6 +529,11 @@ fn worker(q: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Loaded>, heights: Heights,
             Kind::Sat => load_img(&heights.store(), req.key.1, Layer::Sat, 256),
             Kind::Ortho => load_img(&heights.store(), req.key.1, Layer::Ortho, national::ORTHO_PX),
         };
+        if req.key.0 == Kind::Ortho {
+            let (m, cv) = &*q;
+            m.lock().unwrap().slow -= 1;
+            cv.notify_all();
+        }
         if tx.send(Loaded { key: req.key, payload }).is_err() {
             break;
         }

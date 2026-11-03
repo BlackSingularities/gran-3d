@@ -9,10 +9,8 @@ use crate::store::Layer;
 
 const DEM_TAG: u8 = b'D';
 const JPEG_TAG: u8 = b'J';
-/// Starsze wersje (1, 2) mogły zapisać dziury ze źródła jako −1000 m – są pobierane ponownie.
-const DEM_VERSION: u8 = 3;
-/// Ten sam format, z wysokościami LiDAR (żeby nie pobierać ich ponownie).
-const DEM_VERSION_LIDAR: u8 = 4;
+/// Starsze wersje miały gorszy model i mogły zawierać dziury ze źródła – są pobierane ponownie.
+const DEM_VERSION: u8 = 5;
 /// Niżej nie ma lądu: Terrarium zaznacza tak brak danych (−32768 m) albo ma tam błędne piksele.
 const HOLE_M: f32 = -500.0;
 const OFFSET_M: f32 = 1000.0;
@@ -33,19 +31,6 @@ pub fn bake(layer: Layer, source: &[u8]) -> Result<Vec<u8>, BakeError> {
         Layer::Dem => {
             let (elev, w, h) = terrarium(source)?;
             Ok(encode_dem(&elev, w, h))
-        }
-        Layer::Lidar => {
-            // wysokości f32 LE 256×256 (bez braków – uzupełnione wcześniej)
-            let elev: Vec<f32> = source
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
-            if elev.len() != 256 * 256 {
-                return Err(BakeError("nieoczekiwany rozmiar kafla LiDAR".into()));
-            }
-            let mut out = encode_dem(&elev, 256, 256);
-            out[1] = DEM_VERSION_LIDAR;
-            Ok(out)
         }
         Layer::Sat | Layer::Ortho => {
             if source.len() < 4 || source[0] != 0xFF || source[1] != 0xD8 {
@@ -70,6 +55,16 @@ pub fn terrarium(source: &[u8]) -> Result<(Vec<f32>, usize, usize), BakeError> {
         .map(|p| p[0] as f32 * 256.0 + p[1] as f32 + p[2] as f32 / 256.0 - 32768.0)
         .collect();
     Ok((elev, w, h))
+}
+
+/// Ćwiartka kafla 512×512 jako kafel 256×256 (`qx`, `qy` – 0 albo 1).
+pub fn quadrant(elev: &[f32], qx: usize, qy: usize) -> Vec<f32> {
+    let mut out = Vec::with_capacity(256 * 256);
+    for y in 0..256 {
+        let at = (y + qy * 256) * 512 + qx * 256;
+        out.extend_from_slice(&elev[at..at + 256]);
+    }
+    out
 }
 
 pub fn has_holes(elev: &[f32]) -> bool {
@@ -107,7 +102,7 @@ pub fn fill_holes(elev: &mut [f32], w: usize, h: usize, parent: Option<(&Dem, [f
 
 /// Kafel terenu w starszym formacie, do pobrania od nowa.
 pub fn dem_stale(blob: &[u8]) -> bool {
-    blob.len() > 1 && blob[0] == DEM_TAG && blob[1] != DEM_VERSION && blob[1] != DEM_VERSION_LIDAR
+    blob.len() > 1 && blob[0] == DEM_TAG && blob[1] != DEM_VERSION
 }
 
 pub fn encode_dem(elev: &[f32], w: usize, h: usize) -> Vec<u8> {
@@ -143,7 +138,7 @@ pub struct Dem {
 }
 
 pub fn decode_dem(blob: &[u8]) -> Option<Dem> {
-    if blob.len() < 6 || blob[0] != DEM_TAG || !(blob[1] == DEM_VERSION || blob[1] == DEM_VERSION_LIDAR) {
+    if blob.len() < 6 || blob[0] != DEM_TAG || blob[1] != DEM_VERSION {
         return None;
     }
     let w = u16::from_le_bytes([blob[2], blob[3]]) as usize;
@@ -168,11 +163,6 @@ pub fn decode_dem(blob: &[u8]) -> Option<Dem> {
         elev.push(v as f32 / STEP - OFFSET_M);
     }
     Some(Dem { w, h, elev })
-}
-
-/// Kafel terenu pochodzi z LiDAR.
-pub fn is_lidar(blob: &[u8]) -> bool {
-    blob.len() > 1 && blob[0] == DEM_TAG && blob[1] == DEM_VERSION_LIDAR
 }
 
 /// JPEG zdjęcia z zapisu na dysku.
@@ -215,6 +205,16 @@ mod tests {
         assert!(!has_holes(&e));
         // nie ma z czego uzupełnić
         assert!(!fill_holes(&mut [-32768.0; 4], 2, 2, None));
+    }
+
+    #[test]
+    fn quadrant_takes_the_right_pixels() {
+        let elev: Vec<f32> = (0..512 * 512).map(|i| i as f32).collect();
+        let q = quadrant(&elev, 1, 1);
+        assert_eq!(q.len(), 256 * 256);
+        assert_eq!(q[0], (256 * 512 + 256) as f32);
+        assert_eq!(q[256 * 256 - 1], (512 * 512 - 1) as f32);
+        assert_eq!(quadrant(&elev, 1, 0)[1], 257.0);
     }
 
     #[test]
