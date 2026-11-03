@@ -625,7 +625,8 @@ impl Renderer {
             max_img: scene.max_img,
             imagery: scene.imagery,
             ortho: scene.ortho,
-            max_dist: (view.eye.y.abs().max(1000.0) * 60.0).clamp(80_000.0, 450_000.0),
+            // z wysoka widać daleko: bez tego przy dużym oddaleniu kafle kończą się w połowie widoku
+            max_dist: (view.eye.y.abs().max(1000.0) * 60.0).clamp(80_000.0, 2_500_000.0),
         };
         let draw = self.tiles.select(view, &settings);
         self.drawn = draw.len();

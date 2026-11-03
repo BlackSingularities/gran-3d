@@ -1687,10 +1687,12 @@ impl Atlas {
                 None => [0.0; 4],
             }
         };
-        // piętra roślinności: wyżej na południu (Alpy), niżej na północy
-        let lat = self.cam.lat as f32;
-        let k = ((49.5 - lat) / 3.0).clamp(-1.0, 1.0);
-        let biome = [1300.0 + 500.0 * k.max(0.0) - 250.0 * (-k).max(0.0), 1480.0 + 650.0 * k.max(0.0) - 250.0 * (-k).max(0.0), 1650.0 + 700.0 * k.max(0.0) - 250.0 * (-k).max(0.0)];
+        // piętra roślinności i śniegu: wyżej bliżej równika (Alpy ~1800 m, Himalaje ~4000 m), niżej na północy
+        let lift = (49.5 - self.cam.lat.abs() as f32).clamp(-20.0, 25.0);
+        let up = if lift > 0.0 { lift * 120.0 } else { lift * 60.0 };
+        let forest = 1300.0 + up;
+        let biome = [forest, forest + 180.0 + lift.max(0.0) * 15.0, forest + 350.0 + lift.max(0.0) * 30.0];
+        let snow_lift = if lift > 0.0 { lift * 150.0 } else { lift * 60.0 };
         // cięcie poziomic zależne od odległości
         let d = self.cam.distance;
         let contour = if d < 2500.0 { 10.0 } else if d < 9000.0 { 20.0 } else if d < 30_000.0 { 50.0 } else { 100.0 };
@@ -1706,8 +1708,9 @@ impl Atlas {
             sky_color: sky,
             zenith,
             horizon,
-            fog_density: 1.0 / 95_000.0,
-            snowline: sun::snowline(day) as f32,
+            // z wysoka mgła słabnie (inaczej przy dużym oddaleniu cały widok jest mleczny)
+            fog_density: 1.0 / (95_000.0 * (self.cam.distance / 30_000.0).max(1.0) as f32),
+            snowline: sun::snowline(day) as f32 + snow_lift,
             snow: self.prefs.snow,
             autumn: sun::autumn(day),
             lens,
