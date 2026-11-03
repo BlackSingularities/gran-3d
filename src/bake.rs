@@ -1,6 +1,6 @@
 //! Wypiekanie kafli do postaci trzymanej na dysku – przy pobieraniu, w tle.
 //!
-//! Teren: wysokości jako `u16` z krokiem 1/8 m (−1000…7191 m), predykcja z sąsiada po lewej
+//! Teren: wysokości jako `u16` z krokiem 1/4 m (−1000…15383 m; wcześniej 1/8 m ucinało Himalaje na 7191 m), predykcja z sąsiada po lewej
 //! (pierwsza kolumna – z wiersza wyżej) i kompresja LZ4. Wychodzi mniej niż PNG z Terrarium,
 //! a odczyt to dekompresja LZ4 i suma prefiksowa – bez dekodowania PNG i bez przeliczania RGB.
 //! Zdjęcia: JPEG bez zmian (już skompresowany), z jednobajtowym znacznikiem formatu.
@@ -10,11 +10,11 @@ use crate::store::Layer;
 const DEM_TAG: u8 = b'D';
 const JPEG_TAG: u8 = b'J';
 /// Starsze wersje miały gorszy model i mogły zawierać dziury ze źródła – są pobierane ponownie.
-const DEM_VERSION: u8 = 5;
+const DEM_VERSION: u8 = 6;
 /// Niżej nie ma lądu: Terrarium zaznacza tak brak danych (−32768 m) albo ma tam błędne piksele.
 const HOLE_M: f32 = -500.0;
 const OFFSET_M: f32 = 1000.0;
-const STEP: f32 = 8.0;
+const STEP: f32 = 4.0;
 
 #[derive(Debug)]
 pub struct BakeError(pub String);
@@ -186,7 +186,7 @@ mod tests {
         let d = decode_dem(&blob).unwrap();
         assert_eq!((d.w, d.h), (w, h));
         for (a, b) in elev.iter().zip(&d.elev) {
-            assert!((a - b).abs() <= 0.0625 + 1e-4, "{a} {b}");
+            assert!((a - b).abs() <= 0.125 + 1e-4, "{a} {b}");
         }
     }
 

@@ -30,6 +30,16 @@ pub fn ic(glyph: &str, text: &str) -> String {
 pub fn apply(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+    // obce pisma w nazwach z OSM (dewanagari, tybetańskie, chińskie, japońskie, koreańskie, arabskie…):
+    // zapasowe czcionki systemowe Windows, o ile są
+    let win = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
+    for file in ["Nirmala.ttf", "himalaya.ttf", "msyh.ttc", "YuGothR.ttc", "malgun.ttf", "segoeui.ttf", "seguisym.ttf", "ebrima.ttf", "taile.ttf", "mmrtext.ttf"] {
+        let Ok(data) = std::fs::read(std::path::Path::new(&win).join("Fonts").join(file)) else { continue };
+        fonts.font_data.insert(file.into(), std::sync::Arc::new(egui::FontData::from_owned(data)));
+        for fam in [FontFamily::Proportional, FontFamily::Monospace] {
+            fonts.families.entry(fam).or_default().push(file.into());
+        }
+    }
     ctx.set_fonts(fonts);
     let mut v = Visuals::dark();
     v.panel_fill = INK_1;
