@@ -107,6 +107,8 @@ pub struct Scene {
     pub detail_px: f32,
     pub imagery: bool,
     pub ortho: bool,
+    /// Lekka mapa normalnych: drobna rzeźba z bliska.
+    pub detail: bool,
     pub max_dem: usize,
     pub max_img: usize,
     /// Prostokąty map cieni i widoczności w metrach ramki: x0, z0, 1/szer., 1/wys.
@@ -623,7 +625,7 @@ impl Renderer {
             },
             shadow_rect: scene.shadow_rect,
             vs_rect: scene.vs_rect,
-            flags: [scene.shadows as u8 as f32, scene.viewshed as u8 as f32, scene.landcover as u8 as f32, 0.0],
+            flags: [scene.shadows as u8 as f32, scene.viewshed as u8 as f32, scene.landcover as u8 as f32, scene.detail as u8 as f32],
             biome: [scene.biome[0], scene.biome[1], scene.biome[2], 0.0],
             grid_origin: [0.0, 0.0, 1.0, 0.0],
             land_rect: scene.land_rect,

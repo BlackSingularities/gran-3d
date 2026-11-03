@@ -16,10 +16,8 @@ const USER_AGENT: &str = concat!(
     " (+https://redzikowski.com/portfolio/gran-3d)"
 );
 
-/// Od tego poziomu teren może pochodzić z LiDAR-u.
-const LIDAR_MIN_Z: u8 = 14;
-/// LiDAR różniący się od modelu globalnego o tyle metrów to błąd usługi, nie teren.
-const LIDAR_MAX_DIFF: f32 = 200.0;
+/// Najwyższy poziom kafla terenu 256 px: ćwiartka kafla 512 px poziomu 15 źródła.
+pub const TERRAIN_MAX_Z: u8 = 16;
 
 /// Kafel pobierany właśnie przez ten wątek. Inny wątek chcący ten sam kafel czeka i bierze go z dysku.
 struct Claim(Layer, TileId);
@@ -103,13 +101,16 @@ impl std::fmt::Display for FetchError {
 
 /// Pobranie kafla z sieci (3 próby z narastającą przerwą).
 pub fn fetch(layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError> {
-    let url = layer.url(t);
+    fetch_url(&layer.url(t))
+}
+
+fn fetch_url(url: &str) -> Result<Vec<u8>, FetchError> {
     let mut last = String::new();
     for attempt in 0..3 {
         if attempt > 0 {
             thread::sleep(Duration::from_millis(400 * (1 << attempt)));
         }
-        match agent().get(&url).call() {
+        match agent().get(url).call() {
             Ok(r) => {
                 let mut buf = Vec::with_capacity(64 * 1024);
                 match r.into_reader().take(16 << 20).read_to_end(&mut buf) {
@@ -146,23 +147,6 @@ fn fetch_any(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchErr
             });
             crate::national::fetch_ortho(t, bg)
         }
-        Layer::Lidar => {
-            let mut h = crate::national::fetch_lidar(t)?;
-            // braki (granica, morze) i błędne wartości usług – z modelu globalnego
-            let base = get(store, Layer::Dem, t).ok().and_then(|b| bake::decode_dem(&b)).filter(|d| d.w == 256 && d.h == 256);
-            let mean = {
-                let v: Vec<f32> = h.iter().copied().filter(|v| !v.is_nan()).collect();
-                v.iter().sum::<f32>() / v.len().max(1) as f32
-            };
-            for (i, v) in h.iter_mut().enumerate() {
-                match &base {
-                    Some(d) if v.is_nan() || (*v - d.elev[i]).abs() > LIDAR_MAX_DIFF => *v = d.elev[i],
-                    None if v.is_nan() => *v = mean,
-                    _ => {}
-                }
-            }
-            Ok(h.iter().flat_map(|v| v.to_le_bytes()).collect())
-        }
         _ => fetch(layer, t),
     }
 }
@@ -177,13 +161,8 @@ fn stored(store: &Store, layer: Layer, t: TileId) -> Option<Result<Vec<u8>, Fetc
     }
 }
 
-/// Wypiekanie pobranego kafla. Źródło terenu miewa całe kafle bez danych – uzupełnia je kafel nadrzędny.
-fn bake_source(store: &Store, layer: Layer, t: TileId, src: &[u8]) -> Result<Vec<u8>, FetchError> {
-    let net = |e: bake::BakeError| FetchError::Network(e.to_string());
-    if layer != Layer::Dem {
-        return bake::bake(layer, src).map_err(net);
-    }
-    let (mut elev, w, h) = bake::terrarium(src).map_err(net)?;
+/// Teren z pliku Terrarium. Źródło miewa miejsca bez danych – uzupełnia je kafel nadrzędny.
+fn bake_terrain(store: &Store, t: TileId, mut elev: Vec<f32>, w: usize, h: usize) -> Result<Vec<u8>, FetchError> {
     if bake::has_holes(&elev) {
         let parent = (t.z > 0).then(|| t.ancestor(1)).and_then(|(p, off, k)| {
             let d = get(store, Layer::Dem, p).ok().and_then(|b| bake::decode_dem(&b))?;
@@ -197,6 +176,48 @@ fn bake_source(store: &Store, layer: Layer, t: TileId, src: &[u8]) -> Result<Vec
     Ok(bake::encode_dem(&elev, w, h))
 }
 
+/// Kafel terenu z Mapterhorn: jeden plik 512 px poziomu wyżej to cztery kafle 256 px, więc od razu
+/// zapisują się wszystkie. Zwraca kafel `t`.
+fn fetch_mapterhorn(store: &Store, t: TileId) -> Result<Vec<u8>, FetchError> {
+    let p = t.ancestor(1).0;
+    let src = fetch_url(&format!("https://tiles.mapterhorn.com/{}/{}/{}.webp", p.z, p.x, p.y))?;
+    let net = |e: bake::BakeError| FetchError::Network(e.to_string());
+    let (elev, w, h) = bake::terrarium(&src).map_err(net)?;
+    if (w, h) != (512, 512) {
+        return Err(FetchError::Network("nieoczekiwany rozmiar kafla terenu".into()));
+    }
+    let own = bake_terrain(store, t, bake::quadrant(&elev, (t.x % 2) as usize, (t.y % 2) as usize), 256, 256)?;
+    for (qx, qy) in [(0u32, 0u32), (1, 0), (0, 1), (1, 1)] {
+        let c = TileId::new(t.z, p.x * 2 + qx, p.y * 2 + qy);
+        if c == t || matches!(stored(store, Layer::Dem, c), Some(Ok(_))) {
+            continue;
+        }
+        let part = bake::quadrant(&elev, qx as usize, qy as usize);
+        // rodzeństwo z brakami pobierze się samo, gdy będzie potrzebne
+        if !bake::has_holes(&part) {
+            let _ = store.write(Layer::Dem, c, Some(&bake::encode_dem(&part, 256, 256)));
+        }
+    }
+    Ok(own)
+}
+
+/// Teren: najpierw Mapterhorn (krajowe modele LiDAR), a gdy niedostępny – AWS (do poziomu 15).
+fn fetch_terrain(store: &Store, t: TileId) -> Result<Vec<u8>, FetchError> {
+    if (1..=TERRAIN_MAX_Z).contains(&t.z) {
+        match fetch_mapterhorn(store, t) {
+            Ok(b) => return Ok(b),
+            Err(FetchError::Missing) => {}
+            Err(FetchError::Network(e)) => log::warn!("teren {}/{}/{}: {e}", t.z, t.x, t.y),
+        }
+    }
+    if t.z > 15 {
+        return Err(FetchError::Missing);
+    }
+    let src = fetch(Layer::Dem, t)?;
+    let (elev, w, h) = bake::terrarium(&src).map_err(|e| FetchError::Network(e.to_string()))?;
+    bake_terrain(store, t, elev, w, h)
+}
+
 /// Wypieczony kafel z dysku albo z sieci (pobrany jest od razu wypiekany i zapisywany).
 pub fn get(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError> {
     if let Some(r) = stored(store, layer, t) {
@@ -206,9 +227,13 @@ pub fn get(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError
     if let Some(r) = stored(store, layer, t) {
         return r;
     }
-    match fetch_any(store, layer, t) {
-        Ok(src) => {
-            let baked = bake_source(store, layer, t, &src)?;
+    let fetched = if layer == Layer::Dem {
+        fetch_terrain(store, t)
+    } else {
+        fetch_any(store, layer, t).and_then(|src| bake::bake(layer, &src).map_err(|e| FetchError::Network(e.to_string())))
+    };
+    match fetched {
+        Ok(baked) => {
             let _ = store.write(layer, t, Some(&baked));
             Ok(baked)
         }
@@ -218,25 +243,4 @@ pub fn get(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError
         }
         Err(e) => Err(e),
     }
-}
-
-/// Kafel terenu do widoku: na bliskich poziomach najpierw LiDAR, gdzie sięgają usługi,
-/// a gdy go nie ma albo serwer nie odpowiada – model globalny.
-pub fn get_terrain(store: &Store, t: TileId) -> Result<Vec<u8>, FetchError> {
-    if t.z >= LIDAR_MIN_Z && crate::national::has_lidar(t) {
-        let _claim = Claim::take(Layer::Lidar, t);
-        if !store.has(Layer::Lidar, t) {
-            match fetch_any(store, Layer::Lidar, t) {
-                Ok(src) => {
-                    if let Ok(baked) = bake::bake(Layer::Lidar, &src) {
-                        let _ = store.write(Layer::Lidar, t, Some(&baked));
-                        return Ok(baked);
-                    }
-                }
-                Err(FetchError::Missing) => store.note_no_lidar(t),
-                Err(FetchError::Network(e)) => log::warn!("LiDAR {}/{}/{}: {e}", t.z, t.x, t.y),
-            }
-        }
-    }
-    get(store, Layer::Dem, t)
 }

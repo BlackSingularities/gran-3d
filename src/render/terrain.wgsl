@@ -1,5 +1,5 @@
 // GRAŃ – teren kaflowy: wysokości z kafla DEM (257×257, narożniki pikseli), gradient do cieniowania,
-// style (teren, hipsometria, nachylenie, ekspozycja, satelita/ortofoto, mapa), cienie, soczewki, mgła.
+// style (teren, hipsometria, nachylenie, ekspozycja, satelita/ortofoto, mapa), mapa normalnych, cienie, soczewki, mgła.
 
 struct Globals {
     view_proj: mat4x4<f32>,
@@ -15,7 +15,7 @@ struct Globals {
     cursor: vec4<f32>,       // x, z, wysokość, aktywny
     shadow_rect: vec4<f32>,  // x0, z0, 1/szer, 1/wys (m ramki)
     vs_rect: vec4<f32>,
-    flags: vec4<f32>,        // cienie, widoczność, piętra roślinności: las, kosodrzewina
+    flags: vec4<f32>,        // cienie, widoczność, pokrycie terenu, mapa normalnych
     biome: vec4<f32>,        // las, kosodrzewina, skały, okluzja
     grid_origin: vec4<f32>,  // przesunięcie siatki km (m), metry na m ramki
     land_rect: vec4<f32>,    // maska pokrycia terenu: x0, z0, 1/szer., 1/wys.
@@ -132,7 +132,17 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let style = i32(g.style.x + 0.5);
     let h = height_at(in.dem_uv);
     let grad = textureSample(grad_tex, samp, in.dem_uv).xy;
-    let n = normalize(vec3(-grad.x * exag, 1.0, -grad.y * exag));
+    // lekka mapa normalnych z bliska: na zdjęciach z jasności obrazu, inaczej z drobnego szumu
+    let px = vec2(1.5) / vec2<f32>(textureDimensions(img_tex));
+    let lum = vec3(0.3, 0.59, 0.11);
+    let lx = dot(textureSample(img_tex, samp, in.img_uv + vec2(px.x, 0.0)).rgb - textureSample(img_tex, samp, in.img_uv - vec2(px.x, 0.0)).rgb, lum);
+    let lz = dot(textureSample(img_tex, samp, in.img_uv + vec2(0.0, px.y)).rgb - textureSample(img_tex, samp, in.img_uv - vec2(0.0, px.y)).rgb, lum);
+    let mx = fbm((in.wp + vec2(2.0, 0.0)) / 11.0) - fbm((in.wp - vec2(2.0, 0.0)) / 11.0);
+    let mz = fbm((in.wp + vec2(0.0, 2.0)) / 11.0) - fbm((in.wp - vec2(0.0, 2.0)) / 11.0);
+    let detail_on = g.flags.w * (1.0 - smoothstep(1500.0, 25000.0, in.dist));
+    let photo = style == 4 && tile.img.w > 0.5;
+    let detail = select(vec2(mx, mz) * 0.8, vec2(lx, lz) * 1.6, photo) * detail_on;
+    let n = normalize(vec3(-grad.x * exag - detail.x, 1.0, -grad.y * exag - detail.y));
     let slope = length(grad);
     let slope_deg = degrees(atan(slope));
     // ekspozycja: kierunek spadku (0 = N)

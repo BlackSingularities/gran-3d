@@ -137,6 +137,8 @@ pub struct Prefs {
     pub ortho: bool,
     /// Maska pokrycia terenu z OSM (wody, lasy, skały) w stylu „teren”.
     pub landcover: bool,
+    /// Lekka mapa normalnych: drobna rzeźba z bliska.
+    pub detail: bool,
     /// Pora dnia i data: `None` – teraz.
     pub custom_time: Option<(i32, u32, u32, f64)>,
     pub quality: Quality,
@@ -170,6 +172,7 @@ impl Default for Prefs {
             snow: true,
             ortho: true,
             landcover: true,
+            detail: true,
             custom_time: None,
             quality: Quality::High,
             render_scale: s,
@@ -1700,6 +1703,7 @@ impl Atlas {
             detail_px: self.prefs.detail_px,
             imagery: self.prefs.style == Style::Satellite,
             ortho: self.prefs.ortho,
+            detail: self.prefs.detail,
             max_dem: self.prefs.max_dem,
             max_img: self.prefs.max_img,
             shadow_rect: to_rect(self.shadow_rect),
@@ -1970,8 +1974,8 @@ impl Atlas {
         p.rect_filled(bar, 0.0, Color32::from_black_alpha(130));
         p.text(bar.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, info, FontId::monospace(11.5), theme::PAPER_2);
         let attr = match self.prefs.style {
-            Style::Satellite => "Sentinel-2 cloudless 2020 © EOX · ortofoto © GUGiK, © ČÚZK, © ÚGKK SR · szlaki © OpenStreetMap",
-            _ => "Teren: Terrarium/AWS (SRTM, EU-DEM), LiDAR GUGiK/ČÚZK · szlaki © OpenStreetMap",
+            Style::Satellite => "Sentinel-2 cloudless 2020 © EOX · ortofoto © GUGiK, © ČÚZK, © ÚGKK SR · teren © Mapterhorn · © OpenStreetMap",
+            _ => "Teren © Mapterhorn (ÚGKK SR, GUGiK, ČÚZK), AWS Open Data · © OpenStreetMap",
         };
         p.text(bar.right_center() - Vec2::new(12.0, 0.0), Align2::RIGHT_CENTER, attr, FontId::proportional(10.5), theme::PAPER_3);
 
