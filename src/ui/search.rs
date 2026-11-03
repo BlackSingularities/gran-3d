@@ -78,6 +78,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
     let Some(mut s) = a.search.take() else { return };
     let mut open = true;
     let mut choose: Option<Hit> = None;
+    let mut link: Option<String> = None;
     // odpowiedź Nominatim
     if let Some(rx) = &s.pending {
         if let Ok(r) = rx.try_recv() {
@@ -178,7 +179,9 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
             if esc {
                 open = false;
             }
-            if enter && !hits.is_empty() {
+            if enter && s.q.trim().starts_with("gran://") {
+                link = Some(s.q.trim().to_string());
+            } else if enter && !hits.is_empty() {
                 choose = Some(match hits[s.sel].0 {
                     Hit::Poi(i) => Hit::Poi(i),
                     Hit::Trail(i) => Hit::Trail(i),
@@ -216,6 +219,13 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
             });
         });
 
+    if let Some(l) = link {
+        if a.apply_link(&l) {
+            open = false;
+        } else {
+            a.notify("Nieprawidłowy link GRANIA.");
+        }
+    }
     match choose {
         Some(Hit::Poi(i)) => {
             let p = a.snap.pois[i].poi.clone();

@@ -136,6 +136,12 @@ Section "GRAŃ" SecMain
   CreateShortCut "$SMPROGRAMS\${NAME}.lnk" "$INSTDIR\Gran.exe" "" "$INSTDIR\Gran.exe" 0
   CreateShortCut "$DESKTOP\${NAME}.lnk" "$INSTDIR\Gran.exe" "" "$INSTDIR\Gran.exe" 0
 
+  ; linki gran://widok?… otwierają widok w programie
+  WriteRegStr HKCR "gran" "" "URL:GRAŃ – widok mapy"
+  WriteRegStr HKCR "gran" "URL Protocol" ""
+  WriteRegStr HKCR "gran\DefaultIcon" "" '"$INSTDIR\Gran.exe",0'
+  WriteRegStr HKCR "gran\shell\open\command" "" '"$INSTDIR\Gran.exe" "%1"'
+
   WriteRegStr HKLM "${UNKEY}" "DisplayName" "GRAŃ – atlas szlaków 3D"
   WriteRegStr HKLM "${UNKEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKLM "${UNKEY}" "DisplayIcon" "$INSTDIR\Gran.exe"
@@ -172,6 +178,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${NAME}.lnk"
   Delete "$DESKTOP\${NAME}.lnk"
   DeleteRegKey HKLM "${UNKEY}"
+  DeleteRegKey HKCR "gran"
 
   ; przy aktualizacji (--updated) albo w trybie cichym dane użytkownika zostają nietknięte
   ${GetParameters} $R0

@@ -16,6 +16,8 @@ Instalacja na wersji 1.x (Electron) usuwa ją jej własnym deinstalatorem i zach
 
 ### Teren
 - Teren kaflowy z poziomami szczegółów (drzewo czwórkowe Web Mercator, siatka 64×64 na kafel, fartuchy maskujące szczeliny, krzywizna Ziemi), dane wczytywane w wątkach wokół kamery, a do czasu wczytania – fragmenty kafli nadrzędnych.
+- **Ortofotomapa** GUGiK (PL), ČÚZK (CZ) i ZBGIS (SK) do ~0,6 m na bliskich kaflach w stylu satelitarnym, a w obszarach „LiDAR i ortofoto” – **model LiDAR 3 m** (NMT GUGiK w PUWG-1992 przeliczany do Web Mercatora, DMR 5G ČÚZK).
+- **Pokrycie terenu z OSM** (wody, lasy, kosodrzewina, piargi) wypiekane do masek sektorów i używane w cieniowaniu.
 - Style: **teren** (piętra roślinności zależne od wysokości, nachylenia i ekspozycji, śnieg według daty, barwy jesieni), **satelita** (Sentinel-2 cloudless), **mapa**, **hipsometria**, **nachylenie jak na mapach lawinowych**, **ekspozycja**.
 - **Słońce według daty i godziny** (NOAA, czas polski), **cienie rzucane przez rzeźbę** liczone w tle, perspektywa powietrzna i niebo z poświatą Słońca.
 - Poziomice z automatycznym cięciem, siatka kilometrowa, przewyższenie ×1–3, MSAA i skalowanie rozdzielczości renderu.
@@ -27,7 +29,7 @@ Instalacja na wersji 1.x (Electron) usuwa ją jej własnym deinstalatorem i zach
 - **Trasa przez teren**: A* po modelu (16 kierunków), funkcja Toblera, limit nachylenia.
 - Metryki: dystans w rzucie i po powierzchni, linia prosta i krętość, podejścia/zejścia z histerezą, czas wg **reguły PTTK** lub **DIN 33466** z tempem i skalą SAC, **punkty GOT PTTK**, maks. nachylenie, ocena trudności.
 - **Profil wysokości** barwiony nachyleniem, z pasem kolorów szlaków, mijanymi punktami, wariantami w tle i kursorem zsynchronizowanym z mapą.
-- **Przelot kamery** nad trasą, eksport i import **GPX** (także przeciągnięciem pliku na okno).
+- **Przelot kamery** nad trasą, eksport i import **GPX** (także przeciągnięciem pliku na okno), **link `gran://`** z widokiem i punktami trasy (rejestrowany przez instalator, otwierany też z wyszukiwarki).
 
 ### Analizy
 - **Soczewki** (`H` `W` `O`): ta sama wysokość (pas ± lub poziomica), wysokość względna, widoczność z miejsca pod kursorem; kliknięcie przypina, `Esc` odpina.
@@ -45,7 +47,9 @@ Wyszukiwarka (`/`) szczytów, schronisk, przełęczy, szlaków (także po kolorz
   areas.json                    obszary zapisane do pracy bez internetu
   tiles\dem\z\bx_by.gpk         teren (u16 co 1/8 m + LZ4), paczki 16×16 kafli
   tiles\sat\z\bx_by.gpk         zdjęcia satelitarne (JPEG), paczki 16×16 kafli
+  tiles\ortho\zx_by.gpk       ortofotomapa krajowa (JPEG 512 px)
   sectors\9_x_y.json.lz4        szlaki i punkty OSM sektora
+  land\9_x_y.png                pokrycie terenu sektora (R woda, G las, B skały/zarośla)
 ```
 
 Po przekroczeniu limitu najdawniej używane paczki są usuwane; zapisane obszary i model globalny (do z6) zostają. Ustawienia: `%APPDATA%\GRAN\gran.json` (i `datadir.txt` dla deinstalatora).

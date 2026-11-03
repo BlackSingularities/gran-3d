@@ -70,6 +70,56 @@ pub fn fetch(layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError> {
     Err(FetchError::Network(last))
 }
 
+/// Źródło kafla: zwykłe (jeden adres) albo składane z usług krajowych.
+fn fetch_any(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError> {
+    match layer {
+        Layer::Ortho => {
+            // tło: zdjęcie satelitarne (przodek do z14), przycięte do kafla
+            let bg = (0..=t.z.saturating_sub(1)).find_map(|dz| {
+                let (a, off, k) = if t.z - dz > crate::render::tiles::SAT_MAX_Z {
+                    return None;
+                } else if dz == 0 {
+                    (t, [0.0, 0.0], 1.0)
+                } else {
+                    t.ancestor(dz)
+                };
+                let blob = get(store, Layer::Sat, a).ok()?;
+                let img = image::load_from_memory_with_format(bake::jpeg(&blob)?, image::ImageFormat::Jpeg).ok()?.to_rgba8();
+                let s = img.width() as f32;
+                let (x, y, w) = ((off[0] * s) as u32, (off[1] * s) as u32, ((k * s) as u32).max(1));
+                Some(image::imageops::crop_imm(&img, x, y, w, w).to_image())
+            });
+            crate::national::fetch_ortho(t, bg)
+        }
+        Layer::Lidar => {
+            let mut h = crate::national::fetch_lidar(t)?;
+            // braki (granica, morze) z modelu globalnego
+            if h.iter().any(|v| v.is_nan()) {
+                let base = get(store, Layer::Dem, t).ok().and_then(|b| bake::decode_dem(&b));
+                let mean = {
+                    let v: Vec<f32> = h.iter().copied().filter(|v| !v.is_nan()).collect();
+                    v.iter().sum::<f32>() / v.len().max(1) as f32
+                };
+                for (i, v) in h.iter_mut().enumerate() {
+                    if v.is_nan() {
+                        *v = match &base {
+                            Some(d) if d.w == 256 && d.h == 256 => d.elev[i],
+                            _ => mean,
+                        };
+                    }
+                }
+            }
+            Ok(h.iter().flat_map(|v| v.to_le_bytes()).collect())
+        }
+        _ => fetch(layer, t),
+    }
+}
+
+/// Kafel LiDAR jest już na dysku.
+pub fn has_lidar(store: &Store, t: TileId) -> bool {
+    store.read(Layer::Dem, t).is_some_and(|b| bake::is_lidar(&b))
+}
+
 /// Wypieczony kafel z dysku albo z sieci (pobrany jest od razu wypiekany i zapisywany).
 pub fn get(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError> {
     if let Some(b) = store.read(layer, t) {
@@ -78,7 +128,7 @@ pub fn get(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError
     if store.has(layer, t) {
         return Err(FetchError::Missing);
     }
-    match fetch(layer, t) {
+    match fetch_any(store, layer, t) {
         Ok(src) => {
             let baked = bake::bake(layer, &src).map_err(|e| FetchError::Network(e.to_string()))?;
             let _ = store.write(layer, t, Some(&baked));
@@ -105,10 +155,14 @@ pub enum Outcome {
 
 /// Pobranie, wypieczenie i zapis kafla (element zadania obszaru).
 pub fn download_tile(store: &Store, layer: Layer, t: TileId) -> Outcome {
-    if store.has(layer, t) {
+    if layer == Layer::Lidar {
+        if has_lidar(store, t) {
+            return Outcome::Skipped;
+        }
+    } else if store.has(layer, t) {
         return Outcome::Skipped;
     }
-    match fetch(layer, t) {
+    match fetch_any(store, layer, t) {
         Ok(src) => match bake::bake(layer, &src) {
             Ok(baked) => match store.write(layer, t, Some(&baked)) {
                 Ok(()) => Outcome::Saved(src.len() as u64),
@@ -117,7 +171,10 @@ pub fn download_tile(store: &Store, layer: Layer, t: TileId) -> Outcome {
             Err(e) => Outcome::Failed(e.to_string()),
         },
         Err(FetchError::Missing) => {
-            let _ = store.write(layer, t, None);
+            // brak LiDAR nie może zablokować modelu globalnego w tej samej paczce
+            if layer != Layer::Lidar {
+                let _ = store.write(layer, t, None);
+            }
             Outcome::Missing
         }
         Err(FetchError::Network(e)) => Outcome::Failed(e),

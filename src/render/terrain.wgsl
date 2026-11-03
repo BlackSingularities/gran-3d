@@ -18,6 +18,7 @@ struct Globals {
     flags: vec4<f32>,        // cienie, widoczność, piętra roślinności: las, kosodrzewina
     biome: vec4<f32>,        // las, kosodrzewina, skały, okluzja
     grid_origin: vec4<f32>,  // przesunięcie siatki km (m), metry na m ramki
+    land_rect: vec4<f32>,    // maska pokrycia terenu: x0, z0, 1/szer., 1/wys.
 };
 
 struct Tile {
@@ -31,6 +32,7 @@ struct Tile {
 @group(0) @binding(1) var samp: sampler;
 @group(0) @binding(2) var shadow_tex: texture_2d<f32>;
 @group(0) @binding(3) var vs_tex: texture_2d<f32>;
+@group(0) @binding(4) var land_tex: texture_2d<f32>;
 @group(1) @binding(0) var<uniform> tile: Tile;
 @group(2) @binding(0) var height_tex: texture_2d<f32>;
 @group(2) @binding(1) var grad_tex: texture_2d<f32>;
@@ -145,6 +147,11 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let vr = in_rect(wp, g.vs_rect);
     let vs_s = textureSample(vs_tex, samp, clamp(vr.xy, vec2(0.0), vec2(1.0))).r;
     let img_s = textureSample(img_tex, samp, in.img_uv).rgb;
+    let lr = in_rect(wp, g.land_rect);
+    let land_s = textureSample(land_tex, samp, clamp(lr.xy, vec2(0.0), vec2(1.0)));
+    // pokrycie z OSM: R woda, G las, B skały (1) / zarośla (~0,43)
+    let land = select(vec4(0.0), land_s, g.flags.z > 0.5 && lr.z > 0.5 && land_s.a > 0.5);
+    let has_land = g.flags.z > 0.5 && lr.z > 0.5 && land_s.a > 0.5;
     var shadow = 1.0;
     if (g.flags.x > 0.5 && sr.z > 0.5) {
         shadow = shadow_s;
@@ -191,6 +198,18 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         let rock_mask = max(smoothstep(rock_line - 60.0, rock_line + 160.0, e) * smoothstep(0.25, 0.6, slope + 0.2),
                             smoothstep(0.95, 1.4, slope));
         c = mix(c, rock, clamp(rock_mask, 0.0, 1.0));
+        if (has_land) {
+            // rzeczywiste lasy, kosodrzewina, piargi i wody z OSM zamiast przybliżenia z wysokości
+            let below = 1.0 - smoothstep(forest_line - 60.0, forest_line + 60.0, e);
+            let forest_c = mix(beech, spruce, forest_mix);
+            c = mix(c, mix(meadow_low, forest_c, land.g), below * 0.85);
+            let scrub = smoothstep(0.3, 0.5, land.b) * (1.0 - smoothstep(0.7, 0.9, land.b));
+            c = mix(c, pine, scrub * 0.9);
+            c = mix(c, rock, smoothstep(0.8, 1.0, land.b) * 0.9);
+            if (land.r > 0.5 && slope < 0.15) {
+                water = 1.0;
+            }
+        }
         // śnieg: od granicy (dłużej na północnych stokach i w żlebach), nie na ścianach
         if (g.season.y > 0.5) {
             let sline = snowline - north * 180.0 + (fbm(wp / 60.0) - 0.5) * 160.0;
@@ -225,6 +244,12 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         let paper = srgb(vec3(0.97, 0.95, 0.90));
         let wood = srgb(vec3(0.80, 0.89, 0.70));
         var c = mix(wood, paper, smoothstep(g.biome.x - 60.0, g.biome.x + 60.0, h));
+        if (has_land) {
+            c = mix(paper, wood, land.g);
+            if (land.r > 0.5 && slope < 0.15) {
+                water = 1.0;
+            }
+        }
         let rk = smoothstep(0.9, 1.3, slope) + smoothstep(g.biome.z, g.biome.z + 250.0, h) * smoothstep(0.4, 0.8, slope);
         c = mix(c, srgb(vec3(0.80, 0.79, 0.78)), clamp(rk, 0.0, 1.0));
         base = c;

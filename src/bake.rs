@@ -10,6 +10,8 @@ use crate::store::Layer;
 const DEM_TAG: u8 = b'D';
 const JPEG_TAG: u8 = b'J';
 const DEM_VERSION: u8 = 1;
+/// Ten sam format, z wysokościami LiDAR (żeby nie pobierać ich ponownie).
+const DEM_VERSION_LIDAR: u8 = 2;
 const OFFSET_M: f32 = 1000.0;
 const STEP: f32 = 8.0;
 
@@ -36,7 +38,20 @@ pub fn bake(layer: Layer, source: &[u8]) -> Result<Vec<u8>, BakeError> {
                 .collect();
             Ok(encode_dem(&elev, w, h))
         }
-        Layer::Sat => {
+        Layer::Lidar => {
+            // wysokości f32 LE 256×256 (bez braków – uzupełnione wcześniej)
+            let elev: Vec<f32> = source
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            if elev.len() != 256 * 256 {
+                return Err(BakeError("nieoczekiwany rozmiar kafla LiDAR".into()));
+            }
+            let mut out = encode_dem(&elev, 256, 256);
+            out[1] = DEM_VERSION_LIDAR;
+            Ok(out)
+        }
+        Layer::Sat | Layer::Ortho => {
             if source.len() < 4 || source[0] != 0xFF || source[1] != 0xD8 {
                 return Err(BakeError("odpowiedź nie jest obrazem JPEG".into()));
             }
@@ -81,7 +96,7 @@ pub struct Dem {
 }
 
 pub fn decode_dem(blob: &[u8]) -> Option<Dem> {
-    if blob.len() < 6 || blob[0] != DEM_TAG || blob[1] != DEM_VERSION {
+    if blob.len() < 6 || blob[0] != DEM_TAG || !(blob[1] == DEM_VERSION || blob[1] == DEM_VERSION_LIDAR) {
         return None;
     }
     let w = u16::from_le_bytes([blob[2], blob[3]]) as usize;
@@ -106,6 +121,11 @@ pub fn decode_dem(blob: &[u8]) -> Option<Dem> {
         elev.push(v as f32 / STEP - OFFSET_M);
     }
     Some(Dem { w, h, elev })
+}
+
+/// Kafel terenu pochodzi z LiDAR.
+pub fn is_lidar(blob: &[u8]) -> bool {
+    blob.len() > 1 && blob[0] == DEM_TAG && blob[1] == DEM_VERSION_LIDAR
 }
 
 /// JPEG zdjęcia z zapisu na dysku.

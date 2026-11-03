@@ -422,6 +422,7 @@ fn decode(layer: Layer, t: TileId, blob: &[u8]) -> Option<ColorImage> {
                 img.as_raw(),
             ))
         }
+        Layer::Ortho | Layer::Lidar => None,
         Layer::Dem => {
             let d = crate::bake::decode_dem(blob)?;
             let lat = t.bbox().center()[1];

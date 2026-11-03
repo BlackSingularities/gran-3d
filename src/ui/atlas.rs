@@ -63,6 +63,10 @@ impl Style {
         }
     }
 
+    fn from_code(c: u32) -> Option<Style> {
+        Style::ALL.into_iter().find(|s| s.code() == c)
+    }
+
     fn code(self) -> u32 {
         match self {
             Style::Terrain => 0,
@@ -129,6 +133,10 @@ pub struct Prefs {
     pub km_grid: bool,
     pub shadows: bool,
     pub snow: bool,
+    /// Ortofotomapa krajowa w stylu satelitarnym (PL, CZ, SK).
+    pub ortho: bool,
+    /// Maska pokrycia terenu z OSM (wody, lasy, skały) w stylu „teren”.
+    pub landcover: bool,
     /// Pora dnia i data: `None` – teraz.
     pub custom_time: Option<(i32, u32, u32, f64)>,
     pub quality: Quality,
@@ -160,6 +168,8 @@ impl Default for Prefs {
             km_grid: false,
             shadows: true,
             snow: true,
+            ortho: true,
+            landcover: true,
             custom_time: None,
             quality: Quality::High,
             render_scale: s,
@@ -234,6 +244,7 @@ enum JobResult {
     Shadow(u64, Box<(Vec<u8>, u32, u32, [f64; 4])>),
     Rel(u64, RelInfo),
     Los(u64, Option<f64>, f64),
+    Land(Option<Box<(Vec<u8>, u32, [f64; 4])>>),
 }
 
 /// Prośby atlasu do aplikacji.
@@ -282,6 +293,9 @@ pub struct Atlas {
     shadow_rect: Option<[f64; 4]>,
     vs_rect: Option<[f64; 4]>,
     live_rect: Option<[f64; 4]>,
+    land_key: Option<(SectorId, u64)>,
+    land_busy: bool,
+    land_rect: Option<[f64; 4]>,
     gen: u64,
     tx: std::sync::mpsc::Sender<JobResult>,
     rx: Receiver<JobResult>,
@@ -354,6 +368,9 @@ impl Atlas {
             shadow_rect: None,
             vs_rect: None,
             live_rect: None,
+            land_key: None,
+            land_busy: false,
+            land_rect: None,
             gen: 0,
             tx,
             rx,
@@ -380,6 +397,92 @@ impl Atlas {
         let c = self.panorama.unwrap_or(self.cam);
         self.prefs.camera = (c.lon, c.lat, c.height, c.heading, c.pitch, c.distance);
         self.prefs.clone()
+    }
+
+    /// Link do bieżącego widoku (kamera, styl, punkty trasy): `gran://widok?…`.
+    pub fn share_link(&self) -> String {
+        let c = self.panorama.unwrap_or(self.cam);
+        let mut s = format!(
+            "gran://widok?lat={:.5}&lon={:.5}&az={:.0}&nach={:.0}&odl={:.0}&styl={}",
+            c.lat,
+            c.lon,
+            c.heading,
+            c.pitch,
+            c.distance,
+            self.prefs.style.code()
+        );
+        if self.prefs.exag != 1.0 {
+            s.push_str(&format!("&prz={:.1}", self.prefs.exag));
+        }
+        if !self.waypoints.is_empty() {
+            let pts: Vec<String> = self.waypoints.iter().map(|w| format!("{:.5},{:.5}", w.lat, w.lon)).collect();
+            s.push_str("&trasa=");
+            s.push_str(&pts.join(";"));
+            if self.route_mode == RouteMode::Terrain {
+                s.push_str("&teren=1");
+            }
+        }
+        s
+    }
+
+    /// Otwarcie linku `gran://widok?…`; `false`, gdy to nie jest link GRANIA.
+    pub fn apply_link(&mut self, link: &str) -> bool {
+        let link = link.trim();
+        let Some(q) = link.strip_prefix("gran://").and_then(|r| r.split_once('?')).map(|(_, q)| q) else {
+            return false;
+        };
+        let mut cam = self.cam;
+        let mut wps: Vec<(f64, f64)> = Vec::new();
+        let mut terrain = false;
+        let mut ok = false;
+        for kv in q.split('&') {
+            let Some((k, v)) = kv.split_once('=') else { continue };
+            let v = v.replace("%3B", ";").replace("%2C", ",").replace("%3b", ";").replace("%2c", ",");
+            let num = v.parse::<f64>().ok().filter(|x| x.is_finite());
+            match (k, num) {
+                ("lat", Some(x)) => {
+                    cam.lat = x.clamp(-84.0, 84.0);
+                    ok = true;
+                }
+                ("lon", Some(x)) => cam.lon = x,
+                ("az", Some(x)) => cam.heading = x.rem_euclid(360.0),
+                ("nach", Some(x)) => cam.pitch = x.clamp(4.0, 89.0),
+                ("odl", Some(x)) => cam.distance = x.clamp(120.0, 900_000.0),
+                ("styl", Some(x)) => {
+                    if let Some(s) = Style::from_code(x as u32) {
+                        self.prefs.style = s;
+                    }
+                }
+                ("prz", Some(x)) => self.prefs.exag = x.clamp(1.0, 3.0),
+                ("teren", _) => terrain = v == "1",
+                ("trasa", _) => {
+                    wps = v
+                        .split(';')
+                        .filter_map(|p| {
+                            let (a, b) = p.split_once(',')?;
+                            Some((b.parse().ok()?, a.parse().ok()?))
+                        })
+                        .collect();
+                }
+                _ => {}
+            }
+        }
+        if !ok {
+            return false;
+        }
+        self.exit_panorama();
+        cam.height = self.heights.sample_cached(cam.lon, cam.lat).map(|h| h as f64).unwrap_or(cam.height);
+        self.start_fly(cam, 1.4);
+        if !wps.is_empty() {
+            self.clear_route();
+            self.route_mode = if terrain { RouteMode::Terrain } else { RouteMode::Trails };
+            for (lon, lat) in wps {
+                self.add_waypoint(lon, lat, None);
+            }
+            self.tool = Tool::Route;
+            self.prefs.panel_open = true;
+        }
+        true
     }
 
     pub fn notify(&mut self, s: impl Into<String>) {
@@ -804,6 +907,24 @@ impl Atlas {
         });
     }
 
+    /// Mozaika pokrycia terenu 3×3 sektory wokół kamery (po zmianie sektora albo nowych maskach).
+    fn maybe_landcover(&mut self) {
+        if !self.prefs.landcover || self.land_busy || self.cam.distance > 120_000.0 {
+            return;
+        }
+        let key = (SectorId::at(self.cam.lon, self.cam.lat), self.world.land_version());
+        if self.land_key == Some(key) {
+            return;
+        }
+        self.land_key = Some(key);
+        self.land_busy = true;
+        let (root, tx) = (self.heights.store().root().to_path_buf(), self.tx.clone());
+        thread::spawn(move || {
+            let m = crate::landcover::mosaic(&root, key.0, 1024).map(Box::new);
+            let _ = tx.send(JobResult::Land(m));
+        });
+    }
+
     fn receive_jobs(&mut self) {
         while let Ok(r) = self.rx.try_recv() {
             match r {
@@ -847,6 +968,19 @@ impl Atlas {
                 }
                 JobResult::Rel(g, info) if g == self.gen => self.rel = Some(info),
                 JobResult::Los(g, r, d) if g == self.gen => self.los = Some((r, d)),
+                JobResult::Land(m) => {
+                    self.land_busy = false;
+                    match m {
+                        Some(b) => {
+                            let (data, side, rect) = *b;
+                            if let Some(r) = &mut self.renderer {
+                                r.set_landcover(Some((&data, side, side)));
+                            }
+                            self.land_rect = Some(rect);
+                        }
+                        None => self.land_rect = None,
+                    }
+                }
                 _ => {}
             }
         }
@@ -1263,6 +1397,7 @@ impl Atlas {
 
         // analizy zależne od kursora i Słońca
         self.maybe_shadows();
+        self.maybe_landcover();
         if self.lens == Lens::Vis && self.lens_pin.is_none() {
             if let Some((lon, lat, _)) = self.hover {
                 let moved = self.live_vs.is_none_or(|(a, b)| haversine(a, b, lon, lat) > 60.0);
@@ -1566,11 +1701,14 @@ impl Atlas {
             render_scale: self.prefs.render_scale,
             detail_px: self.prefs.detail_px,
             imagery: self.prefs.style == Style::Satellite,
+            ortho: self.prefs.ortho,
             max_dem: self.prefs.max_dem,
             max_img: self.prefs.max_img,
             shadow_rect: to_rect(self.shadow_rect),
             vs_rect: to_rect(self.vs_rect),
             line_fade: (self.cam.distance as f32 * 3.0).clamp(15_000.0, 90_000.0),
+            landcover: self.prefs.landcover && self.land_rect.is_some(),
+            land_rect: to_rect(self.land_rect),
         }
     }
 
@@ -1834,7 +1972,7 @@ impl Atlas {
         p.rect_filled(bar, 0.0, Color32::from_black_alpha(150));
         p.text(bar.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, info, FontId::monospace(11.5), theme::PAPER_2);
         let attr = match self.prefs.style {
-            Style::Satellite => "Sentinel-2 cloudless 2020 © EOX · teren: Terrarium/AWS · szlaki © OpenStreetMap",
+            Style::Satellite => "Sentinel-2 cloudless 2020 © EOX · ortofoto © GUGiK, © ČÚZK, © ÚGKK SR · szlaki © OpenStreetMap",
             _ => "Teren: Terrarium/AWS (SRTM, EU-DEM), LiDAR GUGiK/ČÚZK · szlaki © OpenStreetMap",
         };
         p.text(bar.right_center() - Vec2::new(12.0, 0.0), Align2::RIGHT_CENTER, attr, FontId::proportional(10.5), theme::PAPER_3);

@@ -150,6 +150,10 @@ impl App {
             );
             app.queue_import();
             app.refresh_usage();
+            // link gran:// z wiersza poleceń (kliknięty w systemie)
+            if let Some(l) = std::env::args().find(|a| a.starts_with("gran://")) {
+                app.atlas.apply_link(&l);
+            }
             let sectors = sectors_of(&app.areas);
             app.world.persist(sectors);
             if app.settings.auto_update && std::env::var_os("GRAN_CAPTURE").is_none() {

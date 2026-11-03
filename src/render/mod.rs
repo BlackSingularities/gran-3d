@@ -40,6 +40,7 @@ pub struct Globals {
     pub flags: [f32; 4],
     pub biome: [f32; 4],
     pub grid_origin: [f32; 4],
+    pub land_rect: [f32; 4],
 }
 
 #[repr(C)]
@@ -105,6 +106,7 @@ pub struct Scene {
     pub render_scale: f32,
     pub detail_px: f32,
     pub imagery: bool,
+    pub ortho: bool,
     pub max_dem: usize,
     pub max_img: usize,
     /// Prostokąty map cieni i widoczności w metrach ramki: x0, z0, 1/szer., 1/wys.
@@ -112,6 +114,9 @@ pub struct Scene {
     pub vs_rect: [f32; 4],
     /// Odległość zanikania szlaków (m).
     pub line_fade: f32,
+    /// Maska pokrycia terenu (OSM) i jej prostokąt w metrach ramki.
+    pub landcover: bool,
+    pub land_rect: [f32; 4],
 }
 
 struct Targets {
@@ -155,7 +160,9 @@ pub struct Renderer {
     dyn_lines: (wgpu::Buffer, u32),
     shadow: OverlayTex,
     vs: OverlayTex,
+    land: OverlayTex,
     empty_overlay: wgpu::TextureView,
+    empty_land: wgpu::TextureView,
     pub drawn: usize,
 }
 
@@ -201,6 +208,7 @@ impl Renderer {
                 },
                 tex(2),
                 tex(3),
+                tex(4),
             ],
         });
         let tile_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -423,10 +431,13 @@ impl Renderer {
         let line_buf = |n: u64| buf("linie", n * std::mem::size_of::<LineInst>() as u64, wgpu::BufferUsages::VERTEX);
         let static_lines = (line_buf(1), 0, u64::MAX);
         let dyn_lines = (line_buf(1024), 0);
-        let globals_bind = Self::make_globals_bind(&device, &globals_layout, &globals_buf, &sampler, &empty_overlay, &empty_overlay);
+        let empty_land = tiles::make_texture(&device, &queue, wgpu::TextureFormat::Rgba8Unorm, 1, 1, &[vec![0, 0, 0, 0]], 4).create_view(&Default::default());
+        let globals_bind = Self::make_globals_bind(&device, &globals_layout, &globals_buf, &sampler, &empty_overlay, &empty_overlay, &empty_land);
         Renderer {
             shadow: OverlayTex { view: empty_overlay.clone() },
             vs: OverlayTex { view: empty_overlay.clone() },
+            land: OverlayTex { view: empty_land.clone() },
+            empty_land,
             empty_overlay,
             device,
             queue,
@@ -464,6 +475,7 @@ impl Renderer {
         sampler: &wgpu::Sampler,
         shadow: &wgpu::TextureView,
         vs: &wgpu::TextureView,
+        land: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("globals"),
@@ -473,12 +485,13 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(shadow) },
                 wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(vs) },
+                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(land) },
             ],
         })
     }
 
     fn rebind_globals(&mut self) {
-        self.globals_bind = Self::make_globals_bind(&self.device, &self.globals_layout, &self.globals_buf, &self.sampler, &self.shadow.view, &self.vs.view);
+        self.globals_bind = Self::make_globals_bind(&self.device, &self.globals_layout, &self.globals_buf, &self.sampler, &self.shadow.view, &self.vs.view, &self.land.view);
     }
 
     /// Mapa cieni (0 – cień, 255 – słońce) na prostokącie ramki; `None` usuwa.
@@ -486,6 +499,17 @@ impl Renderer {
         self.shadow = match data {
             Some((d, w, h)) => OverlayTex { view: overlay_view(&self.device, &self.queue, w, h, d) },
             None => OverlayTex { view: self.empty_overlay.clone() },
+        };
+        self.rebind_globals();
+    }
+
+    /// Maska pokrycia terenu (RGBA: woda, las, skały/zarośla); `None` usuwa.
+    pub fn set_landcover(&mut self, data: Option<(&[u8], u32, u32)>) {
+        self.land = match data {
+            Some((d, w, h)) => OverlayTex {
+                view: tiles::make_texture(&self.device, &self.queue, wgpu::TextureFormat::Rgba8Unorm, w, h, &[d.to_vec()], 4).create_view(&Default::default()),
+            },
+            None => OverlayTex { view: self.empty_land.clone() },
         };
         self.rebind_globals();
     }
@@ -573,6 +597,7 @@ impl Renderer {
             max_dem: scene.max_dem,
             max_img: scene.max_img,
             imagery: scene.imagery,
+            ortho: scene.ortho,
             max_dist: (view.eye.y.abs().max(1000.0) * 60.0).clamp(80_000.0, 450_000.0),
         };
         let draw = self.tiles.select(view, &settings);
@@ -598,9 +623,10 @@ impl Renderer {
             },
             shadow_rect: scene.shadow_rect,
             vs_rect: scene.vs_rect,
-            flags: [scene.shadows as u8 as f32, scene.viewshed as u8 as f32, 0.0, 0.0],
+            flags: [scene.shadows as u8 as f32, scene.viewshed as u8 as f32, scene.landcover as u8 as f32, 0.0],
             biome: [scene.biome[0], scene.biome[1], scene.biome[2], 0.0],
             grid_origin: [0.0, 0.0, 1.0, 0.0],
+            land_rect: scene.land_rect,
         };
         self.queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&g));
         let inv = vp.inverse();

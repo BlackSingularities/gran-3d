@@ -17,16 +17,19 @@ pub enum Level {
     Standard,
     /// Teren ~10 m (najlepszy model globalny), zdjęcia ~5 m.
     Detailed,
+    /// Teren LiDAR 3 m (Polska, Czechy) i ortofotomapa ~1 m (PL, CZ, SK).
+    Lidar,
 }
 
 impl Level {
-    pub const ALL: [Level; 3] = [Level::Preview, Level::Standard, Level::Detailed];
+    pub const ALL: [Level; 4] = [Level::Preview, Level::Standard, Level::Detailed, Level::Lidar];
 
     pub fn name(self) -> &'static str {
         match self {
             Level::Preview => "Podgląd",
             Level::Standard => "Standard",
             Level::Detailed => "Szczegółowy",
+            Level::Lidar => "LiDAR i ortofoto",
         }
     }
 
@@ -34,7 +37,8 @@ impl Level {
         match self {
             Level::Preview => "teren ok. 75 m, zdjęcia ok. 40 m – szybko, mało miejsca",
             Level::Standard => "teren ok. 20 m, zdjęcia satelitarne 10 m – zalecany",
-            Level::Detailed => "teren ok. 10 m, zdjęcia powiększone do 5 m – najwięcej miejsca",
+            Level::Detailed => "teren ok. 10 m, zdjęcia powiększone do 5 m",
+            Level::Lidar => "LiDAR 3 m (PL, CZ) i ortofotomapa ok. 1 m (PL, CZ, SK) – najwięcej miejsca",
         }
     }
 
@@ -46,7 +50,11 @@ impl Level {
             (Level::Standard, Layer::Dem) => 12,
             (Level::Standard, Layer::Sat) => 13,
             (Level::Detailed, Layer::Dem) => 13,
-            (Level::Detailed, Layer::Sat) => 14,
+            (Level::Detailed | Level::Lidar, Layer::Sat) => 14,
+            (Level::Lidar, Layer::Dem) => 13,
+            (Level::Lidar, Layer::Ortho) => 15,
+            (Level::Lidar, Layer::Lidar) => 15,
+            (_, Layer::Ortho | Layer::Lidar) => 0,
         }
     }
 }
@@ -104,10 +112,24 @@ impl Area {
 
     /// Wszystkie kafle obszaru (warstwa, kafel) od [`AREA_MIN_Z`] do poziomu szczegółów.
     pub fn tiles(&self) -> impl Iterator<Item = (Layer, TileId)> + '_ {
-        Layer::ALL.into_iter().flat_map(move |layer| {
+        let base = Layer::ALL.into_iter().flat_map(move |layer| {
             (AREA_MIN_Z..=self.level.max_z(layer))
                 .flat_map(move |z| self.bbox.tiles(z).map(move |t| (layer, t)))
-        })
+        });
+        // dane krajowe tylko tam, gdzie sięgają usługi
+        let national = [(Layer::Ortho, crate::national::ORTHO_MIN_Z), (Layer::Lidar, 14u8)]
+            .into_iter()
+            .filter(move |_| self.level == Level::Lidar)
+            .flat_map(move |(layer, z0)| {
+                (z0..=self.level.max_z(layer)).flat_map(move |z| {
+                    self.bbox.tiles(z).filter(move |t| match layer {
+                        Layer::Ortho => crate::national::has_ortho(*t),
+                        _ => crate::national::has_lidar(*t),
+                    })
+                    .map(move |t| (layer, t))
+                })
+            });
+        base.chain(national)
     }
 
     pub fn estimate(&self) -> Estimate {
@@ -138,6 +160,16 @@ pub fn estimate(bbox: &BBox, level: Level) -> Estimate {
             let n = bbox.tile_count(z);
             e.tiles += n;
             e.bytes += n * layer.avg_bytes(z);
+        }
+    }
+    if level == Level::Lidar {
+        // szacunek bez sprawdzania zasięgu krajów (górna granica)
+        for (layer, z0) in [(Layer::Ortho, crate::national::ORTHO_MIN_Z), (Layer::Lidar, 14u8)] {
+            for z in z0..=level.max_z(layer) {
+                let n = bbox.tile_count(z);
+                e.tiles += n;
+                e.bytes += n * layer.avg_bytes(z);
+            }
         }
     }
     e

@@ -17,6 +17,7 @@ struct Globals {
     flags: vec4<f32>,
     biome: vec4<f32>,
     grid_origin: vec4<f32>,
+    land_rect: vec4<f32>,    // maska pokrycia terenu: x0, z0, 1/szer., 1/wys.
 };
 
 struct LineParams {

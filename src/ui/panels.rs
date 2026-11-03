@@ -214,6 +214,13 @@ fn region_info(a: &mut Atlas, ui: &mut egui::Ui) {
         });
     }
     ui.add_space(10.0);
+    ui.horizontal_wrapped(|ui| {
+        if ui.button("Kopiuj link do widoku").on_hover_text("Adres gran:// otwiera ten widok w GRANI (także u innych)").clicked() {
+            let l = a.share_link();
+            ui.ctx().copy_text(l);
+            a.notify("Skopiowano link do widoku – wklej go do wyszukiwarki GRANI albo otwórz w systemie.");
+        }
+    });
     if ui.button("Wczytaj ślad GPX…").on_hover_text("albo przeciągnij plik .gpx na mapę").clicked() {
         if let Some(p) = rfd::FileDialog::new().add_filter("GPX", &["gpx"]).pick_file() {
             a.import_gpx(&p);
@@ -586,6 +593,11 @@ fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
             if ui.button(if a.prefs.profile_open { "Ukryj profil" } else { "Profil" }).clicked() {
                 a.prefs.profile_open = !a.prefs.profile_open;
             }
+            if ui.button("Kopiuj link").on_hover_text("Link gran:// z widokiem i punktami trasy").clicked() {
+                let l = a.share_link();
+                ui.ctx().copy_text(l);
+                a.notify("Skopiowano link z trasą.");
+            }
             if ui.button("Eksport GPX").on_hover_text("G").clicked() {
                 a.export_gpx();
             }
@@ -785,7 +797,7 @@ fn map_tab(a: &mut Atlas, ui: &mut egui::Ui) {
         Style::Slope => Some("Klasy nachylenia jak na mapach lawinowych: 15–25° · 25–30° · 30–35° · 35–40° · 40–45° · ponad 45°."),
         Style::Aspect => Some("Barwa – kierunek, w który opada stok; nasycenie – nachylenie."),
         Style::Hypso => Some("Barwy wysokości: niziny zielone, piętro hal brązowe, najwyżej biel."),
-        Style::Satellite => Some("Sentinel-2 cloudless 2020 (EOX) – rozdzielczość 10 m."),
+        Style::Satellite => Some("Sentinel-2 cloudless 2020 (EOX) – 10 m; z bliska ortofotomapa GUGiK, ČÚZK i ZBGIS."),
         _ => None,
     };
     if let Some(l) = legend {
@@ -800,6 +812,10 @@ fn map_tab(a: &mut Atlas, ui: &mut egui::Ui) {
         ui.toggle_value(&mut a.prefs.km_grid, "Siatka km");
         ui.toggle_value(&mut a.prefs.shadows, "Cienie rzeźby");
         ui.toggle_value(&mut a.prefs.snow, "Śnieg");
+        ui.toggle_value(&mut a.prefs.ortho, "Ortofoto (PL, CZ, SK)")
+            .on_hover_text("W stylu „Satelita”: zdjęcia lotnicze GUGiK, ČÚZK i ZBGIS do ok. 0,6 m na bliskich kaflach");
+        ui.toggle_value(&mut a.prefs.landcover, "Pokrycie terenu OSM")
+            .on_hover_text("W stylu „Teren”: wody, lasy, kosodrzewina i piargi z OpenStreetMap");
     });
     ui.add(egui::Slider::new(&mut a.prefs.label_density, 0.3..=2.0).text("gęstość nazw"));
     ui.add(egui::Slider::new(&mut a.prefs.exag, 1.0..=3.0).step_by(0.1).text("przewyższenie ×"));

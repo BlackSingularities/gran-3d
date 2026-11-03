@@ -30,22 +30,30 @@ pub enum Layer {
     Dem,
     /// Obraz satelitarny (Sentinel-2 cloudless 2020 © EOX, CC BY-NC-SA 4.0).
     Sat,
+    /// Ortofotomapa z usług krajowych (GUGiK, ZBGIS, ČÚZK) na tle Sentinel-2, JPEG 512 px.
+    Ortho,
+    /// Teren LiDAR (NMT GUGiK, DMR 5G ČÚZK) – zapisywany w paczkach terenu (`Dem`).
+    Lidar,
 }
 
 impl Layer {
     pub const ALL: [Layer; 2] = [Layer::Dem, Layer::Sat];
+    /// Warstwy z własnymi paczkami na dysku (LiDAR trafia do paczek terenu).
+    pub const STORED: [Layer; 3] = [Layer::Dem, Layer::Sat, Layer::Ortho];
 
     pub fn id(self) -> u8 {
         match self {
-            Layer::Dem => 0,
+            Layer::Dem | Layer::Lidar => 0,
             Layer::Sat => 1,
+            Layer::Ortho => 2,
         }
     }
 
     pub fn dir(self) -> &'static str {
         match self {
-            Layer::Dem => "dem",
+            Layer::Dem | Layer::Lidar => "dem",
             Layer::Sat => "sat",
+            Layer::Ortho => "ortho",
         }
     }
 
@@ -59,6 +67,8 @@ impl Layer {
                 "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{}/{}/{}.jpg",
                 t.z, t.y, t.x
             ),
+            // składane z kilku usług (`national`)
+            Layer::Ortho | Layer::Lidar => String::new(),
         }
     }
 
@@ -74,6 +84,8 @@ impl Layer {
             Layer::Dem => 70_000,
             Layer::Sat if z <= 9 => 18_000,
             Layer::Sat => 26_000,
+            Layer::Ortho => 60_000,
+            Layer::Lidar => 110_000,
         }
     }
 }
@@ -146,7 +158,7 @@ impl Store {
         }
         let pinned = pinned_packs(areas);
         let mut free: Vec<(SystemTime, u64, PackKey, PathBuf)> = Vec::new();
-        for layer in Layer::ALL {
+        for layer in Layer::STORED {
             for (key, path) in pack::list(&self.root.join("tiles"), layer.id(), layer.dir()) {
                 if key.z <= BASE_MAX_Z || pinned.contains(&key) {
                     continue;
@@ -182,11 +194,11 @@ impl Store {
         let keep = pinned_packs(others);
         for key in pinned_packs(std::slice::from_ref(area)) {
             if key.z > BASE_MAX_Z && !keep.contains(&key) {
-                let dir = if key.layer == Layer::Dem.id() {
-                    Layer::Dem.dir()
-                } else {
-                    Layer::Sat.dir()
-                };
+                let dir = Layer::STORED
+                    .into_iter()
+                    .find(|l| l.id() == key.layer)
+                    .unwrap_or(Layer::Dem)
+                    .dir();
                 self.packs.forget(&key);
                 let _ = fs::remove_file(self.packs.path(&key, dir));
             }

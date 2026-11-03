@@ -173,7 +173,7 @@ pub fn exists(root: &Path, id: SectorId) -> bool {
     id.path(root).exists()
 }
 
-fn overpass(query: &str, prefer: usize) -> Result<serde_json::Value, String> {
+pub(crate) fn overpass(query: &str, prefer: usize) -> Result<serde_json::Value, String> {
     let mut last = String::new();
     for attempt in 0..OVERPASS.len() * 2 {
         let url = OVERPASS[(prefer + attempt) % OVERPASS.len()];

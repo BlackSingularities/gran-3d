@@ -58,6 +58,8 @@ pub struct World {
     state: Arc<(Mutex<State>, Condvar)>,
     snap: Arc<RwLock<Arc<Snapshot>>>,
     version: Arc<AtomicU64>,
+    /// Rośnie po zapisaniu każdej nowej maski pokrycia terenu.
+    land_version: Arc<AtomicU64>,
 }
 
 const MAX_LOADED: usize = 25;
@@ -69,13 +71,57 @@ impl World {
             state: Arc::new((Mutex::new(State::default()), Condvar::new())),
             snap: Arc::new(RwLock::new(Arc::new(Snapshot::empty()))),
             version: Arc::default(),
+            land_version: Arc::default(),
         };
         let me = w.clone();
+        let c = ctx.clone();
         thread::Builder::new()
             .name("okolica".into())
-            .spawn(move || me.run(ctx))
+            .spawn(move || me.run(c))
             .expect("wątek okolicy");
+        let me = w.clone();
+        thread::Builder::new()
+            .name("pokrycie".into())
+            .spawn(move || me.run_land(ctx))
+            .expect("wątek pokrycia terenu");
         w
+    }
+
+    pub fn land_version(&self) -> u64 {
+        self.land_version.load(Ordering::Relaxed)
+    }
+
+    /// Maski pokrycia terenu dla wczytanych sektorów okolicy (po kolei, z przerwą po błędzie).
+    fn run_land(&self, ctx: eframe::egui::Context) {
+        let mut failed: HashMap<SectorId, Instant> = HashMap::new();
+        loop {
+            thread::sleep(Duration::from_secs(3));
+            let root = self.heights.store().root().to_path_buf();
+            let next = {
+                let s = self.state.0.lock().unwrap();
+                s.wanted
+                    .iter()
+                    .chain(s.persist.iter())
+                    .filter(|id| s.loaded.contains_key(id) || s.persist.contains(id))
+                    .find(|id| {
+                        !crate::landcover::exists(&root, **id)
+                            && failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(300))
+                    })
+                    .copied()
+            };
+            let Some(id) = next else { continue };
+            match crate::landcover::fetch(id).and_then(|img| crate::landcover::save(&root, id, &img)) {
+                Ok(()) => {
+                    log::info!("pokrycie terenu {}/{} zapisane", id.x, id.y);
+                    self.land_version.fetch_add(1, Ordering::Relaxed);
+                    ctx.request_repaint();
+                }
+                Err(e) => {
+                    log::warn!("pokrycie terenu {}/{}: {e}", id.x, id.y);
+                    failed.insert(id, Instant::now());
+                }
+            }
+        }
     }
 
     pub fn snapshot(&self) -> Arc<Snapshot> {

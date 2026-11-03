@@ -13,6 +13,7 @@ use crate::bake::{self, Dem};
 use crate::download;
 use crate::geo::{meters_per_pixel, TileId, EARTH_R};
 use crate::heights::Heights;
+use crate::national;
 use crate::render::camera::View;
 use crate::store::{Layer, Store};
 
@@ -27,6 +28,8 @@ pub const SAT_MAX_Z: u8 = 14;
 pub enum Kind {
     Dem,
     Sat,
+    /// Ortofotomapa krajowa (z13–17, PL / CZ / SK).
+    Ortho,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -83,7 +86,7 @@ pub struct DrawTile {
     pub tile: TileId,
     pub dem: TileId,
     pub dem_xform: [f32; 3],
-    pub img: Option<(TileId, [f32; 3])>,
+    pub img: Option<((Kind, TileId), [f32; 3])>,
     pub rect: [f32; 4],
 }
 
@@ -93,6 +96,8 @@ pub struct TileSettings {
     pub max_dem: usize,
     pub max_img: usize,
     pub imagery: bool,
+    /// Ortofoto krajowe (PL, CZ, SK) na bliskich kaflach.
+    pub ortho: bool,
     pub max_dist: f64,
 }
 
@@ -101,7 +106,9 @@ pub struct Tiles {
     queue: Arc<(Mutex<Queue>, Condvar)>,
     rx: Receiver<Loaded>,
     dem: HashMap<TileId, GpuDem>,
-    img: HashMap<TileId, GpuImg>,
+    img: HashMap<(Kind, TileId), GpuImg>,
+    /// Czy kafel leży w zasięgu ortofoto (pamięć wyników – test wielokątów kraju).
+    ortho_memo: HashMap<TileId, bool>,
     missing: HashSet<Key>,
     frame: u64,
     pub dem_layout: wgpu::BindGroupLayout,
@@ -157,6 +164,7 @@ impl Tiles {
             rx,
             dem: HashMap::new(),
             img: HashMap::new(),
+            ortho_memo: HashMap::new(),
             missing: HashSet::new(),
             frame: 0,
             dem_layout,
@@ -249,7 +257,7 @@ impl Tiles {
                             resource: wgpu::BindingResource::TextureView(&tex.create_view(&Default::default())),
                         }],
                     });
-                    self.img.insert(l.key.1, GpuImg { bind, used: self.frame });
+                    self.img.insert((l.key.0, l.key.1), GpuImg { bind, used: self.frame });
                 }
             }
         }
@@ -271,7 +279,7 @@ impl Tiles {
         &self.dem[&t].bind
     }
 
-    pub fn img_bind(&self, t: Option<TileId>) -> &wgpu::BindGroup {
+    pub fn img_bind(&self, t: Option<(Kind, TileId)>) -> &wgpu::BindGroup {
         t.and_then(|t| self.img.get(&t)).map(|g| &g.bind).unwrap_or(&self.empty_img)
     }
 
@@ -371,16 +379,31 @@ impl Tiles {
             if s.imagery {
                 let iz = t.z.min(SAT_MAX_Z);
                 let own_i = ancestor_at(t, iz);
-                if !self.img.contains_key(&own_i) && !self.missing.contains(&Key(Kind::Sat, own_i)) {
+                if !self.img.contains_key(&(Kind::Sat, own_i)) && !self.missing.contains(&Key(Kind::Sat, own_i)) {
                     want.push(Request { key: Key(Kind::Sat, own_i), prio: prio + 0.5, sticky: false });
                     if own_i.z > 8 {
                         let a = own_i.ancestor(3).0;
-                        if !self.img.contains_key(&a) && !self.missing.contains(&Key(Kind::Sat, a)) {
+                        if !self.img.contains_key(&(Kind::Sat, a)) && !self.missing.contains(&Key(Kind::Sat, a)) {
                             want.push(Request { key: Key(Kind::Sat, a), prio: prio - 500.0, sticky: false });
                         }
                     }
                 }
-                img = self.find(&t, Kind::Sat);
+                // ortofoto krajowe na bliskich kaflach, Sentinel-2 w tle i dalej
+                let mut ortho = None;
+                if s.ortho && t.z >= national::ORTHO_MIN_Z {
+                    let own_o = ancestor_at(t, t.z.min(national::ORTHO_MAX_Z));
+                    let covered = *self.ortho_memo.entry(own_o).or_insert_with(|| national::has_ortho(own_o));
+                    if covered {
+                        if !self.img.contains_key(&(Kind::Ortho, own_o)) && !self.missing.contains(&Key(Kind::Ortho, own_o)) {
+                            want.push(Request { key: Key(Kind::Ortho, own_o), prio: prio + 0.3, sticky: false });
+                        }
+                        ortho = self.find(&t, Kind::Ortho).filter(|(a, _)| a.z >= national::ORTHO_MIN_Z);
+                    }
+                }
+                img = match ortho {
+                    Some((a, x)) => Some(((Kind::Ortho, a), x)),
+                    None => self.find(&t, Kind::Sat).map(|(a, x)| ((Kind::Sat, a), x)),
+                };
             }
             if let Some(d) = self.dem.get_mut(&dem_t) {
                 d.used = self.frame;
@@ -420,13 +443,14 @@ impl Tiles {
         let start = match kind {
             Kind::Dem => t.z.min(16),
             Kind::Sat => t.z.min(SAT_MAX_Z),
+            Kind::Ortho => t.z.min(national::ORTHO_MAX_Z),
         };
         for z in (0..=start).rev() {
             let dz = t.z - z;
             let (a, off, k) = t.ancestor(dz);
             let ok = match kind {
                 Kind::Dem => self.dem.contains_key(&a),
-                Kind::Sat => self.img.contains_key(&a),
+                Kind::Sat | Kind::Ortho => self.img.contains_key(&(kind, a)),
             };
             if ok {
                 return Some((a, [off[0], off[1], k]));
@@ -447,7 +471,7 @@ impl Tiles {
             let mut ages: Vec<u64> = self.img.values().map(|d| d.used).collect();
             ages.sort_unstable();
             let cut = ages[self.img.len() - s.max_img * 4 / 5];
-            self.img.retain(|t, d| d.used >= cut || t.z <= 6);
+            self.img.retain(|k, d| d.used >= cut || k.1.z <= 6);
         }
     }
 
@@ -493,7 +517,8 @@ fn worker(q: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Loaded>, heights: Heights,
                 Some(d) => prepare_dem(&heights, req.key.1, &d),
                 None => Payload::Missing,
             },
-            Kind::Sat => load_img(&heights.store(), req.key.1),
+            Kind::Sat => load_img(&heights.store(), req.key.1, Layer::Sat, 256),
+            Kind::Ortho => load_img(&heights.store(), req.key.1, Layer::Ortho, national::ORTHO_PX),
         };
         if tx.send(Loaded { key: req.key, payload }).is_err() {
             break;
@@ -502,8 +527,8 @@ fn worker(q: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Loaded>, heights: Heights,
     }
 }
 
-fn load_img(store: &Store, t: TileId) -> Payload {
-    let Ok(blob) = download::get(store, Layer::Sat, t) else {
+fn load_img(store: &Store, t: TileId, layer: Layer, size: u32) -> Payload {
+    let Ok(blob) = download::get(store, layer, t) else {
         return Payload::Missing;
     };
     let Some(jpg) = bake::jpeg(&blob) else {
@@ -513,13 +538,13 @@ fn load_img(store: &Store, t: TileId) -> Payload {
         return Payload::Missing;
     };
     let img = img.to_rgba8();
-    let img = if img.width() != 256 {
-        image::imageops::resize(&img, 256, 256, image::imageops::FilterType::Triangle)
+    let img = if img.width() != size || img.height() != size {
+        image::imageops::resize(&img, size, size, image::imageops::FilterType::Triangle)
     } else {
         img
     };
     let mut levels = vec![img.into_raw()];
-    let mut s = 256usize;
+    let mut s = size as usize;
     while s > 1 {
         let prev = levels.last().unwrap();
         let h = s / 2;
