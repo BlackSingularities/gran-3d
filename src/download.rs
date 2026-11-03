@@ -167,24 +167,48 @@ fn fetch_any(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchErr
     }
 }
 
+/// Kafel z dysku: dane, wiadomy brak w źródle albo `None`, gdy trzeba pobrać.
+fn stored(store: &Store, layer: Layer, t: TileId) -> Option<Result<Vec<u8>, FetchError>> {
+    match store.read(layer, t) {
+        Some(b) if bake::dem_stale(&b) => None,
+        Some(b) => Some(Ok(b)),
+        None if store.has(layer, t) => Some(Err(FetchError::Missing)),
+        None => None,
+    }
+}
+
+/// Wypiekanie pobranego kafla. Źródło terenu miewa całe kafle bez danych – uzupełnia je kafel nadrzędny.
+fn bake_source(store: &Store, layer: Layer, t: TileId, src: &[u8]) -> Result<Vec<u8>, FetchError> {
+    let net = |e: bake::BakeError| FetchError::Network(e.to_string());
+    if layer != Layer::Dem {
+        return bake::bake(layer, src).map_err(net);
+    }
+    let (mut elev, w, h) = bake::terrarium(src).map_err(net)?;
+    if bake::has_holes(&elev) {
+        let parent = (t.z > 0).then(|| t.ancestor(1)).and_then(|(p, off, k)| {
+            let d = get(store, Layer::Dem, p).ok().and_then(|b| bake::decode_dem(&b))?;
+            Some((d, off, k))
+        });
+        let view = parent.as_ref().map(|(d, off, k)| (d, *off, *k));
+        if !bake::fill_holes(&mut elev, w, h, view) {
+            return Err(FetchError::Network("kafel terenu bez danych".into()));
+        }
+    }
+    Ok(bake::encode_dem(&elev, w, h))
+}
+
 /// Wypieczony kafel z dysku albo z sieci (pobrany jest od razu wypiekany i zapisywany).
 pub fn get(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError> {
-    if let Some(b) = store.read(layer, t) {
-        return Ok(b);
-    }
-    if store.has(layer, t) {
-        return Err(FetchError::Missing);
+    if let Some(r) = stored(store, layer, t) {
+        return r;
     }
     let _claim = Claim::take(layer, t);
-    if let Some(b) = store.read(layer, t) {
-        return Ok(b);
-    }
-    if store.has(layer, t) {
-        return Err(FetchError::Missing);
+    if let Some(r) = stored(store, layer, t) {
+        return r;
     }
     match fetch_any(store, layer, t) {
         Ok(src) => {
-            let baked = bake::bake(layer, &src).map_err(|e| FetchError::Network(e.to_string()))?;
+            let baked = bake_source(store, layer, t, &src)?;
             let _ = store.write(layer, t, Some(&baked));
             Ok(baked)
         }

@@ -650,7 +650,7 @@ impl Renderer {
                 rect: d.rect,
                 dem: [d.dem_xform[0], d.dem_xform[1], d.dem_xform[2], 0.0],
                 img: match d.img {
-                    Some((_, x)) => [x[0], x[1], x[2], 1.0],
+                    Some((k, x)) => [x[0], x[1], x[2], if k.0 == tiles::Kind::Sat { 2.0 } else { 1.0 }],
                     None => [0.0, 0.0, 1.0, 0.0],
                 },
                 info: [d.tile.z as f32, 0.0, 0.0, 0.0],

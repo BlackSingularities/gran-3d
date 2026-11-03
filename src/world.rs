@@ -46,6 +46,8 @@ struct State {
     loaded: HashMap<SectorId, Arc<SectorData>>,
     /// Wczytane na razie same punkty – szlaki jeszcze do pobrania.
     partial: HashSet<SectorId>,
+    trails_failed: HashMap<SectorId, Instant>,
+    trails_busy: Option<SectorId>,
     /// Rośnie przy każdej zmianie danych sektorów.
     data_gen: u64,
     failed: HashMap<SectorId, Instant>,
@@ -77,6 +79,7 @@ impl World {
         };
         let me = w.clone();
         let c = ctx.clone();
+        let c2 = ctx.clone();
         thread::Builder::new()
             .name("okolica".into())
             .spawn(move || me.run(c))
@@ -86,6 +89,11 @@ impl World {
             .name("pokrycie".into())
             .spawn(move || me.run_land(ctx))
             .expect("wątek pokrycia terenu");
+        let me = w.clone();
+        thread::Builder::new()
+            .name("szlaki".into())
+            .spawn(move || me.run_trails(c2))
+            .expect("wątek szlaków");
         w
     }
 
@@ -130,9 +138,10 @@ impl World {
     }
 
     /// Zestaw sektorów, które mają być wczytane (okolica kamery i punktów trasy).
-    pub fn want(&self, mut list: Vec<SectorId>) {
-        list.sort();
-        list.dedup();
+    /// Kolejność listy to kolejność wczytywania: najpierw to, na co patrzy kamera.
+    pub fn want(&self, list: Vec<SectorId>) {
+        let mut seen = HashSet::new();
+        let list: Vec<SectorId> = list.into_iter().filter(|id| seen.insert(*id)).collect();
         let (m, cv) = &*self.state;
         let mut s = m.lock().unwrap();
         if s.wanted != list {
@@ -145,7 +154,7 @@ impl World {
     /// Stan dla interfejsu: (sektor w trakcie pobierania, ostatni błąd).
     pub fn status(&self) -> (Option<SectorId>, Option<String>) {
         let s = self.state.0.lock().unwrap();
-        (s.busy, s.error.clone())
+        (s.busy.or(s.trails_busy), s.error.clone())
     }
 
     /// Po zmianie folderu danych: wszystko od nowa.
@@ -155,6 +164,7 @@ impl World {
         s.loaded.clear();
         s.partial.clear();
         s.failed.clear();
+        s.trails_failed.clear();
         s.data_gen += 1;
         s.changed = true;
         cv.notify_all();
@@ -163,7 +173,7 @@ impl World {
     fn run(&self, ctx: eframe::egui::Context) {
         let mut built_gen = 0;
         loop {
-            // następne zadanie: brakujący sektor z okolicy albo jego szlaki
+            // następne zadanie: brakujący sektor z okolicy (szlaki ma osobny wątek)
             let (todo, rebuild) = {
                 let (m, cv) = &*self.state;
                 let mut s = m.lock().unwrap();
@@ -176,7 +186,7 @@ impl World {
                         .wanted
                         .iter()
                         .find(|id| {
-                            (!s.loaded.contains_key(id) || s.partial.contains(id))
+                            !s.loaded.contains_key(id)
                                 && s.failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(120))
                         })
                         .copied();
@@ -203,7 +213,7 @@ impl World {
                 continue;
             }
             if rebuild {
-                let (sectors, gen): (Vec<(SectorId, Arc<SectorData>)>, u64) = {
+                let (mut sectors, gen): (Vec<(SectorId, Arc<SectorData>)>, u64) = {
                     let s = self.state.0.lock().unwrap();
                     let list = s
                         .wanted
@@ -212,6 +222,8 @@ impl World {
                         .collect();
                     (list, s.data_gen)
                 };
+                // ten sam zestaw w innej kolejności to te same dane
+                sectors.sort_by_key(|s| s.0);
                 let current: Vec<SectorId> = sectors.iter().map(|s| s.0).collect();
                 if current == self.snapshot().sectors && gen == built_gen {
                     continue;
@@ -232,26 +244,15 @@ impl World {
         }
     }
 
-    /// Jeden krok wczytywania sektora: dysk, potem punkty (od razu widoczne), potem szlaki.
+    /// Wczytanie sektora: z dysku, a gdy brak – same punkty, od razu widoczne.
     fn load_sector(&self, id: SectorId) {
         let root = self.heights.store().root().to_path_buf();
-        let partial = {
-            let s = self.state.0.lock().unwrap();
-            s.partial.contains(&id).then(|| s.loaded.get(&id).map(|d| d.pois.clone())).flatten()
+        let result = match osm::load(&root, id) {
+            Some(d) => Ok((d, false)),
+            None => osm::fetch_pois(id).map(|p| (osm::partial(p), true)),
         };
-        let result = match partial {
-            Some(pois) => osm::fetch_trails(id, pois).map(|d| {
-                if let Err(e) = osm::save(&root, id, &d) {
-                    log::error!("zapis sektora: {e}");
-                }
-                (d, false)
-            }),
-            None => match osm::load(&root, id) {
-                Some(d) => Ok((d, false)),
-                None => osm::fetch_pois(id).map(|p| (osm::partial(p), true)),
-            },
-        };
-        let mut s = self.state.0.lock().unwrap();
+        let (m, cv) = &*self.state;
+        let mut s = m.lock().unwrap();
         match result {
             Ok((d, is_partial)) => {
                 s.error = None;
@@ -259,17 +260,66 @@ impl World {
                 s.loaded.insert(id, Arc::new(d));
                 if is_partial {
                     s.partial.insert(id);
-                } else {
-                    s.partial.remove(&id);
                 }
                 s.data_gen += 1;
                 s.changed = true;
+                cv.notify_all();
             }
             Err(e) => {
                 log::warn!("sektor {}/{}: {e}", id.x, id.y);
                 s.error = Some(e);
                 s.failed.insert(id, Instant::now());
             }
+        }
+    }
+
+    /// Szlaki sektorów z okolicy, po kolei: Overpass bywa wolny i nie może blokować reszty.
+    fn run_trails(&self, ctx: eframe::egui::Context) {
+        loop {
+            let next = {
+                let mut s = self.state.0.lock().unwrap();
+                let id = s
+                    .wanted
+                    .iter()
+                    .find(|id| {
+                        s.partial.contains(id)
+                            && s.trails_failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(300))
+                    })
+                    .copied();
+                s.trails_busy = id;
+                id.and_then(|id| s.loaded.get(&id).map(|d| (id, d.pois.clone())))
+            };
+            let Some((id, pois)) = next else {
+                thread::sleep(Duration::from_secs(1));
+                continue;
+            };
+            ctx.request_repaint();
+            let root = self.heights.store().root().to_path_buf();
+            let result = osm::fetch_trails(id, pois);
+            let (m, cv) = &*self.state;
+            let mut s = m.lock().unwrap();
+            s.trails_busy = None;
+            match result {
+                Ok(d) => {
+                    if let Err(e) = osm::save(&root, id, &d) {
+                        log::error!("zapis sektora: {e}");
+                    }
+                    s.error = None;
+                    s.trails_failed.remove(&id);
+                    s.loaded.insert(id, Arc::new(d));
+                    s.partial.remove(&id);
+                    s.data_gen += 1;
+                    s.changed = true;
+                    cv.notify_all();
+                }
+                Err(e) => {
+                    log::warn!("szlaki {}/{}: {e}", id.x, id.y);
+                    s.error = Some(e);
+                    s.trails_failed.insert(id, Instant::now());
+                }
+            }
+            drop(s);
+            ctx.request_repaint();
         }
     }
 

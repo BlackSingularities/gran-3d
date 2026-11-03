@@ -219,7 +219,8 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         base = c;
         if (style == 4 && tile.img.w > 0.5) {
             // zdjęcie ma już światło i cienie z chwili wykonania – słabsze cieniowanie
-            base = img_s * 1.05;
+            // Sentinel-2 jest ciemniejszy od ortofoto (img.w = 2), a kafle obu leżą obok siebie
+            base = img_s * select(1.05, 1.45, tile.img.w > 1.5);
         }
         // woda: płaskie miejsca na niskich wysokościach (morza, jeziora z modelu)
         if (h < 0.5 && slope < 0.01) {
