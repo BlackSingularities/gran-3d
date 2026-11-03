@@ -202,6 +202,88 @@ pub fn mosaic(root: &Path, center: SectorId, cell: u32) -> Option<(Vec<u8>, u32,
     ))
 }
 
+/// Poziomy lustra wody na siatce o połowę rzadszej od mozaiki: każdy spójny zbiornik z maski
+/// dostaje wysokość swojego brzegu (dolny kwartyl próbek DEM tuż za linią wody) – model terenu
+/// w miejscu jezior ma dno albo szum zamiast płaskiej tafli. Poza wodą `no_water`.
+pub fn water_levels(
+    rgba: &[u8],
+    side: u32,
+    rect: [f64; 4],
+    heights: &crate::heights::Heights,
+    no_water: f32,
+) -> (Vec<f32>, u32) {
+    use crate::geo::{x_to_lon, y_to_lat};
+    let w = side / 2;
+    let n = w as usize;
+    // woda w komórce: którykolwiek z 4 pikseli mozaiki
+    let wet: Vec<bool> = (0..n * n)
+        .map(|i| {
+            let (x, y) = ((i % n) * 2, (i / n) * 2);
+            [(0, 0), (1, 0), (0, 1), (1, 1)].iter().any(|(dx, dy)| rgba[(((y + dy) * side as usize) + x + dx) * 4] > 127)
+        })
+        .collect();
+    let mut out = vec![no_water; n * n];
+    let mut comp = vec![u32::MAX; n * n];
+    let to_ll = |x: usize, y: usize| {
+        let fx = rect[0] + (rect[2] - rect[0]) * (x as f64 + 0.5) / n as f64;
+        let fy = rect[1] + (rect[3] - rect[1]) * (y as f64 + 0.5) / n as f64;
+        (x_to_lon(fx), y_to_lat(fy))
+    };
+    let mut stack = Vec::new();
+    let mut cells = Vec::new();
+    let mut shore = Vec::new();
+    for start in 0..n * n {
+        if !wet[start] || comp[start] != u32::MAX {
+            continue;
+        }
+        // zbiornik: wypełnianie 4-sąsiedztwem, brzeg = suche komórki obok
+        cells.clear();
+        shore.clear();
+        comp[start] = start as u32;
+        stack.push(start);
+        while let Some(i) = stack.pop() {
+            cells.push(i);
+            let (x, y) = (i % n, i / n);
+            for (dx, dy) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)] {
+                let (nx, ny) = (x as i64 + dx, y as i64 + dy);
+                if nx < 0 || ny < 0 || nx >= n as i64 || ny >= n as i64 {
+                    continue;
+                }
+                let j = ny as usize * n + nx as usize;
+                if wet[j] {
+                    if comp[j] == u32::MAX {
+                        comp[j] = start as u32;
+                        stack.push(j);
+                    }
+                } else {
+                    shore.push(j);
+                }
+            }
+        }
+        shore.sort_unstable();
+        shore.dedup();
+        // najwyżej ~300 próbek brzegu na zbiornik
+        let step = (shore.len() / 300).max(1);
+        let mut hs: Vec<f32> = shore
+            .iter()
+            .step_by(step)
+            .filter_map(|&j| {
+                let (lon, lat) = to_ll(j % n, j / n);
+                heights.sample(lon, lat)
+            })
+            .collect();
+        if hs.is_empty() {
+            continue;
+        }
+        hs.sort_by(|a, b| a.total_cmp(b));
+        let level = hs[hs.len() / 4];
+        for &i in &cells {
+            out[i] = level;
+        }
+    }
+    (out, w)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

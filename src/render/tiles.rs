@@ -23,6 +23,10 @@ pub const DEM_RES: u32 = 257;
 pub const MAX_RENDER_Z: u8 = 17;
 /// Najwyższy poziom zdjęć satelitarnych w źródle.
 pub const SAT_MAX_Z: u8 = 14;
+/// Ortofoto pobierane tylko do tylu kafli swojego poziomu od kamery…
+const ORTHO_TILES_RADIUS: f64 = 6.0;
+/// …i nie dalej niż tyle metrów.
+const ORTHO_MAX_DIST: f64 = 12_000.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
@@ -30,7 +34,17 @@ pub enum Kind {
     Sat,
     /// Ortofotomapa krajowa (z13–17, PL / CZ / SK).
     Ortho,
+    /// Ortofoto złożone z kafli już zapisanych na dysku (bez sieci) – tylko w kolejce,
+    /// wynik trafia pod `Ortho`.
+    OrthoLocal,
 }
+
+/// Najniższy poziom ortofoto złożonego z zapisanych kafli (przy oddalaniu).
+const ORTHO_LOCAL_MIN_Z: u8 = 12;
+/// O ile poziomów w dół szukać zapisanych kafli do złożenia (z12 ← z15).
+const ORTHO_LOCAL_DEPTH: u8 = 3;
+/// Po nieudanym złożeniu ponowna próba po tylu klatkach (mogły dojść nowe kafle).
+const ORTHO_LOCAL_RETRY: u64 = 600;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct Key(Kind, TileId);
@@ -112,12 +126,16 @@ pub struct Tiles {
     /// Czy kafel leży w zasięgu ortofoto (pamięć wyników – test wielokątów kraju).
     ortho_memo: HashMap<TileId, bool>,
     missing: HashSet<Key>,
+    /// Nieudane składanie ortofoto z dysku: klatka próby.
+    local_miss: HashMap<TileId, u64>,
     frame: u64,
     pub dem_layout: wgpu::BindGroupLayout,
     pub img_layout: wgpu::BindGroupLayout,
     pub empty_img: wgpu::BindGroup,
     /// Wysokości wczytanych kafli (do granic brył i wybierania punktów).
     pub loading: usize,
+    /// W kolejce i w toku: (teren, zdjęcia satelitarne, ortofoto pobierane, ortofoto składane z dysku).
+    pub loading_kinds: [usize; 4],
 }
 
 const WORKERS: usize = 16;
@@ -170,11 +188,13 @@ impl Tiles {
             img: HashMap::new(),
             ortho_memo: HashMap::new(),
             missing: HashSet::new(),
+            local_miss: HashMap::new(),
             frame: 0,
             dem_layout,
             img_layout,
             empty_img,
             loading: 0,
+            loading_kinds: [0; 4],
         }
     }
 
@@ -183,6 +203,7 @@ impl Tiles {
         self.dem.clear();
         self.img.clear();
         self.missing.clear();
+        self.local_miss.clear();
         let mut q = self.queue.0.lock().unwrap();
         q.list.clear();
     }
@@ -215,6 +236,19 @@ impl Tiles {
             budget -= 1;
             any = true;
             self.queue.0.lock().unwrap().inflight.remove(&l.key);
+            // złożone z dysku ortofoto zajmuje miejsce zwykłego
+            let l = match l.key.0 {
+                Kind::OrthoLocal => match l.payload {
+                    Payload::Missing => {
+                        self.local_miss.insert(l.key.1, self.frame);
+                        continue;
+                    }
+                    // prawdziwy kafel zdążył dojść – nie zastępujemy go złożonym
+                    _ if self.img.contains_key(&(Kind::Ortho, l.key.1)) => continue,
+                    p => Loaded { key: Key(Kind::Ortho, l.key.1), payload: p },
+                },
+                _ => l,
+            };
             match l.payload {
                 Payload::Missing => {
                     self.missing.insert(l.key);
@@ -394,14 +428,24 @@ impl Tiles {
                 }
                 // ortofoto krajowe na bliskich kaflach, Sentinel-2 w tle i dalej
                 let mut ortho = None;
-                if s.ortho && t.z >= national::ORTHO_MIN_Z {
+                if s.ortho && t.z >= ORTHO_LOCAL_MIN_Z {
                     let own_o = ancestor_at(t, t.z.min(national::ORTHO_MAX_Z));
                     let covered = *self.ortho_memo.entry(own_o).or_insert_with(|| national::has_ortho(own_o));
-                    if covered {
-                        if !self.img.contains_key(&(Kind::Ortho, own_o)) && !self.missing.contains(&Key(Kind::Ortho, own_o)) {
+                    // promień pobierania: kilka kafli danego poziomu od kamery, najwyżej 12 km
+                    // (dalej szczegóły ortofoto i tak nie są widoczne; już wczytane kafle zostają w użyciu)
+                    let o_size = frame.m / (1u64 << own_o.z) as f64;
+                    let near = own_o.z >= national::ORTHO_MIN_Z && d < (o_size * ORTHO_TILES_RADIUS).min(ORTHO_MAX_DIST);
+                    if covered && !self.img.contains_key(&(Kind::Ortho, own_o)) {
+                        if near && !self.missing.contains(&Key(Kind::Ortho, own_o)) {
                             want.push(Request { key: Key(Kind::Ortho, own_o), prio: prio + 0.3, sticky: false });
+                        } else if self.local_miss.get(&own_o).map_or(true, |f|self.frame - f > ORTHO_LOCAL_RETRY) {
+                            // dalej: bez sieci, tylko złożenie z kafli pobranych wcześniej (jeden obraz
+                            // zamiast wielu drobnych – mniej tekstur i rysowania przy oddalaniu)
+                            want.push(Request { key: Key(Kind::OrthoLocal, own_o), prio: prio + 0.6, sticky: false });
                         }
-                        ortho = self.find(&t, Kind::Ortho).filter(|(a, _)| a.z >= national::ORTHO_MIN_Z);
+                    }
+                    if covered {
+                        ortho = self.find(&t, Kind::Ortho).filter(|(a, _)| a.z >= ORTHO_LOCAL_MIN_Z);
                     }
                 }
                 img = match ortho {
@@ -436,6 +480,15 @@ impl Tiles {
             let inflight = q.inflight.clone();
             q.list.extend(want.into_iter().filter(|r| !inflight.contains(&r.key)).take(256));
             self.loading = q.list.len() + q.inflight.len();
+            self.loading_kinds = [0; 4];
+            for k in q.list.iter().map(|r| r.key.0).chain(q.inflight.iter().map(|k| k.0)) {
+                self.loading_kinds[match k {
+                    Kind::Dem => 0,
+                    Kind::Sat => 1,
+                    Kind::Ortho => 2,
+                    Kind::OrthoLocal => 3,
+                }] += 1;
+            }
             cv.notify_all();
         }
         self.evict(s);
@@ -447,14 +500,14 @@ impl Tiles {
         let start = match kind {
             Kind::Dem => t.z.min(16),
             Kind::Sat => t.z.min(SAT_MAX_Z),
-            Kind::Ortho => t.z.min(national::ORTHO_MAX_Z),
+            Kind::Ortho | Kind::OrthoLocal => t.z.min(national::ORTHO_MAX_Z),
         };
         for z in (0..=start).rev() {
             let dz = t.z - z;
             let (a, off, k) = t.ancestor(dz);
             let ok = match kind {
                 Kind::Dem => self.dem.contains_key(&a),
-                Kind::Sat | Kind::Ortho => self.img.contains_key(&(kind, a)),
+                Kind::Sat | Kind::Ortho | Kind::OrthoLocal => self.img.contains_key(&(kind, a)),
             };
             if ok {
                 return Some((a, [off[0], off[1], k]));
@@ -528,6 +581,10 @@ fn worker(q: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Loaded>, heights: Heights,
             },
             Kind::Sat => load_img(&heights.store(), req.key.1, Layer::Sat, 256),
             Kind::Ortho => load_img(&heights.store(), req.key.1, Layer::Ortho, national::ORTHO_PX),
+            Kind::OrthoLocal => match compose_ortho(&heights.store(), req.key.1, ORTHO_LOCAL_DEPTH) {
+                Some(img) => img_levels(img, national::ORTHO_PX),
+                None => Payload::Missing,
+            },
         };
         if req.key.0 == Kind::Ortho {
             let (m, cv) = &*q;
@@ -551,7 +608,50 @@ fn load_img(store: &Store, t: TileId, layer: Layer, size: u32) -> Payload {
     let Ok(img) = image::load_from_memory_with_format(jpg, image::ImageFormat::Jpeg) else {
         return Payload::Missing;
     };
-    let img = img.to_rgba8();
+    img_levels(img.to_rgba8(), size)
+}
+
+/// Zapisany na dysku kafel ortofoto (bez pobierania).
+fn stored_ortho(store: &Store, t: TileId) -> Option<image::RgbaImage> {
+    let blob = store.read(Layer::Ortho, t)?;
+    let jpg = bake::jpeg(&blob)?;
+    Some(image::load_from_memory_with_format(jpg, image::ImageFormat::Jpeg).ok()?.to_rgba8())
+}
+
+/// Ortofoto kafla złożone z zapisanych kafli niższych poziomów (do `depth` w dół);
+/// brakujące ćwiartki z tła satelitarnego. `None`, gdy na dysku nie ma żadnej części.
+fn compose_ortho(store: &Store, t: TileId, depth: u8) -> Option<image::RgbaImage> {
+    if let Some(img) = stored_ortho(store, t) {
+        return Some(img);
+    }
+    if depth == 0 || t.z >= national::ORTHO_MAX_Z {
+        return None;
+    }
+    let n = national::ORTHO_PX;
+    let h = n / 2;
+    let mut parts = Vec::new();
+    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+        let c = TileId::new(t.z + 1, t.x * 2 + dx, t.y * 2 + dy);
+        if let Some(img) = compose_ortho(store, c, depth - 1) {
+            parts.push((dx, dy, img));
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let mut canvas = match crate::download::sat_background(store, t) {
+        Some(b) => image::imageops::resize(&b, n, n, image::imageops::FilterType::Triangle),
+        None => image::RgbaImage::from_pixel(n, n, image::Rgba([96, 104, 88, 255])),
+    };
+    for (dx, dy, img) in parts {
+        let q = image::imageops::resize(&img, h, h, image::imageops::FilterType::Triangle);
+        image::imageops::replace(&mut canvas, &q, (dx * h) as i64, (dy * h) as i64);
+    }
+    Some(canvas)
+}
+
+/// Obraz kafla z pełnym łańcuchem mipmap.
+fn img_levels(img: image::RgbaImage, size: u32) -> Payload {
     let img = if img.width() != size || img.height() != size {
         image::imageops::resize(&img, size, size, image::imageops::FilterType::Triangle)
     } else {

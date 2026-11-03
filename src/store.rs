@@ -49,7 +49,8 @@ impl Layer {
         match self {
             Layer::Dem => "dem",
             Layer::Sat => "sat",
-            Layer::Ortho => "ortho",
+            // „ortho2”: kafle przycięte do krajów (stare z rozmytym tłem ZBGIS pobierają się od nowa)
+            Layer::Ortho => "ortho2",
         }
     }
 

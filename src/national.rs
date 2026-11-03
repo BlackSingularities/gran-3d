@@ -85,8 +85,9 @@ pub fn ortho_sources(t: TileId) -> Vec<&'static str> {
         .collect()
 }
 
+/// Czy kafel (dowolnego poziomu) dotyka kraju z ortofoto.
 pub fn has_ortho(t: TileId) -> bool {
-    t.z >= ORTHO_MIN_Z && tile_touches(t, 0.0, |c| c.ortho.is_some())
+    tile_touches(t, 0.0, |c| c.ortho.is_some())
 }
 
 const WM: f64 = 20_037_508.342_789_244;
@@ -171,7 +172,21 @@ pub fn fetch_ortho(t: TileId, background: Option<image::RgbaImage>) -> Result<Ve
     };
     let mut any = false;
     let mut net_err = None;
+    let nz = (1u64 << t.z) as f64;
     for src in sources {
+        // usługa ZBGIS poza Słowacją podaje rozmyte tło – każdą usługę przycinamy do jej kraju (siatka co 8 px)
+        let rings: Vec<&[[f64; 2]]> =
+            coverage().iter().filter(|c| c.ortho.as_deref() == Some(src)).map(|c| c.ring.as_slice()).collect();
+        const CELL: u32 = 8;
+        let cells = n / CELL;
+        let mask: Vec<bool> = (0..cells * cells)
+            .map(|i| {
+                let (cx, cy) = ((i % cells) as f64 + 0.5, (i / cells) as f64 + 0.5);
+                let lon = x_to_lon((t.x as f64 + cx / cells as f64) / nz);
+                let lat = y_to_lat((t.y as f64 + cy / cells as f64) / nz);
+                rings.iter().any(|r| in_ring(lon, lat, r))
+            })
+            .collect();
         let url = match src {
             "pl" => format!("https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMS/HighResolution?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=Raster&STYLES=&CRS=EPSG:3857&BBOX={bb}&WIDTH={n}&HEIGHT={n}&FORMAT=image/png&TRANSPARENT=TRUE"),
             "sk" => format!("https://zbgis.skgeodesy.sk/zbgis/rest/services/Ortofoto/MapServer/export?bbox={bb}&bboxSR=3857&imageSR=3857&size={n},{n}&format=png32&transparent=true&f=image"),
@@ -185,7 +200,11 @@ pub fn fetch_ortho(t: TileId, background: Option<image::RgbaImage>) -> Result<Ve
                     continue;
                 }
                 let mut opaque = 0usize;
-                for (dst, s) in canvas.pixels_mut().zip(img.pixels()) {
+                for (i, (dst, s)) in canvas.pixels_mut().zip(img.pixels()).enumerate() {
+                    let (px, py) = (i as u32 % n, i as u32 / n);
+                    if !mask[((py / CELL) * cells + px / CELL) as usize] {
+                        continue;
+                    }
                     let a = s[3] as u32;
                     if a == 0 {
                         continue;
@@ -205,11 +224,12 @@ pub fn fetch_ortho(t: TileId, background: Option<image::RgbaImage>) -> Result<Ve
             Err(FetchError::Missing) => {}
         }
     }
+    // niepełnego kafla (któraś usługa nie odpowiedziała) nie zapisujemy – spróbujemy później
+    if let Some(e) = net_err {
+        return Err(FetchError::Network(e));
+    }
     if !any {
-        return Err(match net_err {
-            Some(e) => FetchError::Network(e),
-            None => FetchError::Missing,
-        });
+        return Err(FetchError::Missing);
     }
     let rgb = image::DynamicImage::ImageRgba8(canvas).to_rgb8();
     let mut out = Vec::new();

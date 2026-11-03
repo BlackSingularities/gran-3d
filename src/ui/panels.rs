@@ -15,8 +15,6 @@ use crate::ui::theme;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
     Info,
-    Layers,
-    Light,
 }
 
 fn metric(ui: &mut egui::Ui, k: &str, v: String) {
@@ -81,12 +79,6 @@ pub fn rail(a: &mut Atlas, ctx: &egui::Context) {
                         a.tool = Tool::Explore;
                         open_tab(a, Tab::Info);
                     }
-                    if theme::icon_button(ui, theme::icon::STACK, a.prefs.panel_open && a.tab == Tab::Layers).on_hover_text("Styl mapy i warstwy (M)").clicked() {
-                        open_tab(a, Tab::Layers);
-                    }
-                    if theme::icon_button(ui, theme::icon::SUN, a.prefs.panel_open && a.tab == Tab::Light).on_hover_text("Słońce i pora roku").clicked() {
-                        open_tab(a, Tab::Light);
-                    }
                     ui.separator();
                     if theme::icon_button(ui, theme::icon::PATH, a.tool == Tool::Route).on_hover_text("Planowanie trasy (2)").clicked() {
                         a.tool = if a.tool == Tool::Route { Tool::Explore } else { Tool::Route };
@@ -125,44 +117,65 @@ pub fn rail(a: &mut Atlas, ctx: &egui::Context) {
         });
 }
 
-/// Szuflada obok paska narzędzi.
-pub fn drawer(a: &mut Atlas, ctx: &egui::Context) {
-    if !a.prefs.panel_open {
-        return;
-    }
-    let height = (ctx.screen_rect().height() - TOP_Y - 44.0).max(200.0);
-    egui::Area::new(egui::Id::new("szuflada"))
-        .fixed_pos([DRAWER_X, TOP_Y])
-        .show(ctx, |ui| {
-            theme::glass().inner_margin(egui::Margin::same(14)).show(ui, |ui| {
-                ui.set_width(DRAWER_W);
-                ui.horizontal(|ui| {
-                    let title = match a.tab {
-                        Tab::Info => "Szczegóły",
-                        Tab::Layers => "Styl i warstwy",
-                        Tab::Light => "Słońce i pora roku",
-                    };
-                    ui.label(RichText::new(title).strong());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button(theme::icon::X).on_hover_text("Ukryj (P)").clicked() {
-                            a.prefs.panel_open = false;
-                        }
-                    });
-                });
-                ui.add_space(4.0);
-                egui::ScrollArea::vertical().max_height(height - 60.0).auto_shrink([false, true]).show(ui, |ui| match a.tab {
-                    Tab::Info => info(a, ui),
-                    Tab::Layers => layers_tab(a, ui),
-                    Tab::Light => light_tab(a, ui),
+/// Szerokość prawego panelu szczegółów.
+const SIDEBAR_W: f32 = 440.0;
+
+fn sidebar_open(a: &Atlas) -> bool {
+    a.prefs.panel_open && a.tab == Tab::Info
+}
+
+/// Odsunięcie elementów przy prawej krawędzi, gdy panel szczegółów jest otwarty.
+pub fn right_inset(a: &Atlas) -> f32 {
+    if sidebar_open(a) { SIDEBAR_W } else { 0.0 }
+}
+
+/// Szczegóły w prawym panelu bocznym (zwęża widok mapy); wywoływać przed panelem środkowym.
+pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
+    if !sidebar_open(a) {
+        // schowany panel: uchwyt przy prawej krawędzi
+        egui::Area::new(egui::Id::new("szczegoly-uchwyt"))
+            .anchor(egui::Align2::RIGHT_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                theme::glass().inner_margin(egui::Margin::symmetric(4, 10)).show(ui, |ui| {
+                    if ui.small_button(theme::icon::CARET_LEFT).on_hover_text("Pokaż szczegóły (P)").clicked() {
+                        a.prefs.panel_open = true;
+                        a.tab = Tab::Info;
+                    }
                 });
             });
+        return;
+    }
+    egui::SidePanel::right("szczegoly")
+        .exact_width(SIDEBAR_W)
+        .resizable(false)
+        .frame(egui::Frame::new().fill(Color32::from_rgb(22, 25, 30)).inner_margin(egui::Margin::symmetric(20, 18)))
+        .show(ctx, |ui| {
+            // większe pismo niż w szufladzie
+            let st = ui.style_mut();
+            st.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
+            st.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(15.0));
+            st.text_styles.insert(egui::TextStyle::Heading, egui::FontId::proportional(27.0));
+            st.text_styles.insert(egui::TextStyle::Monospace, egui::FontId::monospace(14.0));
+            st.text_styles.insert(egui::TextStyle::Small, egui::FontId::proportional(12.5));
+            st.spacing.item_spacing.y = 7.0;
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Szczegóły").size(17.0).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button(theme::icon::CARET_RIGHT).on_hover_text("Ukryj panel (P)").clicked() {
+                        a.prefs.panel_open = false;
+                    }
+                });
+            });
+            ui.separator();
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| info(a, ui));
         });
 }
+
 
 /// Sterowanie kamerą w prawym dolnym rogu.
 pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
     egui::Area::new(egui::Id::new("kamera"))
-        .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -40.0])
+        .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0 - right_inset(a), -40.0])
         .show(ctx, |ui| {
             theme::glass().show(ui, |ui| {
                 ui.vertical(|ui| {
@@ -181,11 +194,6 @@ pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
                     if theme::icon_button(ui, theme::icon::PERSPECTIVE, a.cam.pitch < 75.0).on_hover_text("Widok ukośny / z góry (V)").clicked() {
                         let mut to = a.cam;
                         to.pitch = if a.cam.pitch > 75.0 { 40.0 } else { 89.0 };
-                        a.start_fly(to, 0.7);
-                    }
-                    if theme::icon_button(ui, theme::icon::NAVIGATION_ARROW, false).on_hover_text("Północ u góry (N)").clicked() {
-                        let mut to = a.cam;
-                        to.heading = 0.0;
                         a.start_fly(to, 0.7);
                     }
                 });
@@ -834,8 +842,21 @@ fn lens_info(a: &mut Atlas, ui: &mut egui::Ui) {
     }
 }
 
-fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
-    ui.label(theme::kicker("Styl mapy"));
+/// Styl mapy, warstwy i słońce jako rozwijane menu na górnym pasku.
+pub fn view_menus(a: &mut Atlas, ui: &mut egui::Ui) {
+    let menu = |ui: &mut egui::Ui, a: &mut Atlas, glyph: &str, label: &str, body: fn(&mut Atlas, &mut egui::Ui)| {
+        ui.menu_button(format!("{glyph}  {label}"), |ui| {
+            ui.set_min_width(320.0);
+            body(a, ui);
+        });
+    };
+    let style = a.prefs.style.label();
+    menu(ui, a, theme::icon::PALETTE, style, style_tab);
+    menu(ui, a, theme::icon::STACK, "Warstwy", layers_tab);
+    menu(ui, a, theme::icon::SUN, "Słońce", light_tab);
+}
+
+fn style_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     for st in Style::ALL {
         let glyph = match st {
             Style::Satellite => theme::icon::GLOBE_HEMISPHERE_EAST,
@@ -860,7 +881,10 @@ fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
         theme::para(ui, l);
     }
     ui.add_space(10.0);
-    ui.label(theme::kicker("Warstwy"));
+    ui.add(egui::Slider::new(&mut a.prefs.exag, 1.0..=3.0).step_by(0.1).text("przewyższenie ×"));
+}
+
+fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     theme::switch(ui, &mut a.prefs.labels, "Nazwy miejsc (L)");
     theme::switch(ui, &mut a.prefs.trails, "Szlaki (T)");
     theme::switch(ui, &mut a.prefs.contours, "Poziomice (C)");
@@ -872,7 +896,6 @@ fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     theme::switch(ui, &mut a.prefs.landcover, "Pokrycie terenu z OSM");
     ui.add_space(10.0);
     ui.add(egui::Slider::new(&mut a.prefs.label_density, 0.3..=2.0).text("gęstość nazw"));
-    ui.add(egui::Slider::new(&mut a.prefs.exag, 1.0..=3.0).step_by(0.1).text("przewyższenie ×"));
 }
 
 fn light_tab(a: &mut Atlas, ui: &mut egui::Ui) {
@@ -978,8 +1001,8 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
         return;
     };
     let screen = ctx.screen_rect();
-    let left = if a.prefs.panel_open { DRAWER_X + DRAWER_W + 44.0 } else { DRAWER_X };
-    let size = egui::vec2((screen.width() - left - 90.0).max(320.0), 170.0);
+    let left = DRAWER_X;
+    let size = egui::vec2((screen.width() - left - 90.0 - right_inset(a)).max(320.0), 170.0);
     egui::Area::new(egui::Id::new("profil"))
         .fixed_pos([left, screen.bottom() - size.y - 56.0])
         .show(ctx, |ui| {
@@ -1028,8 +1051,8 @@ pub fn help(a: &mut Atlas, ctx: &egui::Context) {
         ("1 – 3", "eksploracja · trasa · pomiar"),
         ("H  W  O", "soczewka: ta sama wysokość · względna · widoczność"),
         ("/", "wyszukiwarka"),
-        ("M", "styl mapy i warstwy"),
-        ("P", "pokaż / ukryj szufladę"),
+        ("M", "następny styl mapy"),
+        ("P", "pokaż / ukryj panel szczegółów"),
         ("T  L  C", "szlaki · nazwy · poziomice"),
         ("klik z soczewką / Esc", "przypnij / odepnij soczewkę"),
         ("+  −", "przewyższenie terenu"),
