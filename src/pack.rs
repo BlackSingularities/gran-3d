@@ -348,29 +348,6 @@ pub fn list(root: &Path, layer: u8, layer_dir: &str) -> Vec<(PackKey, PathBuf)> 
     out
 }
 
-/// Indeks paczki wprost z pliku: stan każdego kafla i (na życzenie) dwa pierwsze bajty jego danych.
-pub fn scan(path: &Path, with_head: bool) -> io::Result<Vec<(Slot, [u8; 2])>> {
-    let f = File::open(path)?;
-    let mut raw = vec![0u8; DATA_AT as usize];
-    read_at(&f, &mut raw, 0)?;
-    if &raw[..8] != MAGIC {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "uszkodzona paczka"));
-    }
-    Ok(raw[INDEX_AT as usize..]
-        .chunks_exact(ENTRY)
-        .map(|e| {
-            let slot = parse_entry(e);
-            let mut head = [0u8; 2];
-            if let (true, Slot::Data { offset, len, .. }) = (with_head, slot) {
-                if len >= 2 && read_at(&f, &mut head, offset).is_err() {
-                    head = [0, 0];
-                }
-            }
-            (slot, head)
-        })
-        .collect())
-}
-
 /// Zapis całego pliku na raz (używany przez narzędzia i testy).
 #[allow(dead_code)]
 pub fn write_file(path: &Path, bytes: &[u8]) -> io::Result<()> {

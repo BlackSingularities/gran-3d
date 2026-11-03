@@ -6,18 +6,16 @@
 
 mod analysis;
 mod app;
-mod areas;
 mod bake;
 mod download;
-mod engine;
 mod fmt;
 mod geo;
 mod gpx;
 mod graph;
 mod heights;
 mod landcover;
-mod library;
 mod metrics;
+mod mvt;
 mod national;
 mod osm;
 mod pack;
