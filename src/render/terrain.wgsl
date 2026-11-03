@@ -19,6 +19,8 @@ struct Globals {
     biome: vec4<f32>,        // las, kosodrzewina, skały, okluzja
     grid_origin: vec4<f32>,  // przesunięcie siatki km (m), metry na m ramki
     land_rect: vec4<f32>,    // maska pokrycia terenu: x0, z0, 1/szer., 1/wys.
+    water_rect: vec4<f32>,   // okno poziomów lustra wody: x0, z0, 1/szer., 1/wys.
+    water: vec4<f32>,        // czas (s), -, -, -
 };
 
 struct Tile {
@@ -52,14 +54,30 @@ fn height_at(uv: vec2<f32>) -> f32 {
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
-// poziom lustra wody (OSM + wysokość brzegu) w punkcie ramki; poniżej -1000 = brak wody
-fn water_level(wp: vec2<f32>) -> f32 {
-    let uv = (wp - g.land_rect.xy) * g.land_rect.zw;
+// lustro wody (OSM + wysokość brzegu): x – udział wody (0..1, gładki brzeg z interpolacji 4 komórek),
+// y – poziom (m), dla komórek obok jeziora też, żeby brzeg nie miał schodków
+fn water_at(wp: vec2<f32>) -> vec2<f32> {
+    let uv = (wp - g.water_rect.xy) * g.water_rect.zw;
     if (g.flags.z < 0.5 || any(uv < vec2(0.0)) || any(uv >= vec2(1.0))) {
-        return -10000.0;
+        return vec2(0.0, -10000.0);
     }
-    let dim = vec2<f32>(textureDimensions(water_tex));
-    return textureLoad(water_tex, vec2<i32>(uv * dim), 0).r;
+    let dim = vec2<i32>(textureDimensions(water_tex));
+    let p = uv * vec2<f32>(dim) - 0.5;
+    let i = vec2<i32>(floor(p));
+    let f = p - floor(p);
+    var lv = array<f32, 4>(0.0, 0.0, 0.0, 0.0);
+    var o = array<vec2<i32>, 4>(vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(1, 1));
+    var level = -10000.0;
+    for (var k = 0; k < 4; k++) {
+        lv[k] = textureLoad(water_tex, clamp(i + o[k], vec2(0), dim - 1), 0).r;
+        level = max(level, lv[k]);
+    }
+    var w = array<f32, 4>((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+    var wet = 0.0;
+    for (var k = 0; k < 4; k++) {
+        wet += select(0.0, w[k], lv[k] > -1000.0);
+    }
+    return vec2(wet, level);
 }
 
 struct VOut {
@@ -76,10 +94,10 @@ fn vs_main(@location(0) uv: vec2<f32>, @location(1) skirt: f32) -> VOut {
     let duv = tile.dem.xy + uv * tile.dem.z;
     var h = height_at(duv);
     let exag = g.eye.w;
-    // tafla jeziora płasko na wysokości brzegu (model terenu ma tam dno albo szum)
-    let wl = water_level(vec2(tile.rect.x + uv.x * tile.rect.z, tile.rect.y + uv.y * tile.rect.z));
-    if (wl > -1000.0) {
-        h = wl;
+    // tafla jeziora płasko na wysokości brzegu (model terenu ma tam dno albo szum); max – brzeg zostaje
+    let wa = water_at(vec2(tile.rect.x + uv.x * tile.rect.z, tile.rect.y + uv.y * tile.rect.z));
+    if (wa.x > 0.0) {
+        h = max(h, wa.y);
     }
     let world = vec3(tile.rect.x + uv.x * tile.rect.z, h * exag - skirt * tile.rect.w, tile.rect.y + uv.y * tile.rect.z);
     var rel = world - g.eye.xyz;
@@ -146,9 +164,14 @@ fn in_rect(wp: vec2<f32>, r: vec4<f32>) -> vec3<f32> {
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let exag = g.eye.w;
     let style = i32(g.style.x + 0.5);
-    let wl = water_level(in.wp);
-    let on_water = wl > -1000.0;
-    let h = select(height_at(in.dem_uv), wl, on_water);
+    let wa = water_at(in.wp);
+    let bed = height_at(in.dem_uv);
+    // brzeg z wygładzonej maski, ostry na ekranie niezależnie od odległości
+    let wedge = max(fwidth(wa.x), 0.02);
+    let wet = smoothstep(0.5 - wedge, 0.5 + wedge, wa.x);
+    let on_water = wet > 0.5;
+    let depth = max(wa.y - bed, 0.0);
+    let h = select(bed, max(bed, wa.y), wa.x > 0.0);
     let grad = select(textureSample(grad_tex, samp, in.dem_uv).xy, vec2(0.0), on_water);
     // lekka mapa normalnych z bliska: na zdjęciach z jasności obrazu, inaczej z drobnego szumu
     let px = vec2(1.5) / vec2<f32>(textureDimensions(img_tex));
@@ -307,9 +330,52 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         col = base * (0.42 + 0.7 * hs) * mix(0.75, 1.0, shadow);
     }
 
-    if (water > 0.5) {
+    if (water > 0.5 && !(wa.x > 0.0)) {
+        // woda z samej maski (bez poziomu lustra) – jak dotąd
         let wc = select(srgb(vec3(0.36, 0.60, 0.80)), srgb(vec3(0.62, 0.80, 0.93)), style == 5);
         col = select(wc * (0.4 + 0.6 * light), wc, style != 0 && style != 4);
+    }
+    if (wa.x > 0.0 && (style == 0 || style == 4 || style == 5)) {
+        var wcol: vec3<f32>;
+        if (style == 5) {
+            wcol = srgb(vec3(0.62, 0.80, 0.93));
+        } else {
+            // fale: dwie warstwy szumu przesuwane w czasie (normalne), słabsze z daleka
+            let t = g.water.x;
+            let near = 1.0 - smoothstep(800.0, 9000.0, in.dist);
+            let q1 = in.wp / 7.0 + vec2(t * 0.35, t * 0.22);
+            let q2 = in.wp / 3.1 - vec2(t * 0.5, -t * 0.31);
+            let e = 0.15;
+            let wx = (vnoise(q1 + vec2(e, 0.0)) - vnoise(q1 - vec2(e, 0.0))) + 0.5 * (vnoise(q2 + vec2(e, 0.0)) - vnoise(q2 - vec2(e, 0.0)));
+            let wz = (vnoise(q1 + vec2(0.0, e)) - vnoise(q1 - vec2(0.0, e))) + 0.5 * (vnoise(q2 + vec2(0.0, e)) - vnoise(q2 - vec2(0.0, e)));
+            let wn = normalize(vec3(-wx * 0.9 * near, 1.0, -wz * 0.9 * near));
+            let p3 = vec3(in.wp.x, h * exag, in.wp.y);
+            let v = normalize(g.eye.xyz - p3);
+            // Fresnel (Schlick, woda n≈1.33)
+            let ndv = clamp(dot(wn, v), 0.0, 1.0);
+            let fres = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
+            // odbicie nieba: horyzont → zenit
+            let r = reflect(-v, wn);
+            let sky = mix(g.fog_color.rgb, g.sky_color.rgb * 1.6, smoothstep(0.0, 0.6, r.y));
+            // kolor toni: płytko turkus, głęboko granat; górskie stawy są ciemne i przejrzyste
+            let d = 1.0 - exp(-depth / 9.0);
+            let deep = srgb(vec3(0.03, 0.10, 0.14));
+            let shallow = srgb(vec3(0.10, 0.32, 0.33));
+            var body = mix(shallow, deep, d) * (g.sky_color.rgb * 0.9 + g.sun_color.rgb * 0.35 * g.sun_dir.w);
+            if (photo) {
+                // na zdjęciu: przy brzegu prześwituje dno ze zdjęcia, dalej ton zdjęcia przyciemniony w głąb
+                let bottom = img_s * 1.1;
+                body = mix(bottom, mix(bottom * 0.55, body, 0.6), smoothstep(0.0, 1.0, d * 1.4));
+            }
+            // odblask słońca
+            let hv = normalize(sun + v);
+            let spec = pow(max(dot(wn, hv), 0.0), 380.0) * 7.0 * g.sun_dir.w * shadow;
+            wcol = mix(body, sky, fres) + g.sun_color.rgb * spec;
+            // jasna linia brzegu (płycizna i piana), tylko z bliska
+            let shore = (1.0 - smoothstep(0.0, 1.2, depth)) * near * 0.25;
+            wcol = mix(wcol, wcol * 1.25 + vec3(0.04), shore);
+        }
+        col = mix(col, wcol, wet);
     }
 
     // soczewka / wysokość względna

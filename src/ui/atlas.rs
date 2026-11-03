@@ -247,7 +247,7 @@ enum JobResult {
     Shadow(u64, Box<(Vec<u8>, u32, u32, [f64; 4])>),
     Rel(u64, RelInfo),
     Los(u64, Option<f64>, f64),
-    Land(Option<Box<(Vec<u8>, u32, [f64; 4], Vec<f32>, u32)>>),
+    Land(Option<Box<(Vec<u8>, u32, [f64; 4], Option<(Vec<f32>, [f64; 4])>)>>),
 }
 
 /// Prośby atlasu do aplikacji.
@@ -295,7 +295,10 @@ pub struct Atlas {
     shadow_rect: Option<[f64; 4]>,
     vs_rect: Option<[f64; 4]>,
     live_rect: Option<[f64; 4]>,
-    land_key: Option<(SectorId, u64)>,
+    land_key: Option<(SectorId, u64, (i64, i64))>,
+    water_rect: Option<[f64; 4]>,
+    /// Początek czasu animacji (fale).
+    epoch: Instant,
     land_busy: bool,
     land_rect: Option<[f64; 4]>,
     gen: u64,
@@ -371,6 +374,8 @@ impl Atlas {
             vs_rect: None,
             live_rect: None,
             land_key: None,
+            water_rect: None,
+            epoch: Instant::now(),
             land_busy: false,
             land_rect: None,
             gen: 0,
@@ -914,17 +919,22 @@ impl Atlas {
         if !self.prefs.landcover || self.land_busy || self.cam.distance > 120_000.0 {
             return;
         }
-        let key = (SectorId::at(self.cam.lon, self.cam.lat), self.world.land_version());
+        // okno poziomów wody przesuwa się z kamerą co ćwierć sektora
+        let ns = (1u64 << crate::osm::SECTOR_Z) as f64;
+        let (cx, cy) = (crate::geo::lon_to_x(self.cam.lon), crate::geo::lat_to_y(self.cam.lat));
+        let q = ((cx * ns * 4.0).round() as i64, (cy * ns * 4.0).round() as i64);
+        let key = (SectorId::at(self.cam.lon, self.cam.lat), self.world.land_version(), q);
         if self.land_key == Some(key) {
             return;
         }
         self.land_key = Some(key);
         self.land_busy = true;
         let (root, tx, heights) = (self.heights.store().root().to_path_buf(), self.tx.clone(), self.heights.clone());
+        let (wx, wy) = (q.0 as f64 / 4.0 / ns, q.1 as f64 / 4.0 / ns);
         thread::spawn(move || {
             let m = crate::landcover::mosaic(&root, key.0, 1024).map(|(data, side, rect)| {
-                let (lv, lw) = crate::landcover::water_levels(&data, side, rect, &heights, crate::render::NO_WATER);
-                Box::new((data, side, rect, lv, lw))
+                let water = crate::landcover::water_window(&root, wx, wy, &heights, crate::render::NO_WATER);
+                Box::new((data, side, rect, water))
             });
             let _ = tx.send(JobResult::Land(m));
         });
@@ -977,13 +987,18 @@ impl Atlas {
                     self.land_busy = false;
                     match m {
                         Some(b) => {
-                            let (data, side, rect, lv, lw) = *b;
+                            let (data, side, rect, water) = *b;
                             if let Some(r) = &mut self.renderer {
-                                r.set_landcover(Some((&data, side, &lv, lw)));
+                                let lv = water.as_ref().map(|(lv, _)| lv.as_slice()).unwrap_or(&[]);
+                                r.set_landcover(Some((&data, side, lv, crate::landcover::WATER_SIDE)));
                             }
+                            self.water_rect = water.map(|(_, r)| r);
                             self.land_rect = Some(rect);
                         }
-                        None => self.land_rect = None,
+                        None => {
+                            self.land_rect = None;
+                            self.water_rect = None;
+                        }
                     }
                 }
                 _ => {}
@@ -1732,6 +1747,8 @@ impl Atlas {
             line_fade: (self.cam.distance as f32 * 3.0).clamp(15_000.0, 90_000.0),
             landcover: self.prefs.landcover && self.land_rect.is_some(),
             land_rect: to_rect(self.land_rect),
+            water_rect: to_rect(self.water_rect),
+            time: self.epoch.elapsed().as_secs_f32() % 3600.0,
         }
     }
 
