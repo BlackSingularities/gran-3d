@@ -117,7 +117,7 @@ fn fetch_any(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchErr
 
 /// Kafel LiDAR jest już na dysku.
 pub fn has_lidar(store: &Store, t: TileId) -> bool {
-    store.read(Layer::Dem, t).is_some_and(|b| bake::is_lidar(&b))
+    store.has(Layer::Lidar, t)
 }
 
 /// Wypieczony kafel z dysku albo z sieci (pobrany jest od razu wypiekany i zapisywany).
@@ -172,7 +172,9 @@ pub fn download_tile(store: &Store, layer: Layer, t: TileId) -> Outcome {
         },
         Err(FetchError::Missing) => {
             // brak LiDAR nie może zablokować modelu globalnego w tej samej paczce
-            if layer != Layer::Lidar {
+            if layer == Layer::Lidar {
+                store.note_no_lidar(t);
+            } else {
                 let _ = store.write(layer, t, None);
             }
             Outcome::Missing

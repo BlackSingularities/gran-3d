@@ -92,6 +92,7 @@ impl App {
         theme::apply(&cc.egui_ctx);
         let settings = Settings::load();
         let store = Store::new(&settings.data_dir);
+        store.start_scan();
         let areas = areas::load(store.root());
         let map = MapView::new(store.clone(), &cc.egui_ctx);
         let heights = Heights::new(store.clone());
@@ -336,6 +337,7 @@ impl App {
         }
         if moved {
             self.store = Store::new(&self.settings.data_dir);
+            self.store.start_scan();
             self.areas = areas::load(self.store.root());
             self.map.set_store(self.store.clone());
             self.heights.set_store(self.store.clone());
