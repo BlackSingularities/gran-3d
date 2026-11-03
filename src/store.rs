@@ -85,7 +85,7 @@ pub struct Store {
     root: PathBuf,
     packs: Arc<Packs>,
     touched: Arc<Mutex<HashMap<PackKey, Instant>>>,
-    coverage: Arc<Coverage>,
+    no_lidar: Arc<RwLock<HashSet<TileId>>>,
 }
 
 impl Store {
