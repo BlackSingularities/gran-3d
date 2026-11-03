@@ -199,8 +199,8 @@ pub fn fetch_ortho(t: TileId, background: Option<image::RgbaImage>) -> Result<Ve
 
 /// Długość i szerokość → (E, N) w metrach PUWG-1992 (szereg Krügera, dokładność < 1 mm).
 pub fn to_puwg(lon: f64, lat: f64) -> (f64, f64) {
-    let a = 6_378_137.0;
-    let f = 1.0 / 298.257_222_101;
+    let a: f64 = 6_378_137.0;
+    let f: f64 = 1.0 / 298.257_222_101;
     let n = f / (2.0 - f);
     let aa = a / (1.0 + n) * (1.0 + n * n / 4.0 + n.powi(4) / 64.0);
     let al = [
