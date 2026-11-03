@@ -202,44 +202,68 @@ pub fn mosaic(root: &Path, center: SectorId, cell: u32) -> Option<(Vec<u8>, u32,
     ))
 }
 
-/// Poziomy lustra wody na siatce o połowę rzadszej od mozaiki: każdy spójny zbiornik z maski
-/// dostaje wysokość swojego brzegu (dolny kwartyl próbek DEM tuż za linią wody) – model terenu
-/// w miejscu jezior ma dno albo szum zamiast płaskiej tafli. Poza wodą `no_water`.
-pub fn water_levels(
-    rgba: &[u8],
-    side: u32,
-    rect: [f64; 4],
+/// Bok okna poziomów wody (piksele maski sektora, ~25 m).
+pub const WATER_SIDE: u32 = SIZE;
+
+/// Poziomy lustra wody w oknie o boku jednego sektora wyśrodkowanym na (`cx`, `cy`) (układ świata 0..1),
+/// w pełnej rozdzielczości masek: każdy spójny zbiornik dostaje wysokość swojego brzegu (dolny kwartyl
+/// próbek DEM tuż za linią wody) – model terenu w miejscu jezior ma dno albo szum zamiast tafli.
+/// Poza wodą `no_water`. Zwraca poziomy i prostokąt okna (x0, y0, x1, y1).
+pub fn water_window(
+    root: &Path,
+    cx: f64,
+    cy: f64,
     heights: &crate::heights::Heights,
     no_water: f32,
-) -> (Vec<f32>, u32) {
+) -> Option<(Vec<f32>, [f64; 4])> {
     use crate::geo::{x_to_lon, y_to_lat};
-    let w = side / 2;
-    let n = w as usize;
-    // woda w komórce: którykolwiek z 4 pikseli mozaiki
-    let wet: Vec<bool> = (0..n * n)
-        .map(|i| {
-            let (x, y) = ((i % n) * 2, (i / n) * 2);
-            [(0, 0), (1, 0), (0, 1), (1, 1)].iter().any(|(dx, dy)| rgba[(((y + dy) * side as usize) + x + dx) * 4] > 127)
-        })
-        .collect();
-    let mut out = vec![no_water; n * n];
-    let mut comp = vec![u32::MAX; n * n];
+    let n = WATER_SIDE as usize;
+    let ns = (1u64 << SECTOR_Z) as f64;
+    // okno w pikselach sektorów
+    let (px0, py0) = ((cx * ns - 0.5) * s_f(), (cy * ns - 0.5) * s_f());
+    let (px0, py0) = (px0.floor() as i64, py0.floor() as i64);
+    let mut masks: std::collections::HashMap<(i64, i64), Option<image::RgbImage>> = Default::default();
+    let mut wet = vec![false; n * n];
+    let mut any = false;
+    let side = SIZE as i64;
+    for y in 0..n {
+        for x in 0..n {
+            let (gx, gy) = (px0 + x as i64, py0 + y as i64);
+            let (sx, sy) = (gx.div_euclid(side), gy.div_euclid(side));
+            let m = masks.entry((sx, sy)).or_insert_with(|| {
+                if sy < 0 || sy >= ns as i64 {
+                    return None;
+                }
+                let id = SectorId { x: sx.rem_euclid(ns as i64) as u32, y: sy as u32 };
+                image::open(path(root, id)).ok().map(|i| i.to_rgb8())
+            });
+            if let Some(img) = m {
+                let w = img.get_pixel(gx.rem_euclid(side) as u32, gy.rem_euclid(side) as u32)[0] > 127;
+                wet[y * n + x] = w;
+                any |= w;
+            }
+        }
+    }
+    if !any {
+        return None;
+    }
+    let rect = [px0 as f64 / s_f() / ns, py0 as f64 / s_f() / ns, (px0 + n as i64) as f64 / s_f() / ns, (py0 + n as i64) as f64 / s_f() / ns];
     let to_ll = |x: usize, y: usize| {
         let fx = rect[0] + (rect[2] - rect[0]) * (x as f64 + 0.5) / n as f64;
         let fy = rect[1] + (rect[3] - rect[1]) * (y as f64 + 0.5) / n as f64;
         (x_to_lon(fx), y_to_lat(fy))
     };
-    let mut stack = Vec::new();
-    let mut cells = Vec::new();
-    let mut shore = Vec::new();
+    let mut out = vec![no_water; n * n];
+    let mut seen = vec![false; n * n];
+    let (mut stack, mut cells, mut shore) = (Vec::new(), Vec::new(), Vec::new());
     for start in 0..n * n {
-        if !wet[start] || comp[start] != u32::MAX {
+        if !wet[start] || seen[start] {
             continue;
         }
         // zbiornik: wypełnianie 4-sąsiedztwem, brzeg = suche komórki obok
         cells.clear();
         shore.clear();
-        comp[start] = start as u32;
+        seen[start] = true;
         stack.push(start);
         while let Some(i) = stack.pop() {
             cells.push(i);
@@ -251,8 +275,8 @@ pub fn water_levels(
                 }
                 let j = ny as usize * n + nx as usize;
                 if wet[j] {
-                    if comp[j] == u32::MAX {
-                        comp[j] = start as u32;
+                    if !seen[j] {
+                        seen[j] = true;
                         stack.push(j);
                     }
                 } else {
@@ -262,7 +286,6 @@ pub fn water_levels(
         }
         shore.sort_unstable();
         shore.dedup();
-        // najwyżej ~300 próbek brzegu na zbiornik
         let step = (shore.len() / 300).max(1);
         let mut hs: Vec<f32> = shore
             .iter()
@@ -281,7 +304,11 @@ pub fn water_levels(
             out[i] = level;
         }
     }
-    (out, w)
+    Some((out, rect))
+}
+
+fn s_f() -> f64 {
+    SIZE as f64
 }
 
 #[cfg(test)]

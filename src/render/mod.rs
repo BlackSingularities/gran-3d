@@ -41,6 +41,10 @@ pub struct Globals {
     pub biome: [f32; 4],
     pub grid_origin: [f32; 4],
     pub land_rect: [f32; 4],
+    /// Okno poziomów lustra wody: x0, z0, 1/szer., 1/wys.
+    pub water_rect: [f32; 4],
+    /// Czas animacji (s), -, -, -.
+    pub water: [f32; 4],
 }
 
 #[repr(C)]
@@ -119,6 +123,8 @@ pub struct Scene {
     /// Maska pokrycia terenu (OSM) i jej prostokąt w metrach ramki.
     pub landcover: bool,
     pub land_rect: [f32; 4],
+    pub water_rect: [f32; 4],
+    pub time: f32,
 }
 
 struct Targets {
@@ -527,14 +533,18 @@ impl Renderer {
     }
 
     /// Maska pokrycia terenu (RGBA: woda, las, skały/zarośla) i poziomy lustra wody
-    /// (m n.p.m., `NO_WATER` poza wodą; ten sam prostokąt, własny bok); `None` usuwa.
+    /// (m n.p.m., `NO_WATER` poza wodą; własne okno, bok `lw`; puste = brak wody); `None` usuwa.
     pub fn set_landcover(&mut self, data: Option<(&[u8], u32, &[f32], u32)>) {
         (self.land, self.water) = match data {
             Some((d, w, lv, lw)) => (
                 OverlayTex {
                     view: tiles::make_texture(&self.device, &self.queue, wgpu::TextureFormat::Rgba8Unorm, w, w, &[d.to_vec()], 4).create_view(&Default::default()),
                 },
-                tiles::make_texture(&self.device, &self.queue, wgpu::TextureFormat::R32Float, lw, lw, &[bytemuck::cast_slice(lv).to_vec()], 4).create_view(&Default::default()),
+                if lv.is_empty() {
+                    self.empty_water.clone()
+                } else {
+                    tiles::make_texture(&self.device, &self.queue, wgpu::TextureFormat::R32Float, lw, lw, &[bytemuck::cast_slice(lv).to_vec()], 4).create_view(&Default::default())
+                },
             ),
             None => (OverlayTex { view: self.empty_land.clone() }, self.empty_water.clone()),
         };
@@ -655,6 +665,8 @@ impl Renderer {
             biome: [scene.biome[0], scene.biome[1], scene.biome[2], 0.0],
             grid_origin: [0.0, 0.0, 1.0, 0.0],
             land_rect: scene.land_rect,
+            water_rect: scene.water_rect,
+            water: [scene.time, 0.0, 0.0, 0.0],
         };
         self.queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&g));
         let inv = vp.inverse();
