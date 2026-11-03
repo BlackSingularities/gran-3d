@@ -214,7 +214,7 @@ impl App {
         let mut offer = None;
         let mut settings = false;
         egui::Area::new(egui::Id::new("gora-prawa"))
-            .anchor(egui::Align2::RIGHT_TOP, [-16.0, 16.0])
+            .anchor(egui::Align2::RIGHT_TOP, [-16.0 - crate::ui::panels::right_inset(&self.atlas), 16.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     if let Update::Available(rel) = &self.update {
@@ -224,6 +224,8 @@ impl App {
                     }
                     theme::glass().show(ui, |ui| {
                         ui.horizontal(|ui| {
+                            crate::ui::panels::view_menus(&mut self.atlas, ui);
+                            ui.separator();
                             if theme::icon_button(ui, theme::icon::QUESTION, self.atlas.help).on_hover_text("Skróty i sterowanie (?)").clicked() {
                                 self.atlas.help = !self.atlas.help;
                             }
@@ -552,6 +554,7 @@ impl eframe::App for App {
         }
         self.update_ui(ctx);
 
+        crate::ui::panels::sidebar(&mut self.atlas, ctx);
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::INK_0))
             .show(ctx, |ui| {
@@ -559,7 +562,6 @@ impl eframe::App for App {
             });
         crate::ui::panels::search_pill(&mut self.atlas, ctx);
         crate::ui::panels::rail(&mut self.atlas, ctx);
-        crate::ui::panels::drawer(&mut self.atlas, ctx);
         crate::ui::panels::nav(&mut self.atlas, ctx);
         crate::ui::panels::profile_panel(&mut self.atlas, ctx);
         self.top_right(ctx);

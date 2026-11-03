@@ -163,10 +163,15 @@ pub struct Renderer {
     shadow: OverlayTex,
     vs: OverlayTex,
     land: OverlayTex,
+    water: wgpu::TextureView,
     empty_overlay: wgpu::TextureView,
     empty_land: wgpu::TextureView,
+    empty_water: wgpu::TextureView,
     pub drawn: usize,
 }
+
+/// Brak wody w teksturze poziomów lustra.
+pub const NO_WATER: f32 = -10_000.0;
 
 fn overlay_view(device: &wgpu::Device, queue: &wgpu::Queue, w: u32, h: u32, data: &[u8]) -> wgpu::TextureView {
     tiles::make_texture(device, queue, wgpu::TextureFormat::R8Unorm, w, h, &[data.to_vec()], 1).create_view(&Default::default())
@@ -211,6 +216,17 @@ impl Renderer {
                 tex(2),
                 tex(3),
                 tex(4),
+                // poziom lustra wody (R32Float, czytany też w cieniowaniu wierzchołków)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let tile_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -434,12 +450,15 @@ impl Renderer {
         let static_lines = (line_buf(1), 0, u64::MAX);
         let dyn_lines = (line_buf(1024), 0);
         let empty_land = tiles::make_texture(&device, &queue, wgpu::TextureFormat::Rgba8Unorm, 1, 1, &[vec![0, 0, 0, 0]], 4).create_view(&Default::default());
-        let globals_bind = Self::make_globals_bind(&device, &globals_layout, &globals_buf, &sampler, &empty_overlay, &empty_overlay, &empty_land);
+        let empty_water = tiles::make_texture(&device, &queue, wgpu::TextureFormat::R32Float, 1, 1, &[bytemuck::cast_slice(&[NO_WATER]).to_vec()], 4).create_view(&Default::default());
+        let globals_bind = Self::make_globals_bind(&device, &globals_layout, &globals_buf, &sampler, &empty_overlay, &empty_overlay, &empty_land, &empty_water);
         Renderer {
             shadow: OverlayTex { view: empty_overlay.clone() },
             vs: OverlayTex { view: empty_overlay.clone() },
             land: OverlayTex { view: empty_land.clone() },
             empty_land,
+            water: empty_water.clone(),
+            empty_water,
             empty_overlay,
             device,
             queue,
@@ -478,6 +497,7 @@ impl Renderer {
         shadow: &wgpu::TextureView,
         vs: &wgpu::TextureView,
         land: &wgpu::TextureView,
+        water: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("globals"),
@@ -488,12 +508,13 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(shadow) },
                 wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(vs) },
                 wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(land) },
+                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(water) },
             ],
         })
     }
 
     fn rebind_globals(&mut self) {
-        self.globals_bind = Self::make_globals_bind(&self.device, &self.globals_layout, &self.globals_buf, &self.sampler, &self.shadow.view, &self.vs.view, &self.land.view);
+        self.globals_bind = Self::make_globals_bind(&self.device, &self.globals_layout, &self.globals_buf, &self.sampler, &self.shadow.view, &self.vs.view, &self.land.view, &self.water);
     }
 
     /// Mapa cieni (0 – cień, 255 – słońce) na prostokącie ramki; `None` usuwa.
@@ -505,13 +526,17 @@ impl Renderer {
         self.rebind_globals();
     }
 
-    /// Maska pokrycia terenu (RGBA: woda, las, skały/zarośla); `None` usuwa.
-    pub fn set_landcover(&mut self, data: Option<(&[u8], u32, u32)>) {
-        self.land = match data {
-            Some((d, w, h)) => OverlayTex {
-                view: tiles::make_texture(&self.device, &self.queue, wgpu::TextureFormat::Rgba8Unorm, w, h, &[d.to_vec()], 4).create_view(&Default::default()),
-            },
-            None => OverlayTex { view: self.empty_land.clone() },
+    /// Maska pokrycia terenu (RGBA: woda, las, skały/zarośla) i poziomy lustra wody
+    /// (m n.p.m., `NO_WATER` poza wodą; ten sam prostokąt, własny bok); `None` usuwa.
+    pub fn set_landcover(&mut self, data: Option<(&[u8], u32, &[f32], u32)>) {
+        (self.land, self.water) = match data {
+            Some((d, w, lv, lw)) => (
+                OverlayTex {
+                    view: tiles::make_texture(&self.device, &self.queue, wgpu::TextureFormat::Rgba8Unorm, w, w, &[d.to_vec()], 4).create_view(&Default::default()),
+                },
+                tiles::make_texture(&self.device, &self.queue, wgpu::TextureFormat::R32Float, lw, lw, &[bytemuck::cast_slice(lv).to_vec()], 4).create_view(&Default::default()),
+            ),
+            None => (OverlayTex { view: self.empty_land.clone() }, self.empty_water.clone()),
         };
         self.rebind_globals();
     }

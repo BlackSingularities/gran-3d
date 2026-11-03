@@ -130,25 +130,26 @@ fn fetch_url(url: &str) -> Result<Vec<u8>, FetchError> {
 /// Źródło kafla: zwykłe (jeden adres) albo składane z usług krajowych.
 fn fetch_any(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError> {
     match layer {
-        Layer::Ortho => {
-            // tło: zdjęcie satelitarne (przodek do z14), przycięte do kafla
-            let bg = (0..=t.z.saturating_sub(1)).find_map(|dz| {
-                let (a, off, k) = if t.z - dz > crate::render::tiles::SAT_MAX_Z {
-                    return None;
-                } else if dz == 0 {
-                    (t, [0.0, 0.0], 1.0)
-                } else {
-                    t.ancestor(dz)
-                };
-                let img = decoded_sat(store, a)?;
-                let s = img.width() as f32;
-                let (x, y, w) = ((off[0] * s) as u32, (off[1] * s) as u32, ((k * s) as u32).max(1));
-                Some(image::imageops::crop_imm(&*img, x, y, w, w).to_image())
-            });
-            crate::national::fetch_ortho(t, bg)
-        }
+        Layer::Ortho => crate::national::fetch_ortho(t, sat_background(store, t)),
         _ => fetch(layer, t),
     }
+}
+
+/// Tło ortofoto: zdjęcie satelitarne (przodek do z14), przycięte do kafla.
+pub fn sat_background(store: &Store, t: TileId) -> Option<image::RgbaImage> {
+    (0..=t.z.saturating_sub(1)).find_map(|dz| {
+        let (a, off, k) = if t.z - dz > crate::render::tiles::SAT_MAX_Z {
+            return None;
+        } else if dz == 0 {
+            (t, [0.0, 0.0], 1.0)
+        } else {
+            t.ancestor(dz)
+        };
+        let img = decoded_sat(store, a)?;
+        let s = img.width() as f32;
+        let (x, y, w) = ((off[0] * s) as u32, (off[1] * s) as u32, ((k * s) as u32).max(1));
+        Some(image::imageops::crop_imm(&*img, x, y, w, w).to_image())
+    })
 }
 
 /// Kafel z dysku: dane, wiadomy brak w źródle albo `None`, gdy trzeba pobrać.

@@ -247,7 +247,7 @@ enum JobResult {
     Shadow(u64, Box<(Vec<u8>, u32, u32, [f64; 4])>),
     Rel(u64, RelInfo),
     Los(u64, Option<f64>, f64),
-    Land(Option<Box<(Vec<u8>, u32, [f64; 4])>>),
+    Land(Option<Box<(Vec<u8>, u32, [f64; 4], Vec<f32>, u32)>>),
 }
 
 /// Prośby atlasu do aplikacji.
@@ -920,9 +920,12 @@ impl Atlas {
         }
         self.land_key = Some(key);
         self.land_busy = true;
-        let (root, tx) = (self.heights.store().root().to_path_buf(), self.tx.clone());
+        let (root, tx, heights) = (self.heights.store().root().to_path_buf(), self.tx.clone(), self.heights.clone());
         thread::spawn(move || {
-            let m = crate::landcover::mosaic(&root, key.0, 1024).map(Box::new);
+            let m = crate::landcover::mosaic(&root, key.0, 1024).map(|(data, side, rect)| {
+                let (lv, lw) = crate::landcover::water_levels(&data, side, rect, &heights, crate::render::NO_WATER);
+                Box::new((data, side, rect, lv, lw))
+            });
             let _ = tx.send(JobResult::Land(m));
         });
     }
@@ -974,9 +977,9 @@ impl Atlas {
                     self.land_busy = false;
                     match m {
                         Some(b) => {
-                            let (data, side, rect) = *b;
+                            let (data, side, rect, lv, lw) = *b;
                             if let Some(r) = &mut self.renderer {
-                                r.set_landcover(Some((&data, side, side)));
+                                r.set_landcover(Some((&data, side, &lv, lw)));
                             }
                             self.land_rect = Some(rect);
                         }
@@ -1138,8 +1141,10 @@ impl Atlas {
                 K::O => self.set_lens(Lens::Vis),
                 K::Slash => self.search = Some(crate::ui::search::Search::default()),
                 K::M => {
-                    self.prefs.panel_open = true;
-                    self.tab = crate::ui::panels::Tab::Layers;
+                    // styl mapy jest w menu górnego paska; skrót przełącza na następny
+                    let all = Style::ALL;
+                    let i = all.iter().position(|s| *s == self.prefs.style).unwrap_or(0);
+                    self.prefs.style = all[(i + 1) % all.len()];
                 }
                 K::P => self.prefs.panel_open = !self.prefs.panel_open,
                 K::T => self.prefs.trails = !self.prefs.trails,
@@ -1420,8 +1425,21 @@ impl Atlas {
             }
             let (blit, _) = r.render(&view, &scene, &lines, ppp);
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, blit));
-            let loading = r.tiles.loading;
-            self.status_line = if loading > 0 { format!("wczytywanie mapy · {loading}") } else { String::new() };
+            let [dem, sat, ortho, local] = r.tiles.loading_kinds;
+            let mut parts = Vec::new();
+            if dem > 0 {
+                parts.push(format!("teren · {dem}"));
+            }
+            if sat > 0 {
+                parts.push(format!("zdjęcia satelitarne · {sat}"));
+            }
+            if ortho > 0 {
+                parts.push(format!("ortofoto · {ortho}"));
+            }
+            if local > 0 {
+                parts.push(format!("składanie ortofoto · {local}"));
+            }
+            self.status_line = if parts.is_empty() { String::new() } else { format!("pobieranie: {}", parts.join(", ")) };
         }
         self.last_view = Some(view);
         self.overlays(ui, rect, &view);
@@ -1912,19 +1930,77 @@ impl Atlas {
         }
 
         // kompas
-        let c = rect.right_bottom() + Vec2::new(-43.0, -312.0);
-        p.circle(c, 22.0, Color32::from_rgba_unmultiplied(26, 29, 35, 242), Stroke::new(1.0, theme::INK_4));
-        let h = (-self.cam.heading).to_radians() as f32;
-        let dir = Vec2::new(h.sin(), -h.cos());
-        p.line_segment([c - dir * 14.0, c + dir * 14.0], Stroke::new(1.5, theme::PAPER_3));
-        p.circle_filled(c + dir * 14.0, 3.5, theme::SIGNAL);
-        p.text(c + dir * 25.0 * 0.0 - Vec2::new(0.0, 0.0), Align2::CENTER_CENTER, "N", FontId::proportional(10.0), theme::PAPER);
-        let compass = Rect::from_center_size(c, Vec2::splat(44.0));
-        if ui.interact(compass, ui.id().with("kompas"), Sense::click()).on_hover_text("Północ u góry (N)").clicked() {
+        let r = 30.0;
+        let c = rect.right_bottom() + Vec2::new(-51.0, -322.0);
+        let compass = Rect::from_center_size(c, Vec2::splat(r * 2.0 + 4.0));
+        let resp = ui.interact(compass, ui.id().with("kompas"), Sense::click_and_drag());
+        let hot = resp.hovered() || resp.dragged();
+        p.circle_filled(c + Vec2::new(0.0, 2.0), r + 1.0, Color32::from_black_alpha(90));
+        p.circle(
+            c,
+            r,
+            Color32::from_rgba_unmultiplied(26, 29, 35, 242),
+            Stroke::new(1.0, if hot { theme::PAPER_3 } else { theme::INK_4 }),
+        );
+        // kierunek patrzenia: stały znacznik u góry tarczy
+        let top = c - Vec2::new(0.0, r);
+        p.add(egui::Shape::convex_polygon(
+            vec![top + Vec2::new(0.0, 6.0), top + Vec2::new(-4.0, -1.0), top + Vec2::new(4.0, -1.0)],
+            theme::BRASS,
+            Stroke::NONE,
+        ));
+        // tarcza obraca się z kamerą: podziałka co 15°, główne kierunki co 90°
+        let rot = |deg: f32| {
+            let a = (deg - self.cam.heading as f32).to_radians();
+            Vec2::new(a.sin(), -a.cos())
+        };
+        for i in 0..24 {
+            let deg = i as f32 * 15.0;
+            let d = rot(deg);
+            let (len, w, col) = match i % 6 {
+                0 => (0.0, 0.0, theme::PAPER),
+                _ if i % 2 == 0 => (5.0, 1.2, theme::PAPER_3),
+                _ => (3.0, 1.0, theme::INK_4),
+            };
+            if len > 0.0 {
+                p.line_segment([c + d * (r - 2.0), c + d * (r - 2.0 - len)], Stroke::new(w, col));
+            }
+        }
+        for (deg, s) in [(90.0, "E"), (180.0, "S"), (270.0, "W")] {
+            p.text(c + rot(deg) * (r - 9.0), Align2::CENTER_CENTER, s, FontId::proportional(9.5), theme::PAPER_3);
+        }
+        p.text(c + rot(0.0) * (r - 9.0), Align2::CENTER_CENTER, "N", FontId::proportional(11.0), theme::SIGNAL);
+        // igła: czerwona połowa na północ, jasna na południe, pochylona razem z kamerą
+        let n = rot(0.0);
+        let side = Vec2::new(-n.y, n.x) * 3.5;
+        let tip = 15.0 * (0.45 + 0.55 * (self.cam.pitch as f32).to_radians().sin().abs()).min(1.0);
+        p.add(egui::Shape::convex_polygon(vec![c + n * tip, c + side, c - side], theme::SIGNAL, Stroke::NONE));
+        p.add(egui::Shape::convex_polygon(vec![c - n * tip, c - side, c + side], theme::PAPER_3, Stroke::NONE));
+        p.circle(c, 2.5, Color32::from_rgb(26, 29, 35), Stroke::new(1.0, theme::PAPER_3));
+        // odczyt kursu pod tarczą
+        let hdg = (self.cam.heading.rem_euclid(360.0).round() as i32) % 360;
+        const DIRS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+        let label = format!("{hdg:03}° {}", DIRS[((hdg as f32 + 22.5) / 45.0) as usize % 8]);
+        let lp = c + Vec2::new(0.0, r + 11.0);
+        let galley = p.layout_no_wrap(label, FontId::monospace(10.5), theme::PAPER);
+        let bg = Rect::from_center_size(lp, galley.size() + Vec2::new(10.0, 4.0));
+        p.rect_filled(bg, 4.0, Color32::from_rgba_unmultiplied(26, 29, 35, 230));
+        p.galley(bg.center() - galley.size() / 2.0, galley, theme::PAPER);
+        // klik: północ; dwuklik: północ i widok z góry; przeciągnięcie w poziomie: obrót
+        if resp.dragged() {
+            self.cam.heading = (self.cam.heading - resp.drag_delta().x as f64 * 1.2).rem_euclid(360.0);
+        }
+        if resp.double_clicked() {
+            let mut to = self.cam;
+            to.heading = 0.0;
+            to.pitch = 89.0;
+            self.start_fly(to, 0.7);
+        } else if resp.clicked() {
             let mut to = self.cam;
             to.heading = 0.0;
             self.start_fly(to, 0.7);
         }
+        resp.on_hover_text("Klik: północ u góry (N)\nDwuklik: północ i widok z góry\nPrzeciągnij w bok: obrót");
 
         // podziałka
         let mpp = view.eye.distance(view.target) * (self.cam.fov_y.to_radians() / 2.0).tan() * 2.0 / rect.height() as f64;
@@ -1989,6 +2065,15 @@ impl Atlas {
         if !self.status_line.is_empty() {
             chips.push(self.status_line.clone());
         }
+        if self.world.land_busy() {
+            chips.push("pobieranie pokrycia terenu (OSM)…".into());
+        }
+        if self.land_busy {
+            chips.push("wypiekanie pokrycia terenu i poziomów wody…".into());
+        }
+        if self.shadow_busy {
+            chips.push("liczenie cieni…".into());
+        }
         if self.routing {
             chips.push("wyznaczanie trasy…".into());
         }
@@ -2010,14 +2095,12 @@ impl Atlas {
         if let Some(t) = lens_txt {
             chips.push(format!("{t}{}", if self.lens_pin.is_some() { " (przypięta · Esc)" } else { " · klik przypina" }));
         }
-        let mut y = rect.top() + 16.0;
-        for c in chips {
-            let g = p.layout_no_wrap(c, FontId::proportional(12.0), theme::PAPER);
-            let size = g.size() + Vec2::new(20.0, 10.0);
-            let r = Rect::from_min_size(Pos2::new(rect.center().x - size.x / 2.0, y), size);
-            p.rect_filled(r, 12.0, Color32::from_rgba_unmultiplied(26, 29, 35, 235));
-            p.galley(r.min + Vec2::new(10.0, 5.0), g, theme::PAPER);
-            y += r.height() + 6.0;
+        // statusy na środku dolnego paska (nad odczytem kursora i atrybucją)
+        if !chips.is_empty() {
+            let g = p.layout_no_wrap(chips.join("  ·  "), FontId::proportional(11.5), theme::PAPER);
+            let r = Rect::from_center_size(bar.center(), Vec2::new(g.size().x + 20.0, bar.height() - 4.0));
+            p.rect_filled(r, 9.0, Color32::from_rgba_unmultiplied(26, 29, 35, 245));
+            p.galley(r.center() - g.size() / 2.0, g, theme::PAPER);
         }
 
         // menu kontekstowe

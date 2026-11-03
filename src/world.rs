@@ -64,6 +64,8 @@ pub struct World {
     version: Arc<AtomicU64>,
     /// Rośnie po zapisaniu każdej nowej maski pokrycia terenu.
     land_version: Arc<AtomicU64>,
+    /// Pobieranie i wypiekanie maski pokrycia terenu w toku.
+    land_busy: Arc<std::sync::atomic::AtomicBool>,
 }
 
 const MAX_LOADED: usize = 25;
@@ -76,6 +78,7 @@ impl World {
             snap: Arc::new(RwLock::new(Arc::new(Snapshot::empty()))),
             version: Arc::default(),
             land_version: Arc::default(),
+            land_busy: Arc::default(),
         };
         let me = w.clone();
         let c = ctx.clone();
@@ -95,6 +98,10 @@ impl World {
             .spawn(move || me.run_trails(c2))
             .expect("wątek szlaków");
         w
+    }
+
+    pub fn land_busy(&self) -> bool {
+        self.land_busy.load(Ordering::Relaxed)
     }
 
     pub fn land_version(&self) -> u64 {
@@ -119,7 +126,11 @@ impl World {
                     .copied()
             };
             let Some(id) = next else { continue };
-            match crate::landcover::fetch(id).and_then(|img| crate::landcover::save(&root, id, &img)) {
+            self.land_busy.store(true, Ordering::Relaxed);
+            ctx.request_repaint();
+            let r = crate::landcover::fetch(id).and_then(|img| crate::landcover::save(&root, id, &img));
+            self.land_busy.store(false, Ordering::Relaxed);
+            match r {
                 Ok(()) => {
                     log::info!("pokrycie terenu {}/{} zapisane", id.x, id.y);
                     self.land_version.fetch_add(1, Ordering::Relaxed);

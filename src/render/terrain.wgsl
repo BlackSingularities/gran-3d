@@ -33,6 +33,7 @@ struct Tile {
 @group(0) @binding(2) var shadow_tex: texture_2d<f32>;
 @group(0) @binding(3) var vs_tex: texture_2d<f32>;
 @group(0) @binding(4) var land_tex: texture_2d<f32>;
+@group(0) @binding(5) var water_tex: texture_2d<f32>;
 @group(1) @binding(0) var<uniform> tile: Tile;
 @group(2) @binding(0) var height_tex: texture_2d<f32>;
 @group(2) @binding(1) var grad_tex: texture_2d<f32>;
@@ -51,6 +52,16 @@ fn height_at(uv: vec2<f32>) -> f32 {
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
+// poziom lustra wody (OSM + wysokość brzegu) w punkcie ramki; poniżej -1000 = brak wody
+fn water_level(wp: vec2<f32>) -> f32 {
+    let uv = (wp - g.land_rect.xy) * g.land_rect.zw;
+    if (g.flags.z < 0.5 || any(uv < vec2(0.0)) || any(uv >= vec2(1.0))) {
+        return -10000.0;
+    }
+    let dim = vec2<f32>(textureDimensions(water_tex));
+    return textureLoad(water_tex, vec2<i32>(uv * dim), 0).r;
+}
+
 struct VOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) wp: vec2<f32>,
@@ -63,8 +74,13 @@ struct VOut {
 @vertex
 fn vs_main(@location(0) uv: vec2<f32>, @location(1) skirt: f32) -> VOut {
     let duv = tile.dem.xy + uv * tile.dem.z;
-    let h = height_at(duv);
+    var h = height_at(duv);
     let exag = g.eye.w;
+    // tafla jeziora płasko na wysokości brzegu (model terenu ma tam dno albo szum)
+    let wl = water_level(vec2(tile.rect.x + uv.x * tile.rect.z, tile.rect.y + uv.y * tile.rect.z));
+    if (wl > -1000.0) {
+        h = wl;
+    }
     let world = vec3(tile.rect.x + uv.x * tile.rect.z, h * exag - skirt * tile.rect.w, tile.rect.y + uv.y * tile.rect.z);
     var rel = world - g.eye.xyz;
     let hd2 = dot(rel.xz, rel.xz);
@@ -130,8 +146,10 @@ fn in_rect(wp: vec2<f32>, r: vec4<f32>) -> vec3<f32> {
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let exag = g.eye.w;
     let style = i32(g.style.x + 0.5);
-    let h = height_at(in.dem_uv);
-    let grad = textureSample(grad_tex, samp, in.dem_uv).xy;
+    let wl = water_level(in.wp);
+    let on_water = wl > -1000.0;
+    let h = select(height_at(in.dem_uv), wl, on_water);
+    let grad = select(textureSample(grad_tex, samp, in.dem_uv).xy, vec2(0.0), on_water);
     // lekka mapa normalnych z bliska: na zdjęciach z jasności obrazu, inaczej z drobnego szumu
     let px = vec2(1.5) / vec2<f32>(textureDimensions(img_tex));
     let lum = vec3(0.3, 0.59, 0.11);
@@ -220,6 +238,9 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
                 water = 1.0;
             }
         }
+        if (on_water) {
+            water = 1.0;
+        }
         // śnieg: od granicy (dłużej na północnych stokach i w żlebach), nie na ścianach
         if (g.season.y > 0.5) {
             let sline = snowline - north * 180.0 + (fbm(wp / 60.0) - 0.5) * 160.0;
@@ -260,6 +281,9 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
             if (land.r > 0.5 && slope < 0.15) {
                 water = 1.0;
             }
+        }
+        if (on_water) {
+            water = 1.0;
         }
         let rk = smoothstep(0.9, 1.3, slope) + smoothstep(g.biome.z, g.biome.z + 250.0, h) * smoothstep(0.4, 0.8, slope);
         c = mix(c, srgb(vec3(0.80, 0.79, 0.78)), clamp(rk, 0.0, 1.0));
