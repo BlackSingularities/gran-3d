@@ -494,6 +494,7 @@ export class Panel {
       <div class="section">
         <div class="section__title"><span class="kicker">Autor</span></div>
         <p class="note" style="margin-top:0">Projekt i wykonanie: <a href="https://redzikowski.com" target="_blank" rel="noopener"><b>redzikowski.com</b></a></p>
+        <p class="note" style="margin-top:4px">Kontakt: <a href="mailto:kontakt@redzikowski.com">kontakt@redzikowski.com</a></p>
         <a class="btn btn--primary" style="margin-top:10px" href="https://buycoffee.to/adamredzikowski" target="_blank" rel="noopener">☕ Postaw kawę</a>
       </div>`;
   }
