@@ -17,8 +17,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime};
 
+use rayon::prelude::*;
+
 use crate::areas::Area;
 use crate::geo::TileId;
+use crate::library::Coverage;
 use crate::pack::{self, PackKey, Packs, Slot};
 
 /// Model globalny do tego poziomu nigdy nie jest usuwany (cała Europa to kilkadziesiąt MB).
@@ -96,6 +99,7 @@ pub struct Store {
     root: PathBuf,
     packs: Arc<Packs>,
     touched: Arc<Mutex<HashMap<PackKey, Instant>>>,
+    coverage: Arc<Coverage>,
 }
 
 impl Store {
@@ -103,6 +107,7 @@ impl Store {
         let root = root.into();
         Self {
             packs: Arc::new(Packs::new(root.join("tiles"))),
+            coverage: Arc::new(Coverage::new(root.join("lidar-brak.txt"))),
             root,
             touched: Arc::default(),
         }
@@ -112,9 +117,47 @@ impl Store {
         &self.root
     }
 
-    /// Kafel jest na dysku albo wiadomo, że źródło go nie ma.
+    /// Kafel jest na dysku albo wiadomo, że źródło go nie ma. Dla LiDAR-u: kafel terenu jest z LiDAR-u.
     pub fn has(&self, layer: Layer, t: TileId) -> bool {
-        self.packs.state(layer.id(), layer.dir(), t) != Slot::Empty
+        if let Some(known) = self.coverage.has(layer, t) {
+            return known;
+        }
+        match layer {
+            Layer::Lidar => self.read(Layer::Dem, t).is_some_and(|b| crate::bake::is_lidar(&b)),
+            _ => self.packs.state(layer.id(), layer.dir(), t) != Slot::Empty,
+        }
+    }
+
+    /// Wczytanie pokrycia z indeksów wszystkich paczek (równolegle, po pliku).
+    pub fn scan(&self) {
+        let tiles = self.root.join("tiles");
+        for layer in Layer::STORED {
+            pack::list(&tiles, layer.id(), layer.dir()).into_par_iter().for_each(|(key, path)| {
+                // tylko tam może leżeć LiDAR, a odczyt początku każdego kafla kosztuje
+                let with_head = layer == Layer::Dem && key.z >= 14;
+                match pack::scan(&path, with_head) {
+                    Ok(slots) => self.coverage.merge(key, &slots),
+                    Err(e) => log::warn!("paczka {}: {e}", path.display()),
+                }
+            });
+        }
+        self.coverage.mark_ready();
+    }
+
+    /// [`Store::scan`] w tle; do końca skanowania `has` pyta dysk.
+    pub fn start_scan(&self) {
+        let store = self.clone();
+        std::thread::spawn(move || store.scan());
+    }
+
+    /// Usługi nie mają LiDAR-u dla tego kafla – nie pytamy o niego ponownie.
+    pub fn note_no_lidar(&self, t: TileId) {
+        self.coverage.note_no_lidar(t);
+    }
+
+    #[cfg(test)]
+    pub fn release_all(&self) {
+        self.packs.forget_all();
     }
 
     /// Wypieczone dane kafla.
@@ -126,7 +169,9 @@ impl Store {
 
     /// Zapis wypieczonego kafla; `None` = źródło nie ma tego kafla.
     pub fn write(&self, layer: Layer, t: TileId, baked: Option<&[u8]>) -> std::io::Result<()> {
-        self.packs.write(layer.id(), layer.dir(), t, baked)
+        self.packs.write(layer.id(), layer.dir(), t, baked)?;
+        self.coverage.note(layer, t, baked.is_some());
+        Ok(())
     }
 
     /// Oznaczenie użycia paczki (czas modyfikacji = ostatnie użycie), najwyżej raz na minutę.
@@ -181,6 +226,7 @@ impl Store {
             }
             self.packs.forget(&key);
             if fs::remove_file(&path).is_ok() {
+                self.coverage.remove_pack(&key);
                 total = total.saturating_sub(size);
                 freed += size;
                 n += 1;
@@ -200,7 +246,9 @@ impl Store {
                     .unwrap_or(Layer::Dem)
                     .dir();
                 self.packs.forget(&key);
-                let _ = fs::remove_file(self.packs.path(&key, dir));
+                if fs::remove_file(self.packs.path(&key, dir)).is_ok() {
+                    self.coverage.remove_pack(&key);
+                }
             }
         }
     }

@@ -9,7 +9,7 @@ use crate::geo::{BBox, TileId};
 use crate::store::{Layer, BASE_MAX_Z};
 
 /// Poziom szczegółów pobieranego obszaru.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Level {
     /// Teren ~76 m, zdjęcia ~38 m – szybki podgląd dużego obszaru.
     Preview,
@@ -112,28 +112,39 @@ impl Area {
 
     /// Wszystkie kafle obszaru (warstwa, kafel) od [`AREA_MIN_Z`] do poziomu szczegółów.
     pub fn tiles(&self) -> impl Iterator<Item = (Layer, TileId)> + '_ {
-        let base = Layer::ALL.into_iter().flat_map(move |layer| {
-            (AREA_MIN_Z..=self.level.max_z(layer))
-                .flat_map(move |z| self.bbox.tiles(z).map(move |t| (layer, t)))
-        });
-        // dane krajowe tylko tam, gdzie sięgają usługi
-        let national = [(Layer::Ortho, crate::national::ORTHO_MIN_Z), (Layer::Lidar, 14u8)]
-            .into_iter()
-            .filter(move |_| self.level == Level::Lidar)
-            .flat_map(move |(layer, z0)| {
-                (z0..=self.level.max_z(layer)).flat_map(move |z| {
-                    self.bbox.tiles(z).filter(move |t| match layer {
-                        Layer::Ortho => crate::national::has_ortho(*t),
-                        _ => crate::national::has_lidar(*t),
-                    })
-                    .map(move |t| (layer, t))
-                })
-            });
-        base.chain(national)
+        layer_levels(self.level).into_iter().flat_map(move |(layer, z)| {
+            self.bbox
+                .tiles(z)
+                .filter(move |t| wanted(layer, *t))
+                .map(move |t| (layer, t))
+        })
     }
 
     pub fn estimate(&self) -> Estimate {
         estimate(&self.bbox, self.level)
+    }
+}
+
+/// Warstwy i poziomy kafli należące do poziomu szczegółów.
+pub fn layer_levels(level: Level) -> Vec<(Layer, u8)> {
+    let mut out = Vec::new();
+    for layer in Layer::ALL {
+        out.extend((AREA_MIN_Z..=level.max_z(layer)).map(|z| (layer, z)));
+    }
+    if level == Level::Lidar {
+        for (layer, z0) in [(Layer::Ortho, crate::national::ORTHO_MIN_Z), (Layer::Lidar, 14u8)] {
+            out.extend((z0..=level.max_z(layer)).map(|z| (layer, z)));
+        }
+    }
+    out
+}
+
+/// Dane krajowe tylko tam, gdzie sięgają usługi.
+pub fn wanted(layer: Layer, t: TileId) -> bool {
+    match layer {
+        Layer::Ortho => crate::national::has_ortho(t),
+        Layer::Lidar => crate::national::has_lidar(t),
+        _ => true,
     }
 }
 

@@ -15,6 +15,7 @@ mod gpx;
 mod graph;
 mod heights;
 mod landcover;
+mod library;
 mod metrics;
 mod national;
 mod osm;
