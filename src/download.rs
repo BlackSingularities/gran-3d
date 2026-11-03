@@ -1,8 +1,9 @@
-//! Pobieranie kafli: zadania obszarów (w tle, z postępem, wznawialne) i pojedyncze kafle na żądanie.
+//! Pobieranie kafli: pojedyncze kafle (na żądanie i dla silnika obszarów) oraz zadanie importu.
 
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -15,7 +16,58 @@ const USER_AGENT: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (+https://redzikowski.com/portfolio/gran-3d)"
 );
-const WORKERS: usize = 8;
+
+/// Kafel pobierany właśnie przez ten wątek. Inny wątek chcący ten sam kafel czeka i bierze go z dysku.
+struct Claim(Layer, TileId);
+
+fn claims() -> &'static (Mutex<HashSet<(Layer, TileId)>>, Condvar) {
+    static C: OnceLock<(Mutex<HashSet<(Layer, TileId)>>, Condvar)> = OnceLock::new();
+    C.get_or_init(Default::default)
+}
+
+impl Claim {
+    fn take(layer: Layer, t: TileId) -> Claim {
+        let (set, cv) = claims();
+        let mut s = set.lock().unwrap();
+        while !s.insert((layer, t)) {
+            s = cv.wait(s).unwrap();
+        }
+        Claim(layer, t)
+    }
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        let (set, cv) = claims();
+        set.lock().unwrap().remove(&(self.0, self.1));
+        cv.notify_all();
+    }
+}
+
+/// Zdekodowane zdjęcia satelitarne: jeden przodek służy wielu kaflom ortofoto.
+const SAT_CACHE: usize = 256;
+
+fn decoded_sat(store: &Store, t: TileId) -> Option<Arc<image::RgbaImage>> {
+    type Cache = (HashMap<TileId, Arc<image::RgbaImage>>, VecDeque<TileId>);
+    static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(img) = cache.lock().unwrap().0.get(&t) {
+        return Some(img.clone());
+    }
+    let blob = get(store, Layer::Sat, t).ok()?;
+    let img = image::load_from_memory_with_format(bake::jpeg(&blob)?, image::ImageFormat::Jpeg).ok()?.to_rgba8();
+    let img = Arc::new(img);
+    let mut c = cache.lock().unwrap();
+    if c.0.insert(t, img.clone()).is_none() {
+        c.1.push_back(t);
+    }
+    if c.1.len() > SAT_CACHE {
+        if let Some(old) = c.1.pop_front() {
+            c.0.remove(&old);
+        }
+    }
+    Some(img)
+}
 
 pub fn agent() -> &'static ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
@@ -24,7 +76,7 @@ pub fn agent() -> &'static ureq::Agent {
             .user_agent(USER_AGENT)
             .timeout_connect(Duration::from_secs(10))
             .timeout_read(Duration::from_secs(30))
-            .max_idle_connections_per_host(WORKERS * 2)
+            .max_idle_connections_per_host(32)
             .build()
     })
 }
@@ -83,11 +135,10 @@ fn fetch_any(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchErr
                 } else {
                     t.ancestor(dz)
                 };
-                let blob = get(store, Layer::Sat, a).ok()?;
-                let img = image::load_from_memory_with_format(bake::jpeg(&blob)?, image::ImageFormat::Jpeg).ok()?.to_rgba8();
+                let img = decoded_sat(store, a)?;
                 let s = img.width() as f32;
                 let (x, y, w) = ((off[0] * s) as u32, (off[1] * s) as u32, ((k * s) as u32).max(1));
-                Some(image::imageops::crop_imm(&img, x, y, w, w).to_image())
+                Some(image::imageops::crop_imm(&*img, x, y, w, w).to_image())
             });
             crate::national::fetch_ortho(t, bg)
         }
@@ -115,13 +166,15 @@ fn fetch_any(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchErr
     }
 }
 
-/// Kafel LiDAR jest już na dysku.
-pub fn has_lidar(store: &Store, t: TileId) -> bool {
-    store.has(Layer::Lidar, t)
-}
-
 /// Wypieczony kafel z dysku albo z sieci (pobrany jest od razu wypiekany i zapisywany).
 pub fn get(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError> {
+    if let Some(b) = store.read(layer, t) {
+        return Ok(b);
+    }
+    if store.has(layer, t) {
+        return Err(FetchError::Missing);
+    }
+    let _claim = Claim::take(layer, t);
     if let Some(b) = store.read(layer, t) {
         return Ok(b);
     }
@@ -155,11 +208,11 @@ pub enum Outcome {
 
 /// Pobranie, wypieczenie i zapis kafla (element zadania obszaru).
 pub fn download_tile(store: &Store, layer: Layer, t: TileId) -> Outcome {
-    if layer == Layer::Lidar {
-        if has_lidar(store, t) {
-            return Outcome::Skipped;
-        }
-    } else if store.has(layer, t) {
+    if store.has(layer, t) {
+        return Outcome::Skipped;
+    }
+    let _claim = Claim::take(layer, t);
+    if store.has(layer, t) {
         return Outcome::Skipped;
     }
     match fetch_any(store, layer, t) {
@@ -186,6 +239,7 @@ pub fn download_tile(store: &Store, layer: Layer, t: TileId) -> Outcome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobState {
     Running,
+    Paused,
     Done,
     Cancelled,
     Failed,
@@ -308,14 +362,6 @@ impl Job {
             })
             .expect("wątek zadania");
         job
-    }
-
-    /// Pobieranie zestawu kafli.
-    pub fn download(store: Store, label: String, tiles: Vec<(Layer, TileId)>) -> Arc<Job> {
-        Job::run(label, tiles.len(), WORKERS, move |i| {
-            let (layer, t) = tiles[i];
-            download_tile(&store, layer, t)
-        })
     }
 
     /// Import kafli terenu wersji 1.x (PNG Terrarium, także LiDAR) do paczek.

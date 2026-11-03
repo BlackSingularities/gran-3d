@@ -1,7 +1,6 @@
 //! Główna aplikacja: kreator przy pierwszym starcie, potem atlas 3D; menedżer map (mapa 2D z panelem
 //! danych) pod klawiszem D. Pobieranie obszarów idzie kolejką w tle; sprzątacz pilnuje limitu rozmiaru.
 
-use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -12,6 +11,7 @@ use eframe::egui::{self, RichText};
 
 use crate::areas::{self, Area, Level};
 use crate::download::{fmt_duration, Job, JobState, Progress};
+use crate::engine::{self, Engine};
 use crate::geo::BBox;
 use crate::settings::{data_dir_in, Settings, LIMIT_STEPS_GB};
 use crate::store::{detect, fmt_bytes, free_space, legacy_tiles, Store, IMPORTED_MARK};
@@ -30,15 +30,6 @@ enum Update {
     Checking(Arc<Mutex<Option<Result<updater::Release, String>>>>, bool),
     Available(updater::Release),
     Downloading(updater::Release, Arc<AtomicU64>, Arc<Mutex<Option<Result<PathBuf, String>>>>),
-}
-
-/// Co pobrać: model globalny albo zapisany obszar (po identyfikatorze).
-#[derive(Clone, PartialEq)]
-enum Task {
-    Base,
-    Area(String),
-    /// Import kafli terenu wersji 1.x z katalogu `.cache\dem`.
-    Import(PathBuf),
 }
 
 /// Zajętość dysku liczona w tle (przejście po tysiącach plików nie może blokować interfejsu).
@@ -67,8 +58,9 @@ pub struct App {
     areas: Vec<Area>,
     map: MapView,
     wizard: Option<Wizard>,
-    queue: VecDeque<Task>,
-    current: Option<(Task, Arc<Job>)>,
+    engine: Engine,
+    /// Import kafli terenu wersji 1.x z katalogu `.cache\dem`.
+    import: Option<(PathBuf, Arc<Job>)>,
     usage: Arc<Usage>,
     last_gc: Instant,
     selecting: bool,
@@ -107,12 +99,12 @@ impl App {
             manager: false,
             update: Update::Idle,
             wizard: (!settings.setup_done).then(|| Wizard::new(settings.clone())),
+            engine: Engine::new(store.clone()),
+            import: None,
             settings,
             store,
             areas,
             map,
-            queue: VecDeque::new(),
-            current: None,
             usage: Arc::new(Usage {
                 bytes: AtomicU64::new(0),
                 known: AtomicBool::new(false),
@@ -142,13 +134,7 @@ impl App {
         }
         if app.wizard.is_none() {
             // dokończenie przerwanych pobrań z poprzedniej sesji
-            app.queue.push_back(Task::Base);
-            app.queue.extend(
-                app.areas
-                    .iter()
-                    .filter(|a| !a.complete)
-                    .map(|a| Task::Area(a.id.clone())),
-            );
+            app.resume_downloads();
             app.queue_import();
             app.refresh_usage();
             // link gran:// z wiersza poleceń (kliknięty w systemie)
@@ -202,91 +188,55 @@ impl App {
         });
     }
 
-    fn pump_queue(&mut self) {
-        if let Some((task, job)) = self.current.clone() {
-            let p = job.progress();
-            if p.state == JobState::Running {
-                return;
-            }
-            if let (Task::Import(dir), JobState::Done) = (&task, p.state) {
-                let _ = std::fs::write(dir.join(IMPORTED_MARK), b"");
-                self.notify(format!(
-                    "Zaimportowano dane wersji 1.x: {} kafli terenu.",
-                    p.done
-                ));
-            }
-            if let Task::Area(id) = &task {
-                if let Some(a) = self.areas.iter_mut().find(|a| &a.id == id) {
-                    a.tiles_done = p.done as u64;
-                    a.complete = p.state == JobState::Done;
-                }
-                self.save_areas();
-                match p.state {
-                    JobState::Failed => self.notify(format!(
-                        "Nie wszystko udało się pobrać ({} kafli). Spróbuj ponownie później.",
-                        p.failed
-                    )),
-                    JobState::Done => self.notify(format!(
-                        "Obszar gotowy do pracy bez internetu: {}",
-                        job.label
-                    )),
-                    _ => {}
-                }
-            }
-            self.current = None;
-            self.collect_garbage();
-        }
-        while let Some(task) = self.queue.pop_front() {
-            let job = match &task {
-                Task::Base => {
-                    let missing: Vec<_> = areas::base_tiles()
-                        .filter(|(l, t)| !self.store.has(*l, *t))
-                        .collect();
-                    if missing.is_empty() {
-                        continue;
-                    }
-                    Job::download(self.store.clone(), "Model globalny Europy".into(), missing)
-                }
-                Task::Import(dir) => {
-                    let files = legacy_tiles(dir);
-                    if files.is_empty() {
-                        continue;
-                    }
-                    Job::import_legacy(self.store.clone(), files)
-                }
-                Task::Area(id) => {
-                    let Some(a) = self.areas.iter().find(|a| &a.id == id) else {
-                        continue;
-                    };
-                    Job::download(self.store.clone(), a.name.clone(), a.tiles().collect())
-                }
-            };
-            self.current = Some((task, job));
-            break;
+    /// Model globalny i obszary niedokończone: plan liczy tylko to, czego brakuje.
+    fn resume_downloads(&mut self) {
+        self.engine.add_base();
+        for a in self.areas.iter().filter(|a| !a.complete) {
+            self.engine.add_area(a);
         }
     }
 
-    fn progress_of(&self, task: &Task) -> Option<Progress> {
-        self.current
-            .as_ref()
-            .filter(|(t, _)| t == task)
-            .map(|(_, j)| j.progress())
+    fn pump_queue(&mut self) {
+        if let Some((dir, job)) = self.import.clone() {
+            let p = job.progress();
+            if p.state != JobState::Running {
+                if p.state == JobState::Done {
+                    let _ = std::fs::write(dir.join(IMPORTED_MARK), b"");
+                    self.notify(format!(
+                        "Zaimportowano dane wersji 1.x: {} kafli terenu.",
+                        p.done
+                    ));
+                }
+                self.import = None;
+                self.collect_garbage();
+            }
+        }
+        for (id, label, p) in self.engine.take_finished() {
+            if let Some(a) = self.areas.iter_mut().find(|a| a.id == id) {
+                a.tiles_done += p.done as u64;
+                a.complete = p.state == JobState::Done;
+                self.save_areas();
+                self.notify(match p.state {
+                    JobState::Done => format!("Obszar gotowy do pracy bez internetu: {label}"),
+                    _ => format!(
+                        "Nie wszystko udało się pobrać ({} kafli). Spróbuj ponownie później.",
+                        p.failed
+                    ),
+                });
+            }
+            self.collect_garbage();
+        }
     }
 
     fn enqueue_area(&mut self, a: Area) {
         self.world.persist(sectors_of(std::slice::from_ref(&a)));
-        self.queue.push_back(Task::Area(a.id.clone()));
+        self.engine.add_area(&a);
         self.areas.push(a);
         self.save_areas();
     }
 
     fn delete_area(&mut self, id: &str) {
-        if let Some((Task::Area(cur), job)) = &self.current {
-            if cur == id {
-                job.cancel();
-            }
-        }
-        self.queue.retain(|t| t != &Task::Area(id.to_string()));
+        self.engine.cancel(id);
         if let Some(i) = self.areas.iter().position(|a| a.id == id) {
             let a = self.areas.remove(i);
             self.save_areas();
@@ -345,14 +295,8 @@ impl App {
             if let Some(r) = &mut self.atlas.renderer {
                 r.tiles.reset();
             }
-            self.queue.clear();
-            self.queue.push_back(Task::Base);
-            self.queue.extend(
-                self.areas
-                    .iter()
-                    .filter(|a| !a.complete)
-                    .map(|a| Task::Area(a.id.clone())),
-            );
+            self.engine = Engine::new(self.store.clone());
+            self.resume_downloads();
         }
         self.queue_import();
         self.collect_garbage();
@@ -361,19 +305,20 @@ impl App {
     /// Kafle wersji 1.x we wskazanym folderze → import w tle (jednorazowo).
     fn queue_import(&mut self) {
         if let Some((dir, _)) = detect(&self.settings.data_dir).legacy_dem {
-            let task = Task::Import(dir);
-            if !self.queue.contains(&task) && self.current.as_ref().is_none_or(|(t, _)| *t != task)
-            {
-                self.queue.push_front(task);
+            if self.import.is_none() {
+                let files = legacy_tiles(&dir);
+                if !files.is_empty() {
+                    self.import = Some((dir, Job::import_legacy(self.store.clone(), files)));
+                }
             }
         }
     }
 
     fn start_move(&mut self, next: Settings) {
-        if let Some((_, job)) = self.current.take() {
+        if let Some((_, job)) = self.import.take() {
             job.cancel();
         }
-        self.queue.clear();
+        self.engine.shutdown();
         let (from, to) = (self.settings.data_dir.clone(), next.data_dir.clone());
         let result = Arc::new(Mutex::new(None));
         let r = result.clone();
@@ -450,7 +395,7 @@ impl App {
                     }
                 });
             });
-            if let Some((Task::Import(_), job)) = &self.current {
+            if let Some((_, job)) = &self.import {
                 let p = job.progress();
                 theme::card(false).show(ui, |ui| {
                     ui.set_width(ui.available_width());
@@ -459,7 +404,7 @@ impl App {
                     ui.label(RichText::new(format!("{} z {} kafli", p.done, p.total)).small().monospace().color(theme::PAPER_3));
                 });
             }
-            if let Some(p) = self.progress_of(&Task::Base) {
+            if let Some(p) = self.engine.progress(engine::BASE) {
                 theme::card(false).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.label(RichText::new("Model globalny Europy").strong());
@@ -474,9 +419,7 @@ impl App {
                     ui.label(RichText::new("Brak zapisanych obszarów. Kliknij „Dodaj” i zaznacz prostokąt na mapie, a teren i zdjęcia będą dostępne bez internetu.").color(theme::PAPER_3));
                 }
                 for a in &self.areas {
-                    let task = Task::Area(a.id.clone());
-                    let p = self.progress_of(&task);
-                    let queued = self.queue.contains(&task);
+                    let p = self.engine.progress(&a.id);
                     theme::card(false).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.horizontal(|ui| {
@@ -490,7 +433,13 @@ impl App {
                                 if ui.small_button("Usuń").on_hover_text("Usuń obszar i jego kafle").clicked() {
                                     delete = Some(a.id.clone());
                                 }
-                                if !a.complete && p.is_none() && !queued && ui.small_button("Dokończ").on_hover_text("Dokończ pobieranie").clicked() {
+                                if let Some(p) = &p {
+                                    let paused = p.state == JobState::Paused;
+                                    if ui.small_button(if paused { "Wznów" } else { "Pauza" }).clicked() {
+                                        self.engine.set_paused(&a.id, !paused);
+                                    }
+                                }
+                                if !a.complete && p.is_none() && ui.small_button("Dokończ").on_hover_text("Dokończ pobieranie").clicked() {
                                     retry = Some(a.id.clone());
                                 }
                             });
@@ -505,9 +454,6 @@ impl App {
                             }
                             (None, true) => {
                                 ui.label(RichText::new("dostępny bez internetu").small().color(theme::OK));
-                            }
-                            (None, false) if queued => {
-                                ui.label(RichText::new("w kolejce").small().color(theme::PAPER_3));
                             }
                             (None, false) => {
                                 ui.label(RichText::new("pobieranie przerwane").small().color(theme::WARN));
@@ -524,7 +470,9 @@ impl App {
                 }
             }
             if let Some(id) = retry {
-                self.queue.push_back(Task::Area(id));
+                if let Some(a) = self.areas.iter().find(|a| a.id == id) {
+                    self.engine.add_area(a);
+                }
             }
             if let Some(b) = show3d {
                 self.atlas.fit_bbox(&b);
@@ -641,7 +589,8 @@ impl App {
                 Ok(()) => self.commit_settings(m.settings),
                 Err(e) => {
                     rfd::MessageDialog::new().set_title("GRAŃ").set_level(rfd::MessageLevel::Error).set_description(format!("Nie udało się przenieść danych:\n{e}\n\nDane, których nie przeniesiono, zostały w dotychczasowym folderze.")).show();
-                    self.queue.push_back(Task::Base);
+                    self.engine = Engine::new(self.store.clone());
+                    self.resume_downloads();
                 }
             }
         }
@@ -696,7 +645,7 @@ impl App {
                         if ui.button("Ustawienia").on_hover_text("Folder i rozmiar danych map (Ctrl+,)").clicked() {
                             self.settings_open = Some(self.settings.clone());
                         }
-                        let label = if self.current.is_some() { "Mapy ⟳" } else { "Mapy" };
+                        let label = if self.engine.busy() { "Mapy ⟳" } else { "Mapy" };
                         if ui.button(label).on_hover_text("Obszary do pracy bez internetu, zajętość dysku (D)").clicked() {
                             self.manager = true;
                         }
@@ -869,37 +818,24 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.capture_frame(ctx);
         self.pump_queue();
-        if self.current.is_some() {
+        if self.engine.busy() || self.import.is_some() {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
 
         if let Some(wiz) = &mut self.wizard {
-            let dl = self.current.is_some() || !self.queue.is_empty() || wiz_started(&self.areas);
+            let dl = self.engine.busy() || wiz_started(&self.areas);
             let view = dl.then(|| DownloadView {
-                base: self
-                    .current
-                    .as_ref()
-                    .filter(|(t, _)| *t == Task::Base)
-                    .map(|(_, j)| j.progress())
-                    .or_else(|| (!self.queue.contains(&Task::Base)).then(|| Progress::complete())),
+                base: Some(self.engine.progress(engine::BASE).unwrap_or_else(Progress::complete)),
                 areas: self
                     .areas
                     .iter()
-                    .map(|a| {
-                        (
-                            a,
-                            self.current
-                                .as_ref()
-                                .filter(|(t, _)| *t == Task::Area(a.id.clone()))
-                                .map(|(_, j)| j.progress()),
-                        )
-                    })
+                    .map(|a| (a, self.engine.progress(&a.id)))
                     .collect(),
             });
             match wiz.show(ctx, &mut self.map, view) {
                 Some(wizard::Action::Start(settings, list)) => {
                     self.commit_settings(settings);
-                    self.queue.push_back(Task::Base);
+                    self.engine.add_base();
                     for a in list {
                         self.enqueue_area(a);
                     }
