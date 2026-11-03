@@ -22,6 +22,9 @@ pub struct Settings {
     /// Kreator pierwszego uruchomienia zakończony.
     #[serde(default)]
     pub setup_done: bool,
+    /// Synchronizacja klatek z monitorem (zmiana działa po ponownym uruchomieniu).
+    #[serde(default = "yes")]
+    pub vsync: bool,
 }
 
 fn yes() -> bool {
@@ -63,6 +66,7 @@ impl Default for Settings {
             limit_gb: 10,
             auto_update: true,
             setup_done: false,
+            vsync: true,
         }
     }
 }

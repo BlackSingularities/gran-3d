@@ -662,6 +662,7 @@ impl App {
             ui.label(RichText::new("Po przekroczeniu limitu najdawniej oglądane kafle są usuwane; zapisane obszary zostają.").small().color(theme::PAPER_3));
             ui.add_space(8.0);
             ui.checkbox(&mut s.auto_update, "Sprawdzaj aktualizacje na redzikowski.com");
+            ui.checkbox(&mut s.vsync, "Synchronizacja z monitorem (po wyłączeniu więcej klatek; działa po ponownym uruchomieniu)");
             ui.add_space(10.0);
             save = ui.add(theme::primary("Zapisz")).clicked();
         });
