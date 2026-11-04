@@ -1,11 +1,10 @@
 [package]
 name = "gran"
-version = "2.4.0"
+version = "2.4.1"
 edition = "2021"
 rust-version = "1.85"
 description = "GRAŃ — atlas szlaków górskich 3D dla Windows"
 authors = ["BlackSingularities"]
-repository = "https://github.com/BlackSingularities/gran-3d"
 build = "build.rs"
 
 [[bin]]
