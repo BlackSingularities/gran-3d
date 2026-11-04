@@ -328,6 +328,8 @@ pub struct Atlas {
     pub flight: Option<Flight>,
     pub panorama: Option<Camera>,
     drag_grab: Option<DVec3>,
+    /// Punkt terenu, wokół którego obraca się kamera podczas przeciągania prawym przyciskiem.
+    orbit_pivot: Option<(f64, f64, f32)>,
     drag_waypoint: Option<usize>,
     pub ctx_menu: Option<(Pos2, f64, f64, f32)>,
     pub search: Option<crate::ui::search::Search>,
@@ -405,6 +407,7 @@ impl Atlas {
             flight: None,
             panorama: None,
             drag_grab: None,
+            orbit_pivot: None,
             drag_waypoint: None,
             ctx_menu: None,
             search: None,
@@ -1278,6 +1281,46 @@ impl Atlas {
         }
     }
 
+    /// Przesuwa cel kamery tak, jak obrót całego widoku wokół chwyconego punktu (o `dh` w poziomie
+    /// i `dp` w nachyleniu, stopnie): punkt zostaje w tym samym miejscu ekranu.
+    fn orbit(&mut self, dh: f64, dp: f64) {
+        let Some((lon, lat, e)) = self.orbit_pivot else { return };
+        let (tx, tz) = self.frame.to_local(self.cam.lon, self.cam.lat);
+        let exag = self.prefs.exag;
+        let pivot = self.local(lon, lat, e);
+        let v = DVec3::new(tx, self.cam.height * exag, tz) - pivot;
+        // nachylenie: obrót w płaszczyźnie kierunku patrzenia i pionu
+        let (h, p) = (self.cam.heading.to_radians(), dp.to_radians());
+        let (fwd, right) = (DVec3::new(h.sin(), 0.0, -h.cos()), DVec3::new(h.cos(), 0.0, h.sin()));
+        let (a, b, c) = (v.dot(fwd), v.dot(right), v.y);
+        let v = fwd * (a * p.cos() + c * p.sin()) + right * b + DVec3::Y * (c * p.cos() - a * p.sin());
+        // kierunek: obrót wokół pionu
+        let q = dh.to_radians();
+        let v = DVec3::new(v.x * q.cos() - v.z * q.sin(), v.y, v.x * q.sin() + v.z * q.cos());
+        let mut target = pivot + v;
+        // cel wraca na teren wzdłuż linii patrzenia: obraz bez zmian, a wygładzanie wysokości nie szarpie
+        let (h, p) = ((self.cam.heading + dh).to_radians(), (self.cam.pitch + dp).to_radians());
+        let look = DVec3::new(h.sin() * p.cos(), -p.sin(), -h.cos() * p.cos());
+        let mut distance = self.cam.distance;
+        if p.sin() > 0.1 {
+            for _ in 0..3 {
+                let (l, t) = self.frame.to_lonlat(target.x, target.z);
+                let Some(g) = self.heights.sample_cached(l, t) else { break };
+                let step = (g as f64 * exag - target.y) / look.y;
+                if distance + step < self.min_dist() {
+                    break;
+                }
+                target += look * step;
+                distance += step;
+            }
+        }
+        let (l, t) = self.frame.to_lonlat(target.x, target.z);
+        self.cam.lon = (l + 540.0).rem_euclid(360.0) - 180.0;
+        self.cam.lat = t.clamp(-84.0, 84.0);
+        self.cam.height = target.y / exag;
+        self.cam.distance = distance;
+    }
+
     fn move_target(&mut self, east: f64, south: f64) {
         let kx = 111_320.0 * self.cam.lat.to_radians().cos();
         self.cam.lon += east / kx;
@@ -1617,13 +1660,22 @@ impl Atlas {
             self.drag_grab = None;
         }
         // obrót i nachylenie
+        if resp.drag_started_by(egui::PointerButton::Secondary) || resp.drag_started_by(egui::PointerButton::Middle) {
+            self.orbit_pivot = if self.panorama.is_some() { None } else { pointer.and_then(|p| self.ground(view, to_px(p))) };
+        }
         if resp.dragged_by(egui::PointerButton::Secondary) || resp.dragged_by(egui::PointerButton::Middle) {
             self.fly = None;
             let d = resp.drag_delta();
             let s = if self.panorama.is_some() { -0.15 } else { 0.3 };
-            self.cam.heading = (self.cam.heading + d.x as f64 * s).rem_euclid(360.0);
-            self.cam.pitch = (self.cam.pitch + d.y as f64 * 0.22).clamp(self.min_pitch(), 89.0);
+            let heading = (self.cam.heading + d.x as f64 * s).rem_euclid(360.0);
+            let pitch = (self.cam.pitch + d.y as f64 * 0.22).clamp(self.min_pitch(), 89.0);
+            self.orbit(d.x as f64 * s, pitch - self.cam.pitch);
+            self.cam.heading = heading;
+            self.cam.pitch = pitch;
             self.ctx_menu = None;
+        }
+        if !ctx.input(|i| i.pointer.secondary_down() || i.pointer.middle_down()) {
+            self.orbit_pivot = None;
         }
         if resp.secondary_clicked() {
             if let (Some(p), Some((lon, lat, e))) = (pointer, self.hover) {
@@ -1997,6 +2049,15 @@ impl Atlas {
             let (lon, lat, e) = r.track.lerp(i, f);
             if let Some(s) = view.project(self.local(lon, lat, e)) {
                 p.circle(at(s), 6.0, theme::BRASS, Stroke::new(2.0, Color32::BLACK));
+            }
+        }
+
+        // punkt obrotu
+        if let Some((lon, lat, e)) = self.orbit_pivot {
+            if let Some(s) = view.project(self.local(lon, lat, e)) {
+                let c = at(s);
+                p.circle_filled(c, 3.5, theme::BRASS);
+                p.circle_stroke(c, 8.0, Stroke::new(1.5, theme::PAPER));
             }
         }
 
