@@ -150,6 +150,8 @@ pub struct Packs {
     open: Mutex<HashMap<PackKey, Arc<Open>>>,
     max_open: usize,
     clock: AtomicU64,
+    /// Tworzenie pliku po jednym wątku: spóźniony nagłówek skasowałby indeks świeżo zapisanych kafli.
+    creating: Mutex<()>,
 }
 
 const MAX_OPEN: usize = 1024;
@@ -165,6 +167,7 @@ impl Packs {
             open: Mutex::new(HashMap::new()),
             max_open,
             clock: AtomicU64::new(0),
+            creating: Mutex::new(()),
         }
     }
 
@@ -187,6 +190,7 @@ impl Packs {
             if let Some(d) = path.parent() {
                 fs::create_dir_all(d)?;
             }
+            let _creating = self.creating.lock().unwrap();
             let f = OpenOptions::new()
                 .read(true)
                 .write(true)
