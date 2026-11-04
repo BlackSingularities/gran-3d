@@ -237,6 +237,26 @@ pub struct Flight {
     pub paused: bool,
     last: Instant,
     heading: f64,
+    pitch: f64,
+}
+
+/// Odległość kamery od punktu trasy w przelocie (m).
+const FLIGHT_DIST: f64 = 1300.0;
+/// Nachylenia w przelocie: najpierw obrót przy najniższym, wyżej dopiero gdy żaden kierunek nie jest wolny.
+const FLIGHT_PITCHES: [f64; 5] = [24.0, 34.0, 45.0, 58.0, 72.0];
+
+/// Czy teren nie zasłania punktu trasy (`lon`, `lat`, `e`) oglądanego z danego kierunku i nachylenia.
+fn sight_clear(h: &crate::heights::Heights, exag: f64, (lon, lat, e): (f64, f64, f32), heading: f64, pitch: f64) -> bool {
+    let (hr, pr) = (heading.to_radians(), pitch.to_radians());
+    let kx = 111_320.0 * lat.to_radians().cos();
+    (2..=24).all(|i| {
+        let t = i as f64 / 24.0;
+        let along = FLIGHT_DIST * t * pr.cos();
+        let y = e as f64 * exag + FLIGHT_DIST * t * pr.sin();
+        // kamera stoi za punktem, przeciwnie do kierunku patrzenia
+        let ground = h.sample_cached(lon - hr.sin() * along / kx, lat - hr.cos() * along / 110_574.0);
+        ground.is_none_or(|g| y > g as f64 * exag + 12.0)
+    })
 }
 
 enum JobResult {
@@ -612,7 +632,7 @@ impl Atlas {
             return;
         }
         self.fly = None;
-        self.flight = Some(Flight { dist: 0.0, paused: false, last: Instant::now(), heading: self.cam.heading });
+        self.flight = Some(Flight { dist: 0.0, paused: false, last: Instant::now(), heading: self.cam.heading, pitch: self.cam.pitch });
     }
 
     fn animate_flight(&mut self, ctx: &egui::Context) {
@@ -625,9 +645,9 @@ impl Atlas {
         fl.last = Instant::now();
         let tr = &route.track;
         let total = *tr.d2.last().unwrap_or(&0.0);
+        // tempo: cała trasa w ~40–90 s
+        let speed = (total / 60.0).clamp(30.0, 400.0);
         if !fl.paused {
-            // tempo: cała trasa w ~40–90 s
-            let speed = (total / 60.0).clamp(30.0, 400.0);
             fl.dist += speed * dt;
         }
         if fl.dist >= total {
@@ -639,14 +659,39 @@ impl Atlas {
         let (ia, fa) = tr.at_dist((fl.dist + 250.0).min(total));
         let (lon2, lat2, _) = tr.lerp(ia, fa);
         let want = bearing(lon, lat, lon2, lat2);
-        let dh = ((want - fl.heading + 540.0) % 360.0) - 180.0;
-        fl.heading = (fl.heading + dh * (dt as f64 * 1.5).min(1.0)).rem_euclid(360.0);
+        let turn = |a: f64, b: f64| ((b - a + 540.0).rem_euclid(360.0)) - 180.0;
+        // punkt trasy zawsze widoczny, także za 2 s lotu: kamera obraca się zawczasu
+        let here = (lon, lat, e);
+        let (ib, fb) = tr.at_dist((fl.dist + speed * 2.0).min(total));
+        let soon = tr.lerp(ib, fb);
+        let exag = self.prefs.exag;
+        let heights = &self.heights;
+        let free = |heading: f64, pitch: f64| sight_clear(heights, exag, here, heading, pitch) && sight_clear(heights, exag, soon, heading, pitch);
+        let blocked = !sight_clear(heights, exag, here, fl.heading, fl.pitch);
+        let current = fl.heading;
+        // najmniejsze odejście od kierunku lotu, z lekką preferencją obecnego ustawienia (bez przeskoków)
+        let pick = FLIGHT_PITCHES.iter().find_map(|&pitch| {
+            (0..24)
+                .map(|k| (want + k as f64 * 15.0).rem_euclid(360.0))
+                .filter(|&h| free(h, pitch))
+                .min_by(|&a, &b| {
+                    let cost = |h: f64| turn(want, h).abs() + 0.5 * turn(current, h).abs();
+                    cost(a).total_cmp(&cost(b))
+                })
+                .map(|h| (h, pitch))
+        });
+        let (want, want_pitch) = pick.unwrap_or((want, 80.0));
+        let dh = turn(fl.heading, want);
+        let rate = if blocked { 5.0 } else { 2.0 };
+        fl.heading = (fl.heading + dh * (dt as f64 * rate).min(1.0)).rem_euclid(360.0);
+        let pitch_rate = if want_pitch > fl.pitch { 3.0 } else { 0.7 };
+        fl.pitch += (want_pitch - fl.pitch) * (dt as f64 * pitch_rate).min(1.0);
         self.cam.lon = lon;
         self.cam.lat = lat;
         self.cam.height = e as f64;
         self.cam.heading = fl.heading;
-        self.cam.pitch = 24.0;
-        self.cam.distance = 1300.0;
+        self.cam.pitch = fl.pitch;
+        self.cam.distance = FLIGHT_DIST;
         self.profile_cursor = Some(fl.dist);
         ctx.request_repaint();
     }
