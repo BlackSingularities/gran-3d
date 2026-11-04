@@ -133,8 +133,8 @@ pub struct Prefs {
     pub km_grid: bool,
     pub shadows: bool,
     pub snow: bool,
-    /// Ortofotomapa krajowa w stylu satelitarnym (PL, CZ, SK).
-    pub ortho: bool,
+    /// Ortofotomapa krajowa zamiast zdjęć Esri z bliska (PL, CZ, SK).
+    pub national_ortho: bool,
     /// Maska pokrycia terenu z OSM (wody, lasy, skały) w stylu „teren”.
     pub landcover: bool,
     /// Lekka mapa normalnych: drobna rzeźba z bliska.
@@ -170,7 +170,7 @@ impl Default for Prefs {
             km_grid: false,
             shadows: true,
             snow: true,
-            ortho: true,
+            national_ortho: false,
             landcover: true,
             detail: true,
             custom_time: None,
@@ -1048,7 +1048,13 @@ impl Atlas {
         let frame = view.frame;
         let h = |x: f64, z: f64| {
             let (lon, lat) = frame.to_lonlat(x, z);
-            self.heights.sample_cached(lon, lat).map(|v| v as f64)
+            // ten sam poziom terenu co na ekranie: dokładniejszy model z pamięci przesuwałby
+            // punkt względem kursora, bo przy ukośnym widoku mała różnica wysokości to duże przesunięcie
+            let shown = self.renderer.as_ref().and_then(|r| r.tiles.rendered_dem_z(lon, lat));
+            shown
+                .and_then(|lvl| self.heights.sample_at(lon, lat, lvl, false))
+                .or_else(|| self.heights.sample_cached(lon, lat))
+                .map(|v| v as f64)
         };
         let p = view.raycast(dir, &h)?;
         let (lon, lat) = frame.to_lonlat(p.x, p.z);
@@ -1724,7 +1730,7 @@ impl Atlas {
             zenith,
             horizon,
             // z wysoka mgła słabnie (inaczej przy dużym oddaleniu cały widok jest mleczny)
-            fog_density: 1.0 / (95_000.0 * (self.cam.distance / 30_000.0).max(1.0) as f32),
+            fog_density: 1.0 / (190_000.0 * (self.cam.distance / 30_000.0).max(1.0) as f32),
             snowline: sun::snowline(day) as f32 + snow_lift,
             snow: self.prefs.snow,
             autumn: sun::autumn(day),
@@ -1738,7 +1744,7 @@ impl Atlas {
             render_scale: self.prefs.render_scale,
             detail_px: self.prefs.detail_px,
             imagery: self.prefs.style == Style::Satellite,
-            ortho: self.prefs.ortho,
+            ortho: self.prefs.national_ortho,
             detail: self.prefs.detail,
             max_dem: self.prefs.max_dem,
             max_img: self.prefs.max_img,
@@ -1951,7 +1957,7 @@ impl Atlas {
 
         // kompas
         let r = 30.0;
-        let c = rect.right_bottom() + Vec2::new(-51.0, -322.0);
+        let c = rect.right_top() + Vec2::new(-51.0, 51.0);
         let compass = Rect::from_center_size(c, Vec2::splat(r * 2.0 + 4.0));
         let resp = ui.interact(compass, ui.id().with("kompas"), Sense::click_and_drag());
         let hot = resp.hovered() || resp.dragged();
@@ -2070,7 +2076,7 @@ impl Atlas {
         p.rect_filled(bar, 0.0, Color32::from_black_alpha(130));
         p.text(bar.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, info, FontId::monospace(11.5), theme::PAPER_2);
         let attr = match self.prefs.style {
-            Style::Satellite => "Sentinel-2 cloudless 2020 © EOX · ortofoto © GUGiK, © ČÚZK, © ÚGKK SR · teren © Mapterhorn · © OpenStreetMap",
+            Style::Satellite => "Zdjęcia © Esri, Maxar, Earthstar Geographics · teren © Mapterhorn · © OpenStreetMap",
             _ => "Teren © Mapterhorn (ÚGKK SR, GUGiK, ČÚZK), AWS Open Data · © OpenStreetMap",
         };
         p.text(bar.right_center() - Vec2::new(12.0, 0.0), Align2::RIGHT_CENTER, attr, FontId::proportional(10.5), theme::PAPER_3);

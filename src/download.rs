@@ -131,8 +131,19 @@ fn fetch_url(url: &str) -> Result<Vec<u8>, FetchError> {
 fn fetch_any(store: &Store, layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError> {
     match layer {
         Layer::Ortho => crate::national::fetch_ortho(t, sat_background(store, t)),
+        Layer::Sat if t.z >= 14 => fetch(layer, t).and_then(|b| if is_placeholder(&b) { Err(FetchError::Missing) } else { Ok(b) }),
         _ => fetch(layer, t),
     }
+}
+
+/// Esri tam, gdzie nie ma zdjęć, podaje jednolitą planszę z napisem zamiast błędu 404.
+/// Taki kafel uznajemy za brak – w jego miejsce wchodzi powiększony kafel nadrzędny.
+fn is_placeholder(jpg: &[u8]) -> bool {
+    let Ok(img) = image::load_from_memory_with_format(jpg, image::ImageFormat::Jpeg) else { return false };
+    let img = img.to_rgb8();
+    let first = *img.get_pixel(0, 0);
+    let same = img.pixels().filter(|p| (0..3).all(|c| p[c].abs_diff(first[c]) <= 4)).count();
+    same * 100 > (img.width() * img.height()) as usize * 85
 }
 
 /// Tło ortofoto: zdjęcie satelitarne (przodek do z14), przycięte do kafla.

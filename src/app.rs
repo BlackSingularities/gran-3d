@@ -209,33 +209,24 @@ impl App {
 
     // ------------------------------------------------------------------ widoki
 
-    /// Prawy górny róg: aktualizacja, pomoc, ustawienia.
-    fn top_right(&mut self, ctx: &egui::Context) {
+    /// Górny pasek z prawą częścią: ustawienia, pomoc, aktualizacja (rysowane od prawej).
+    fn top_bar(&mut self, ctx: &egui::Context) {
         let mut offer = None;
         let mut settings = false;
-        egui::Area::new(egui::Id::new("gora-prawa"))
-            .anchor(egui::Align2::RIGHT_TOP, [-16.0 - crate::ui::panels::right_inset(&self.atlas), 16.0])
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    if let Update::Available(rel) = &self.update {
-                        if ui.add(theme::primary(&format!("Aktualizacja {}", rel.version))).clicked() {
-                            offer = Some(rel.clone());
-                        }
-                    }
-                    theme::glass().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            crate::ui::panels::view_menus(&mut self.atlas, ui);
-                            ui.separator();
-                            if theme::icon_button(ui, theme::icon::QUESTION, self.atlas.help).on_hover_text("Skróty i sterowanie (?)").clicked() {
-                                self.atlas.help = !self.atlas.help;
-                            }
-                            if theme::icon_button(ui, theme::icon::GEAR, false).on_hover_text("Ustawienia (Ctrl+,)").clicked() {
-                                settings = true;
-                            }
-                        });
-                    });
-                });
-            });
+        let update = &self.update;
+        crate::ui::panels::top_bar(&mut self.atlas, ctx, |atlas, ui| {
+            if theme::icon_button(ui, theme::icon::GEAR, false).on_hover_text("Ustawienia (Ctrl+,)").clicked() {
+                settings = true;
+            }
+            if theme::icon_button(ui, theme::icon::QUESTION, atlas.help).on_hover_text("Skróty i sterowanie (?)").clicked() {
+                atlas.help = !atlas.help;
+            }
+            if let Update::Available(rel) = update {
+                if ui.add(theme::primary(&format!("Aktualizacja {}", rel.version))).clicked() {
+                    offer = Some(rel.clone());
+                }
+            }
+        });
         if settings {
             self.open_settings(Page::General);
         }
@@ -332,7 +323,7 @@ impl App {
                             }
                             ui.add_space(12.0);
                             ui.label(theme::kicker("Źródła danych"));
-                            theme::para(ui, "Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Sentinel-2 cloudless 2020 © EOX (CC BY-NC-SA 4.0), ortofoto: GUGiK, ČÚZK, ÚGKK SR. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim.");
+                            theme::para(ui, "Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), opcjonalne ortofoto: GUGiK, ČÚZK, ÚGKK SR. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim.");
                         }
                     });
                 });
@@ -554,17 +545,15 @@ impl eframe::App for App {
         }
         self.update_ui(ctx);
 
+        self.top_bar(ctx);
         crate::ui::panels::sidebar(&mut self.atlas, ctx);
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme::INK_0))
             .show(ctx, |ui| {
                 self.atlas.view_ui(ui, frame);
             });
-        crate::ui::panels::search_pill(&mut self.atlas, ctx);
-        crate::ui::panels::rail(&mut self.atlas, ctx);
         crate::ui::panels::nav(&mut self.atlas, ctx);
         crate::ui::panels::profile_panel(&mut self.atlas, ctx);
-        self.top_right(ctx);
         crate::ui::search::show(&mut self.atlas, ctx);
         crate::ui::panels::help(&mut self.atlas, ctx);
         self.settings_window(ctx);
