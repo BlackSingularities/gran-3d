@@ -21,8 +21,8 @@ use crate::store::{Layer, Store};
 pub const DEM_RES: u32 = 257;
 /// Najwyższy poziom drzewa (dalej tylko powiększenie danych).
 pub const MAX_RENDER_Z: u8 = 17;
-/// Najwyższy poziom zdjęć satelitarnych w źródle.
-pub const SAT_MAX_Z: u8 = 14;
+/// Najwyższy poziom zdjęć w źródle.
+pub const SAT_MAX_Z: u8 = 17;
 /// Ortofoto pobierane tylko do tylu kafli swojego poziomu od kamery…
 const ORTHO_TILES_RADIUS: f64 = 6.0;
 /// …i nie dalej niż tyle metrów.
@@ -126,6 +126,8 @@ pub struct Tiles {
     /// Czy kafel leży w zasięgu ortofoto (pamięć wyników – test wielokątów kraju).
     ortho_memo: HashMap<TileId, bool>,
     missing: HashSet<Key>,
+    /// Kafle narysowane w ostatniej klatce: poziom użytego terenu.
+    rendered: HashMap<TileId, u8>,
     /// Nieudane składanie ortofoto z dysku: klatka próby.
     local_miss: HashMap<TileId, u64>,
     frame: u64,
@@ -188,6 +190,7 @@ impl Tiles {
             img: HashMap::new(),
             ortho_memo: HashMap::new(),
             missing: HashSet::new(),
+            rendered: HashMap::new(),
             local_miss: HashMap::new(),
             frame: 0,
             dem_layout,
@@ -324,6 +327,7 @@ impl Tiles {
     /// Wybór kafli do narysowania i zlecenia wczytania brakujących.
     pub fn select(&mut self, view: &View, s: &TileSettings) -> Vec<DrawTile> {
         self.frame += 1;
+        self.rendered.clear();
         let frame = view.frame;
         let planes = frustum(view);
         let focal = view.size[1] as f64 * 0.5 / (45f64.to_radians() / 2.0).tan();
@@ -426,7 +430,7 @@ impl Tiles {
                         }
                     }
                 }
-                // ortofoto krajowe na bliskich kaflach, Sentinel-2 w tle i dalej
+                // ortofoto krajowe na bliskich kaflach, zdjęcia Esri w tle i dalej
                 let mut ortho = None;
                 if s.ortho && t.z >= ORTHO_LOCAL_MIN_Z {
                     let own_o = ancestor_at(t, t.z.min(national::ORTHO_MAX_Z));
@@ -461,6 +465,7 @@ impl Tiles {
                     g.used = self.frame;
                 }
             }
+            self.rendered.insert(t, dem_t.z);
             out.push(DrawTile {
                 tile: t,
                 dem: dem_t,
@@ -530,6 +535,11 @@ impl Tiles {
             let cut = ages[self.img.len() - s.max_img * 4 / 5];
             self.img.retain(|k, d| d.used >= cut || k.1.z <= 6);
         }
+    }
+
+    /// Poziom terenu, który widać na ekranie w tym punkcie.
+    pub fn rendered_dem_z(&self, lon: f64, lat: f64) -> Option<u8> {
+        (0..=MAX_RENDER_Z).rev().find_map(|z| self.rendered.get(&crate::geo::tile_at(lon, lat, z)).copied())
     }
 
     /// Wysokość terenu w punkcie ramki z danych, które widać (do wybierania punktów i etykiet).

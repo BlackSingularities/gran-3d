@@ -68,7 +68,7 @@ pub fn country_at(lon: f64, lat: f64) -> Option<&'static str> {
     coverage().iter().find(|c| in_ring(lon, lat, &c.ring)).map(|c| c.code.as_str())
 }
 
-/// Najniższy poziom z ortofoto (niżej wystarcza Sentinel-2).
+/// Najniższy poziom z ortofoto (niżej wystarczają zdjęcia Esri).
 pub const ORTHO_MIN_Z: u8 = 13;
 pub const ORTHO_MAX_Z: u8 = 17;
 /// Rozmiar obrazu ortofoto na kafel (px).

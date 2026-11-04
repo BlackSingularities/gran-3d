@@ -144,7 +144,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         .title_bar(false)
         .collapsible(false)
         .resizable(false)
-        .anchor(egui::Align2::LEFT_TOP, [16.0, 16.0])
+        .anchor(egui::Align2::LEFT_TOP, [12.0, 10.0])
         .fixed_size([420.0, 10.0])
         .show(ctx, |ui| {
             let r = ui.add(

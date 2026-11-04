@@ -27,9 +27,9 @@ pub const BASE_MAX_Z: u8 = 6;
 pub enum Layer {
     /// Wysokości terenu (Mapterhorn: krajowe modele LiDAR; AWS Open Data jako zapas).
     Dem,
-    /// Obraz satelitarny (Sentinel-2 cloudless 2020 © EOX, CC BY-NC-SA 4.0).
+    /// Zdjęcia lotnicze i satelitarne (Esri World Imagery, do z17).
     Sat,
-    /// Ortofotomapa z usług krajowych (GUGiK, ZBGIS, ČÚZK) na tle Sentinel-2, JPEG 512 px.
+    /// Ortofotomapa z usług krajowych (GUGiK, ZBGIS, ČÚZK) na tle zdjęć, JPEG 512 px.
     Ortho,
 }
 
@@ -48,7 +48,8 @@ impl Layer {
     pub fn dir(self) -> &'static str {
         match self {
             Layer::Dem => "dem",
-            Layer::Sat => "sat",
+            // „esri”: po zmianie źródła ze Sentinel-2 kafle pobierają się od nowa
+            Layer::Sat => "esri",
             // „ortho2”: kafle przycięte do krajów (stare z rozmytym tłem ZBGIS pobierają się od nowa)
             Layer::Ortho => "ortho2",
         }
@@ -61,7 +62,7 @@ impl Layer {
                 t.z, t.x, t.y
             ),
             Layer::Sat => format!(
-                "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{}/{}/{}.jpg",
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{}/{}/{}",
                 t.z, t.y, t.x
             ),
             // składane z kilku usług (`national`)
@@ -86,6 +87,13 @@ pub struct Store {
 impl Store {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
+        // zdjęcia poprzedniego źródła (Sentinel-2) nie są już czytane ani liczone do limitu
+        let old = root.join("tiles").join("sat");
+        if old.exists() {
+            std::thread::spawn(move || {
+                let _ = fs::remove_dir_all(old);
+            });
+        }
         Self {
             packs: Arc::new(Packs::new(root.join("tiles"))),
             root,

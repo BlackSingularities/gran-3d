@@ -636,7 +636,7 @@ impl Renderer {
             imagery: scene.imagery,
             ortho: scene.ortho,
             // z wysoka widać daleko: bez tego przy dużym oddaleniu kafle kończą się w połowie widoku
-            max_dist: (view.eye.y.abs().max(1000.0) * 60.0).clamp(80_000.0, 2_500_000.0),
+            max_dist: (view.eye.y.abs().max(1000.0) * 100.0).clamp(220_000.0, 4_000_000.0),
         };
         let draw = self.tiles.select(view, &settings);
         self.drawn = draw.len();
@@ -690,7 +690,7 @@ impl Renderer {
                 rect: d.rect,
                 dem: [d.dem_xform[0], d.dem_xform[1], d.dem_xform[2], 0.0],
                 img: match d.img {
-                    Some((k, x)) => [x[0], x[1], x[2], if k.0 == tiles::Kind::Sat { 2.0 } else { 1.0 }],
+                    Some((_, x)) => [x[0], x[1], x[2], 1.0],
                     None => [0.0, 0.0, 1.0, 0.0],
                 },
                 info: [d.tile.z as f32, 0.0, 0.0, 0.0],
