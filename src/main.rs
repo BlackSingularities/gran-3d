@@ -8,6 +8,7 @@ mod analysis;
 mod app;
 mod bake;
 mod download;
+mod feedback;
 mod fmt;
 mod geo;
 mod gpx;
@@ -28,6 +29,7 @@ mod updater;
 mod world;
 
 fn main() -> eframe::Result<()> {
+    feedback::install("gran-3d", "GRAŃ", env!("CARGO_PKG_VERSION"), "GRAN");
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("info,wgpu_hal=warn,wgpu_core=warn,naga=warn"),
     )
