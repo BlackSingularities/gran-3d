@@ -314,6 +314,9 @@ fn search_field(a: &mut Atlas, ui: &mut egui::Ui) {
 
 /// Zwykły tryb: klik zaznacza, bez narzędzia, soczewki i panoramy.
 fn select_mode(a: &mut Atlas) {
+    if a.tool == Tool::Route {
+        a.end_planning();
+    }
     a.tool = Tool::Explore;
     if a.lens_pin.is_some() {
         a.unpin_lens();
@@ -335,7 +338,11 @@ fn tools(a: &mut Atlas, ui: &mut egui::Ui) {
     }
     ui.separator();
     if theme::icon_button(ui, theme::icon::PATH, a.tool == Tool::Route).on_hover_text("Planowanie trasy (2)").clicked() {
-        a.tool = if a.tool == Tool::Route { Tool::Explore } else { Tool::Route };
+        if a.tool == Tool::Route {
+            a.end_planning();
+        } else {
+            a.tool = Tool::Route;
+        }
         a.prefs.panel_open = true;
         a.tab = Tab::Info;
     }
@@ -484,6 +491,9 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button(theme::icon::CARET_RIGHT).on_hover_text("Ukryj panel (P)").clicked() {
                         a.prefs.panel_open = false;
+                    }
+                    if a.tool == Tool::Route && ui.button(theme::ic(theme::icon::X, "Zakończ planowanie")).on_hover_text("Usuwa trasę z mapy i wraca do zwykłego trybu").clicked() {
+                        a.end_planning();
                     }
                 });
             });

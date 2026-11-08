@@ -746,6 +746,12 @@ impl Atlas {
         self.route_dirty = true;
     }
 
+    /// Wyjście z planowania: trasa, punkty, warianty i profil znikają z mapy.
+    pub fn end_planning(&mut self) {
+        self.clear_route();
+        self.tool = Tool::Explore;
+    }
+
     pub fn clear_route(&mut self) {
         self.waypoints.clear();
         self.routes.clear();
@@ -1245,11 +1251,18 @@ impl Atlas {
                         self.lens = Lens::None;
                     } else if self.selection != Selection::None {
                         self.selection = Selection::None;
+                    } else if self.tool == Tool::Route {
+                        self.end_planning();
                     } else {
                         self.tool = Tool::Explore;
                     }
                 }
-                K::Num1 => self.tool = Tool::Explore,
+                K::Num1 => {
+                    if self.tool == Tool::Route {
+                        self.end_planning();
+                    }
+                    self.tool = Tool::Explore;
+                }
                 K::Num2 => self.tool = Tool::Route,
                 K::Num3 => self.tool = Tool::Measure,
                 K::H | K::I => self.set_lens(Lens::Band),
