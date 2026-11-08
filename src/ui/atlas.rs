@@ -379,6 +379,8 @@ pub struct Atlas {
     hist_now: RouteState,
     /// Eksport trasy z biblioteki, gdy tylko zostanie wyznaczona.
     export_pending: bool,
+    /// Szkło interfejsu (prostokąty ekranu i siła): pod nim obraz 3D jest rozmyty.
+    pub glass: Vec<(Rect, f32)>,
     last_want: Instant,
     pub status_line: String,
 }
@@ -487,6 +489,7 @@ impl Atlas {
             redo: Vec::new(),
             hist_now: (Vec::new(), RouteMode::Trails),
             export_pending: false,
+            glass: Vec::new(),
             last_want: Instant::now() - Duration::from_secs(10),
             status_line: String::new(),
         }
@@ -2098,7 +2101,18 @@ impl Atlas {
             if r.trees_version() != self.trees_ver {
                 r.set_trees(self.trees_ver, &self.trees, self.trees_near);
             }
-            let (blit, _) = r.render(&view, &scene, &lines, ppp);
+            // paski i panele z tej i poprzedniej klatki (rysowane przed i po widoku)
+            let glass: Vec<([f32; 4], f32)> = std::mem::take(&mut self.glass)
+                .into_iter()
+                .filter_map(|(g, k)| {
+                    let i = g.intersect(rect);
+                    (i.width() > 0.0 && i.height() > 0.0 && k > 0.01).then(|| {
+                        let (w, h) = (rect.width(), rect.height());
+                        ([(i.left() - rect.left()) / w, (i.top() - rect.top()) / h, (i.right() - rect.left()) / w, (i.bottom() - rect.top()) / h], k)
+                    })
+                })
+                .collect();
+            let (blit, _) = r.render(&view, &scene, &lines, ppp, &glass);
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, blit));
             let [dem, sat, ortho, local] = r.tiles.loading_kinds;
             let mut parts = Vec::new();
@@ -2679,15 +2693,18 @@ impl Atlas {
             }
         }
 
-        // kompas
+        // kompas (chowa się razem z kontrolkami)
+        let alpha = crate::ui::panels::controls_alpha(self, ui.ctx());
+        let mut pc = p.clone();
+        pc.multiply_opacity(alpha);
         let r = 30.0;
         // pod górnym paskiem, obok panelu bocznego
         let c = rect.right_top() + Vec2::new(-51.0 - crate::ui::panels::right_inset(self), 51.0 + crate::ui::panels::TOP_BAR_H);
         let compass = Rect::from_center_size(c, Vec2::splat(r * 2.0 + 4.0));
-        let resp = ui.interact(compass, ui.id().with("kompas"), Sense::click_and_drag());
+        let resp = ui.interact(compass, ui.id().with("kompas"), if alpha > 0.05 { Sense::click_and_drag() } else { Sense::hover() });
         let hot = resp.hovered() || resp.dragged();
-        p.circle_filled(c + Vec2::new(0.0, 2.0), r + 1.0, Color32::from_black_alpha(90));
-        p.circle(
+        pc.circle_filled(c + Vec2::new(0.0, 2.0), r + 1.0, Color32::from_black_alpha(90));
+        pc.circle(
             c,
             r,
             Color32::from_rgba_unmultiplied(26, 29, 35, 242),
@@ -2695,7 +2712,7 @@ impl Atlas {
         );
         // kierunek patrzenia: stały znacznik u góry tarczy
         let top = c - Vec2::new(0.0, r);
-        p.add(egui::Shape::convex_polygon(
+        pc.add(egui::Shape::convex_polygon(
             vec![top + Vec2::new(0.0, 6.0), top + Vec2::new(-4.0, -1.0), top + Vec2::new(4.0, -1.0)],
             theme::BRASS,
             Stroke::NONE,
@@ -2714,29 +2731,29 @@ impl Atlas {
                 _ => (3.0, 1.0, theme::INK_4),
             };
             if len > 0.0 {
-                p.line_segment([c + d * (r - 2.0), c + d * (r - 2.0 - len)], Stroke::new(w, col));
+                pc.line_segment([c + d * (r - 2.0), c + d * (r - 2.0 - len)], Stroke::new(w, col));
             }
         }
         for (deg, s) in [(90.0, "E"), (180.0, "S"), (270.0, "W")] {
-            p.text(c + rot(deg) * (r - 9.0), Align2::CENTER_CENTER, s, FontId::proportional(9.5), theme::PAPER_3);
+            pc.text(c + rot(deg) * (r - 9.0), Align2::CENTER_CENTER, s, FontId::proportional(9.5), theme::PAPER_3);
         }
-        p.text(c + rot(0.0) * (r - 9.0), Align2::CENTER_CENTER, "N", FontId::proportional(11.0), theme::SIGNAL);
+        pc.text(c + rot(0.0) * (r - 9.0), Align2::CENTER_CENTER, "N", FontId::proportional(11.0), theme::SIGNAL);
         // igła: czerwona połowa na północ, jasna na południe, pochylona razem z kamerą
         let n = rot(0.0);
         let side = Vec2::new(-n.y, n.x) * 3.5;
         let tip = 15.0 * (0.45 + 0.55 * (self.cam.pitch as f32).to_radians().sin().abs()).min(1.0);
-        p.add(egui::Shape::convex_polygon(vec![c + n * tip, c + side, c - side], theme::SIGNAL, Stroke::NONE));
-        p.add(egui::Shape::convex_polygon(vec![c - n * tip, c - side, c + side], theme::PAPER_3, Stroke::NONE));
-        p.circle(c, 2.5, Color32::from_rgb(26, 29, 35), Stroke::new(1.0, theme::PAPER_3));
+        pc.add(egui::Shape::convex_polygon(vec![c + n * tip, c + side, c - side], theme::SIGNAL, Stroke::NONE));
+        pc.add(egui::Shape::convex_polygon(vec![c - n * tip, c - side, c + side], theme::PAPER_3, Stroke::NONE));
+        pc.circle(c, 2.5, Color32::from_rgb(26, 29, 35), Stroke::new(1.0, theme::PAPER_3));
         // odczyt kursu pod tarczą
         let hdg = (self.cam.heading.rem_euclid(360.0).round() as i32) % 360;
         const DIRS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
         let label = tf!("{:03}° {}", hdg, DIRS[((hdg as f32 + 22.5) / 45.0) as usize % 8]);
         let lp = c + Vec2::new(0.0, r + 11.0);
-        let galley = p.layout_no_wrap(label, FontId::monospace(10.5), theme::PAPER);
+        let galley = pc.layout_no_wrap(label, FontId::monospace(10.5), theme::PAPER);
         let bg = Rect::from_center_size(lp, galley.size() + Vec2::new(10.0, 4.0));
-        p.rect_filled(bg, 4.0, Color32::from_rgba_unmultiplied(26, 29, 35, 230));
-        p.galley(bg.center() - galley.size() / 2.0, galley, theme::PAPER);
+        pc.rect_filled(bg, 4.0, Color32::from_rgba_unmultiplied(26, 29, 35, 230));
+        pc.galley(bg.center() - galley.size() / 2.0, galley, theme::PAPER);
         // klik: północ; dwuklik: północ i widok z góry; przeciągnięcie w poziomie: obrót
         if resp.dragged() {
             self.cam.heading = (self.cam.heading - resp.drag_delta().x as f64 * 1.2).rem_euclid(360.0);
@@ -2792,6 +2809,7 @@ impl Atlas {
             }
         }
         let bar = Rect::from_min_max(rect.left_bottom() - Vec2::new(0.0, 24.0), rect.right_bottom());
+        self.glass.push((bar, 1.0));
         p.rect_filled(bar, 0.0, theme::GLASS_FILL);
         p.text(bar.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, info, FontId::monospace(11.5), theme::PAPER_2);
         let attr = match self.prefs.style {
