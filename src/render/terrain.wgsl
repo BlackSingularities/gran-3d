@@ -174,16 +174,26 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let h = select(bed, max(bed, wa.y), wa.x > 0.0);
     let grad = select(textureSample(grad_tex, samp, in.dem_uv).xy, vec2(0.0), on_water);
     // lekka mapa normalnych z bliska: na zdjęciach z jasności obrazu, inaczej z drobnego szumu
-    let px = vec2(1.5) / vec2<f32>(textureDimensions(img_tex));
-    let lum = vec3(0.3, 0.59, 0.11);
-    let lx = dot(textureSample(img_tex, samp, in.img_uv + vec2(px.x, 0.0)).rgb - textureSample(img_tex, samp, in.img_uv - vec2(px.x, 0.0)).rgb, lum);
-    let lz = dot(textureSample(img_tex, samp, in.img_uv + vec2(0.0, px.y)).rgb - textureSample(img_tex, samp, in.img_uv - vec2(0.0, px.y)).rgb, lum);
-    let mx = fbm((in.wp + vec2(2.0, 0.0)) / 11.0) - fbm((in.wp - vec2(2.0, 0.0)) / 11.0);
-    let mz = fbm((in.wp + vec2(0.0, 2.0)) / 11.0) - fbm((in.wp - vec2(0.0, 2.0)) / 11.0);
     let detail_on = g.flags.w * (1.0 - smoothstep(2000.0, 30000.0, in.dist));
     let photo = style == 4 && tile.img.w > 0.5;
-    // wyraźnie silniej niż dotąd: przy rzeźbie gór poprzednia siła ginęła pod nachyleniem terenu
-    let detail = select(vec2(mx, mz) * 2.2, vec2(lx, lz) * 5.5, photo) * detail_on;
+    // pochodne poza rozgałęzieniem: odczyty w środku dają ten sam wynik co zwykłe textureSample
+    let duv_x = dpdx(in.img_uv);
+    let duv_y = dpdy(in.img_uv);
+    var detail = vec2(0.0);
+    // liczone tylko tam, gdzie widać efekt (włączone i bliżej niż 30 km) – oszczędza kartę graficzną
+    if (detail_on > 0.0) {
+        if (photo) {
+            let px = vec2(1.5) / vec2<f32>(textureDimensions(img_tex));
+            let lum = vec3(0.3, 0.59, 0.11);
+            let lx = dot(textureSampleGrad(img_tex, samp, in.img_uv + vec2(px.x, 0.0), duv_x, duv_y).rgb - textureSampleGrad(img_tex, samp, in.img_uv - vec2(px.x, 0.0), duv_x, duv_y).rgb, lum);
+            let lz = dot(textureSampleGrad(img_tex, samp, in.img_uv + vec2(0.0, px.y), duv_x, duv_y).rgb - textureSampleGrad(img_tex, samp, in.img_uv - vec2(0.0, px.y), duv_x, duv_y).rgb, lum);
+            detail = vec2(lx, lz) * 5.5 * detail_on;
+        } else {
+            let mx = fbm((in.wp + vec2(2.0, 0.0)) / 11.0) - fbm((in.wp - vec2(2.0, 0.0)) / 11.0);
+            let mz = fbm((in.wp + vec2(0.0, 2.0)) / 11.0) - fbm((in.wp - vec2(0.0, 2.0)) / 11.0);
+            detail = vec2(mx, mz) * 2.2 * detail_on;
+        }
+    }
     let n = normalize(vec3(-grad.x * exag - detail.x, 1.0, -grad.y * exag - detail.y));
     let slope = length(grad);
     let slope_deg = degrees(atan(slope));
@@ -367,15 +377,20 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
             let shallow = srgb(vec3(0.20, 0.62, 0.62));
             let lit = clamp(g.sky_color.rgb * 0.75 + g.sun_color.rgb * 0.55 * g.sun_dir.w, vec3(0.25), vec3(1.4));
             var body = mix(shallow, deep, d) * lit;
+            var refl = 0.7;
             if (photo) {
-                // na zdjęciu: przy samym brzegu prześwituje dno ze zdjęcia, dalej lazurowa toń
-                let bottom = img_s * 1.1;
-                body = mix(mix(bottom, body, 0.45), body, smoothstep(0.0, 1.0, d * 2.5));
+                // na zdjęciu: barwa wody z samego zdjęcia zbiornika (każdy staw ma swoją – turkus,
+                // granat, zieleń, mętny brąz), lekko nasycona i przyciemniona w głąb
+                let tone = img_s * 1.05;
+                let l = dot(tone, vec3(0.3, 0.59, 0.11));
+                let rich = max(mix(vec3(l), tone, 1.3), vec3(0.0));
+                body = rich * mix(1.0, 0.82, d);
+                refl = 0.35;
             }
             // odblask słońca
             let hv = normalize(sun + v);
             let spec = pow(max(dot(wn, hv), 0.0), 380.0) * 7.0 * g.sun_dir.w * shadow;
-            wcol = mix(body, sky, fres * 0.7) + g.sun_color.rgb * spec;
+            wcol = mix(body, sky, fres * refl) + g.sun_color.rgb * spec;
             // jasna linia brzegu (płycizna i piana), tylko z bliska
             let shore = (1.0 - smoothstep(0.0, 1.2, depth)) * near * 0.25;
             wcol = mix(wcol, wcol * 1.25 + vec3(0.04), shore);

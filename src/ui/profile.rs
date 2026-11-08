@@ -132,8 +132,12 @@ pub fn show(
         let off = if above { -sz.y - 8.0 } else { 6.0 };
         let left = (pos.x - sz.x / 2.0).clamp(plot.left(), (plot.right() - sz.x).max(plot.left()));
         let r = Rect::from_min_size(Pos2::new(left, pos.y + off), sz).expand2(Vec2::new(5.0, 2.0));
-        p.rect_filled(r, 6.0, Color32::from_black_alpha(150));
-        p.galley(r.min + Vec2::new(5.0, 2.0), g, col);
+        // bez tła: tekst z ciemnym obrysem
+        let at = r.min + Vec2::new(5.0, 2.0);
+        for o in [Vec2::new(1.0, 1.0), Vec2::new(-1.0, 1.0), Vec2::new(1.0, -1.0), Vec2::new(-1.0, -1.0)] {
+            p.galley_with_override_text_color(at + o, g.clone(), Color32::from_black_alpha(170));
+        }
+        p.galley(at, g, col);
     };
     p.circle(Pos2::new(x(tr.d2[imax]), y(max_e)), 3.5, theme::PAPER, Stroke::new(1.5, theme::INK_0));
     tag(Pos2::new(x(tr.d2[imax]), y(max_e)), format!("▲ {}", fmt::ele(max_e as f64)), theme::PAPER, true);
