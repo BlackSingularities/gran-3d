@@ -17,6 +17,7 @@ use crate::ui::theme;
 pub enum Tab {
     Info,
     Library,
+    Conditions,
 }
 
 /// Ikona kafla z parametrem.
@@ -395,6 +396,10 @@ fn tools(a: &mut Atlas, ui: &mut egui::Ui) {
         a.prefs.panel_open = !(a.prefs.panel_open && a.tab == Tab::Library);
         a.tab = Tab::Library;
     }
+    if theme::icon_button(ui, theme::icon::CLOUD_SUN, a.prefs.panel_open && a.tab == Tab::Conditions).on_hover_text(crate::i18n::tr("Warunki: pogoda i zagrożenie lawinowe (K)")).clicked() {
+        a.prefs.panel_open = !(a.prefs.panel_open && a.tab == Tab::Conditions);
+        a.tab = Tab::Conditions;
+    }
     ui.separator();
     if theme::icon_button(ui, theme::icon::PATH, a.tool == Tool::Route).on_hover_text(crate::i18n::tr("Planowanie trasy (2)")).clicked() {
         if a.tool == Tool::Route {
@@ -575,6 +580,7 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 let (glyph, title) = match (a.tab, a.tool) {
                     (Tab::Library, _) => (theme::icon::BOOKMARKS, crate::i18n::tr("Biblioteka")),
+                    (Tab::Conditions, _) => (theme::icon::CLOUD_SUN, crate::i18n::tr("Warunki")),
                     (_, Tool::Route) => (theme::icon::PATH, crate::i18n::tr("Trasa")),
                     (_, Tool::Measure) => (theme::icon::RULER, crate::i18n::tr("Pomiar")),
                     (_, Tool::Explore) => (theme::icon::COMPASS, crate::i18n::tr("Szczegóły")),
@@ -596,6 +602,8 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
                 ui.set_max_width(ui.available_width());
                 if a.tab == Tab::Library {
                     crate::ui::library::show(a, ui);
+                } else if a.tab == Tab::Conditions {
+                    crate::ui::conditions::show(a, ui);
                 } else {
                     info(a, ui);
                 }
@@ -783,6 +791,13 @@ fn point_buttons(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f64) {
     }
     if theme::row_button(ui, theme::icon::PERSON_SIMPLE_WALK, crate::i18n::tr("Spacer stąd"), false).clicked() {
         a.enter_panorama(lon, lat);
+    }
+    if theme::row_button(ui, theme::icon::CLOUD_SUN, "Pogoda i warunki tutaj", false).clicked() {
+        let ele = a.heights.sample_cached(lon, lat).unwrap_or(0.0);
+        let name = a.selection_name().or_else(|| a.name_near(lon, lat, 400.0)).unwrap_or_else(|| fmt::decimal(lon, lat));
+        a.cond_at = Some(crate::ui::conditions::Place { lon, lat, ele, name });
+        a.tab = Tab::Conditions;
+        a.prefs.panel_open = true;
     }
     if theme::row_button(ui, theme::icon::STAR, crate::i18n::tr("Dodaj do ulubionych"), false).clicked() {
         let name = a.selection_name();
@@ -1084,7 +1099,9 @@ fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
         }
     }
     if a.current_route().is_some() {
+        compare_section(a, ui);
         section(ui, theme::icon::LIGHTNING, crate::i18n::tr("Działania"));
+
         if theme::row_button(ui, theme::icon::ARROWS_OUT, crate::i18n::tr("Pokaż całą"), false).clicked() {
             if let Some(r) = a.current_route().cloned() {
                 a.fit_route(&r);
@@ -1594,7 +1611,8 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
             }
             marks.sort_by(|x, y| x.dist.total_cmp(&y.dist));
             let cursor = a.flight.as_ref().map(|f| f.dist).or(a.profile_cursor);
-            let h = profile::show(ui, &route, &others, &marks, cursor, None);
+            let compare = a.compare.as_ref().map(|c| &c.1);
+            let h = profile::show(ui, &route, &others, &marks, cursor, None, &mut a.profile_sel, compare);
             a.profile_cursor = h.or(a.flight.as_ref().map(|f| f.dist));
             });
         });
@@ -1669,4 +1687,131 @@ pub fn pick_track_file() -> Option<std::path::PathBuf> {
         .add_filter("KML", &["kml"])
         .add_filter("GeoJSON", &["geojson", "json"])
         .pick_file()
+}
+
+/// Porównanie bieżącej trasy z wariantem, wczytanym śladem albo trasą z biblioteki.
+fn compare_section(a: &mut Atlas, ui: &mut egui::Ui) {
+    use crate::i18n::tr;
+    section(ui, theme::icon::ARROWS_LEFT_RIGHT, tr("Porównanie tras"));
+    // kandydaci: inne warianty, ślad GPX, trasy z biblioteki ze śladem
+    let mut opts: Vec<(String, Route)> = Vec::new();
+    for (i, r) in a.routes.iter().enumerate() {
+        if i != a.route_sel {
+            opts.push((tf!("Wariant: {}", r.labels.join(" · ")), r.clone()));
+        }
+    }
+    if let Some(g) = &a.gpx {
+        if a.current_route().map(|c| !std::ptr::eq(c, g)).unwrap_or(false) {
+            opts.push((tf!("Ślad: {}", g.labels.first().cloned().unwrap_or_default()), g.clone()));
+        }
+    }
+    let lib: Vec<(String, Vec<(f64, f64, f32)>)> = a.library.routes.iter().filter(|r| r.track.len() >= 2).map(|r| (r.name.clone(), r.track.clone())).collect();
+    let current = a.compare.as_ref().map(|c| c.0.clone());
+    let mut pick: Option<Option<(String, Route)>> = None;
+    egui::ComboBox::from_id_salt("porownanie")
+        .width(ui.available_width() - 8.0)
+        .selected_text(current.clone().unwrap_or_else(|| tr("Porównaj z…").to_string()))
+        .show_ui(ui, |ui| {
+            if current.is_some() && ui.selectable_label(false, tr("Bez porównania")).clicked() {
+                pick = Some(None);
+            }
+            for (name, r) in &opts {
+                if ui.selectable_label(current.as_deref() == Some(name.as_str()), name).clicked() {
+                    pick = Some(Some((name.clone(), r.clone())));
+                }
+            }
+            for (name, track) in &lib {
+                let label = tf!("Biblioteka: {}", name);
+                if ui.selectable_label(current.as_deref() == Some(label.as_str()), &label).clicked() {
+                    let r = crate::graph::route_from_points(track, RouteKind::Gpx, name, 1.0);
+                    pick = Some(Some((label.clone(), r)));
+                }
+            }
+            if opts.is_empty() && lib.is_empty() {
+                ui.label(RichText::new(tr("Brak innych tras – zapisz trasy w bibliotece albo wczytaj ślad.")).small().color(theme::PAPER_3));
+            }
+        });
+    if let Some(p) = pick {
+        a.compare = p;
+        a.prefs.profile_open = true;
+    }
+    let (Some(cur), Some((name, other))) = (a.current_route().cloned(), a.compare.clone()) else {
+        theme::para(ui, "Wybierz drugą trasę: pojawi się na mapie i na profilu (fioletowa), a tu – zestawienie liczb.");
+        return;
+    };
+    let (s, o) = (cur.stats, other.stats);
+    ui.label(RichText::new(name).small().color(crate::ui::profile::COMPARE));
+    let rows: [(&str, f64, f64, fn(f64) -> String, bool); 7] = [
+        ("Czas", s.time, o.time, fmt::time, true),
+        ("Dystans", s.len2, o.len2, fmt::dist, true),
+        ("Podejścia", s.up, o.up, fmt::ele, true),
+        ("Zejścia", s.down, o.down, fmt::ele, true),
+        ("Najwyżej", s.max_ele, o.max_ele, fmt::ele, false),
+        ("Maks. nachylenie", s.max_slope, o.max_slope, |v| format!("{}°", v.round()), true),
+        ("Punkty GOT", s.got, o.got, |v| fmt::int(v), false),
+    ];
+    egui::Grid::new("porownanie-tabela").num_columns(4).spacing([14.0, 4.0]).show(ui, |ui| {
+        ui.label("");
+        ui.label(RichText::new(tr("ta trasa")).small().color(theme::PAPER_3));
+        ui.label(RichText::new(tr("porównywana")).small().color(crate::ui::profile::COMPARE));
+        ui.label(RichText::new(tr("różnica")).small().color(theme::PAPER_3));
+        ui.end_row();
+        for (k, a1, b1, f, lower_better) in rows {
+            ui.label(RichText::new(tr(k)).color(theme::PAPER_2));
+            ui.label(RichText::new(f(a1)).monospace());
+            ui.label(RichText::new(f(b1)).monospace());
+            let d = b1 - a1;
+            let tiny = d.abs() < a1.abs().max(1.0) * 0.01;
+            let color = if tiny { theme::PAPER_3 } else if (d < 0.0) == lower_better { theme::OK } else { theme::WARN };
+            let sign = if d > 0.0 { "+" } else if d < 0.0 { "−" } else { "" };
+            ui.label(RichText::new(if tiny { "≈".to_string() } else { format!("{sign}{}", f(d.abs())) }).monospace().color(color));
+            ui.end_row();
+        }
+    });
+    theme::para(ui, "Zielona różnica: porównywana trasa jest pod tym względem łatwiejsza lub krótsza.");
+}
+
+/// Okno „Wczytywanie danych”: stan każdego sektora okolicy, kafli terenu i zdjęć.
+pub fn load_window(a: &mut Atlas, ctx: &egui::Context) {
+    use crate::i18n::tr;
+    if !a.load_details {
+        return;
+    }
+    let mut open = true;
+    let title = tr("Wczytywanie danych");
+    glass_area(a, ctx, egui::Id::new(title), 1.0);
+    egui::Window::new(title)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -40.0])
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.set_width(520.0);
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+            ui.label(theme::kicker("Nazwy i szlaki (OpenStreetMap)"));
+            theme::para(ui, "Okolica dzieli się na sektory ok. 50 × 50 km. Nazwy pobierają się w kilka sekund z kafli wektorowych, szlaki – z serwerów Overpass, co przy ich obciążeniu trwa nawet kilka minut. Pobrane sektory zapisują się na dysku i przy kolejnym uruchomieniu wczytują od razu.");
+            egui::Grid::new("sektory").num_columns(2).spacing([16.0, 4.0]).striped(true).show(ui, |ui| {
+                for (name, state, ok) in a.world.details() {
+                    ui.label(RichText::new(name).monospace().color(theme::PAPER_2));
+                    ui.label(RichText::new(state).color(if ok { theme::OK } else { theme::PAPER }));
+                    ui.end_row();
+                }
+            });
+            ui.add_space(10.0);
+            ui.label(theme::kicker("Teren i zdjęcia"));
+            if let Some(r) = &a.renderer {
+                let [dem, sat, ortho, local] = r.tiles.loading_kinds;
+                if dem + sat + ortho + local == 0 {
+                    ui.label(RichText::new(tr("wszystkie kafle widoku są wczytane")).color(theme::OK));
+                } else {
+                    ui.label(tf!("w kolejce i w toku: teren {}, zdjęcia satelitarne {}, ortofoto {}, składanie ortofoto {}", dem, sat, ortho, local));
+                }
+            }
+            if a.world.land_busy() {
+                ui.label(tr("pobieranie pokrycia terenu (OSM)…"));
+            }
+        });
+    if !open {
+        a.load_details = false;
+    }
 }

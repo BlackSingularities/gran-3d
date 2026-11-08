@@ -752,6 +752,7 @@ mod tests {
             runs: vec![run(vec![0, 1, 2], 10), run(vec![0, 3, 2], 11), run(vec![0, 2], 12)],
             routes: vec![],
             pois: vec![],
+            partial: false,
         }
     }
 
