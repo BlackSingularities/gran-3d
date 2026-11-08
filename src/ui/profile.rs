@@ -163,7 +163,7 @@ pub fn show(
     if let Some(od) = obstacle {
         let xx = x(od);
         p.line_segment([Pos2::new(xx, plot.top()), Pos2::new(xx, plot.bottom())], Stroke::new(2.0, theme::SIGNAL));
-        p.text(Pos2::new(xx + 4.0, plot.top()), Align2::LEFT_TOP, "przeszkoda", FontId::proportional(10.5), theme::SIGNAL);
+        p.text(Pos2::new(xx + 4.0, plot.top()), Align2::LEFT_TOP, crate::i18n::tr("przeszkoda"), FontId::proportional(10.5), theme::SIGNAL);
     }
 
     let mut hover = None;
@@ -189,9 +189,9 @@ pub fn show(
         let rows = [
             (fmt::dist(cd as f64), 12.5, theme::PAPER),
             (fmt::ele(e as f64), 12.5, theme::PAPER),
-            (format!("{:+.0}% nachylenia", (eb - ea) / span * 100.0), 11.0, theme::PAPER_2),
-            (format!("↑ {} od startu", fmt::ele(up as f64)), 11.0, theme::PAPER_2),
-            (format!("{} od startu", fmt::time(time as f64)), 11.0, theme::PAPER_2),
+            (tf!("{:+.0}% nachylenia", (eb - ea) / span * 100.0), 11.0, theme::PAPER_2),
+            (tf!("↑ {} od startu", fmt::ele(up as f64)), 11.0, theme::PAPER_2),
+            (tf!("{} od startu", fmt::time(time as f64)), 11.0, theme::PAPER_2),
         ];
         let galleys: Vec<_> = rows.into_iter().map(|(t, size, c)| p.layout_no_wrap(t, FontId::proportional(size), c)).collect();
         let w = galleys.iter().map(|g| g.size().x).fold(0.0, f32::max) + 20.0;

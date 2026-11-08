@@ -142,6 +142,19 @@ Section "GRAŃ" SecMain
   WriteRegStr HKCR "gran\DefaultIcon" "" '"$INSTDIR\Gran.exe",0'
   WriteRegStr HKCR "gran\shell\open\command" "" '"$INSTDIR\Gran.exe" "%1"'
 
+  ; ślady GPX, KML i GeoJSON: GRAŃ w „Otwórz za pomocą” (bez przejmowania domyślnego programu)
+  WriteRegStr HKCR "GRAN.Track" "" "Ślad trasy (GRAŃ)"
+  WriteRegStr HKCR "GRAN.Track\DefaultIcon" "" '"$INSTDIR\Gran.exe",0'
+  WriteRegStr HKCR "GRAN.Track\shell\open\command" "" '"$INSTDIR\Gran.exe" "%1"'
+  WriteRegStr HKCR ".gpx\OpenWithProgids" "GRAN.Track" ""
+  WriteRegStr HKCR ".kml\OpenWithProgids" "GRAN.Track" ""
+  WriteRegStr HKCR ".geojson\OpenWithProgids" "GRAN.Track" ""
+  WriteRegStr HKCR "Applications\Gran.exe\shell\open\command" "" '"$INSTDIR\Gran.exe" "%1"'
+  WriteRegStr HKCR "Applications\Gran.exe\SupportedTypes" ".gpx" ""
+  WriteRegStr HKCR "Applications\Gran.exe\SupportedTypes" ".kml" ""
+  WriteRegStr HKCR "Applications\Gran.exe\SupportedTypes" ".geojson" ""
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+
   WriteRegStr HKLM "${UNKEY}" "DisplayName" "GRAŃ – atlas szlaków 3D"
   WriteRegStr HKLM "${UNKEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKLM "${UNKEY}" "DisplayIcon" "$INSTDIR\Gran.exe"
@@ -179,6 +192,11 @@ Section "Uninstall"
   Delete "$DESKTOP\${NAME}.lnk"
   DeleteRegKey HKLM "${UNKEY}"
   DeleteRegKey HKCR "gran"
+  DeleteRegKey HKCR "GRAN.Track"
+  DeleteRegKey HKCR "Applications\Gran.exe"
+  DeleteRegValue HKCR ".gpx\OpenWithProgids" "GRAN.Track"
+  DeleteRegValue HKCR ".kml\OpenWithProgids" "GRAN.Track"
+  DeleteRegValue HKCR ".geojson\OpenWithProgids" "GRAN.Track"
 
   ; przy aktualizacji (--updated) albo w trybie cichym dane użytkownika zostają nietknięte
   ${GetParameters} $R0

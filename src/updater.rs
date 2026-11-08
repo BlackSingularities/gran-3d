@@ -66,7 +66,7 @@ pub fn latest() -> Result<Release, String> {
             let n = a["name"].as_str().unwrap_or("");
             n.starts_with("GRAN-Setup-") && n.to_lowercase().ends_with(".exe")
         })
-        .ok_or("Wydanie nie zawiera instalatora.")?;
+        .ok_or(crate::i18n::tr("Wydanie nie zawiera instalatora."))?;
     let yml = assets.iter().find(|a| a["name"] == "latest.yml");
     Ok(Release {
         version,
@@ -80,9 +80,9 @@ pub fn latest() -> Result<Release, String> {
 
 /// Suma SHA-512 (base64) instalatora z `latest.yml`.
 fn expected_sha(rel: &Release) -> Result<String, String> {
-    let url = rel.yml_url.as_ref().ok_or("Wydanie nie zawiera pliku latest.yml z sumą kontrolną.")?;
+    let url = rel.yml_url.as_ref().ok_or(crate::i18n::tr("Wydanie nie zawiera pliku latest.yml z sumą kontrolną."))?;
     let text = agent().get(url).call().map_err(|e| e.to_string())?.into_string().map_err(|e| e.to_string())?;
-    parse_sha(&text, &rel.exe_name).ok_or_else(|| "Brak sumy SHA-512 w latest.yml.".into())
+    parse_sha(&text, &rel.exe_name).ok_or_else(|| crate::i18n::tr("Brak sumy SHA-512 w latest.yml.").into())
 }
 
 pub fn parse_sha(yml: &str, name: &str) -> Option<String> {
@@ -126,7 +126,7 @@ pub fn download(rel: &Release, progress: Arc<AtomicU64>) -> Result<PathBuf, Stri
     let got = base64::engine::general_purpose::STANDARD.encode(hash.finalize());
     if got != sha {
         let _ = std::fs::remove_file(&file);
-        return Err("Pobrany instalator ma niezgodną sumę kontrolną – spróbuj ponownie później.".into());
+        return Err(crate::i18n::tr("Pobrany instalator ma niezgodną sumę kontrolną – spróbuj ponownie później.").into());
     }
     Ok(file)
 }
@@ -147,14 +147,14 @@ pub fn run_installer(file: &std::path::Path) -> Result<(), String> {
             ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), path.as_ptr(), args.as_ptr(), std::ptr::null(), SW_SHOWNORMAL)
         };
         if (r as isize) <= 32 {
-            return Err("Instalacja aktualizacji została przerwana (brak zgody administratora?).".into());
+            return Err(crate::i18n::tr("Instalacja aktualizacji została przerwana (brak zgody administratora?).").into());
         }
         Ok(())
     }
     #[cfg(not(windows))]
     {
         let _ = file;
-        Err("Aktualizacje tylko w systemie Windows.".into())
+        Err(crate::i18n::tr("Aktualizacje tylko w systemie Windows.").into())
     }
 }
 

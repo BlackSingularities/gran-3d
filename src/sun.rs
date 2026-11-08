@@ -69,7 +69,7 @@ impl Day {
             "listopada",
             "grudnia",
         ];
-        format!("{} {} {}", self.d, M[(self.m - 1) as usize], self.y)
+        format!("{} {} {}", self.d, crate::i18n::tr(M[(self.m - 1) as usize]), self.y)
     }
 }
 

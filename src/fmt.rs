@@ -35,9 +35,9 @@ pub fn dist(m: f64) -> String {
     } else if m < 1000.0 {
         format!("{} m", int(m))
     } else if m < 10_000.0 {
-        format!("{} km", dec(m / 1000.0, 2))
+        tf!("{} km", dec(m / 1000.0, 2))
     } else {
-        format!("{} km", dec(m / 1000.0, 1))
+        tf!("{} km", dec(m / 1000.0, 1))
     }
 }
 
@@ -57,9 +57,9 @@ pub fn time(h: f64) -> String {
     let total = ((h * 60.0 / 5.0).round() * 5.0) as i64;
     let (hh, mm) = (total / 60, total % 60);
     match (hh, mm) {
-        (0, m) => format!("{m} min"),
+        (0, m) => tf!("{} min", m),
         (h, 0) => format!("{h} h"),
-        (h, m) => format!("{h} h {m:02} min"),
+        (h, m) => tf!("{} h {:02} min", h, m),
     }
 }
 
@@ -71,7 +71,7 @@ pub fn signed(m: f64, unit: &str) -> String {
     } else {
         "±"
     };
-    format!("{s}{} {unit}", int(m.abs()))
+    tf!("{}{} {}", s, int(m.abs()), unit)
 }
 
 fn dms(v: f64, pos: char, neg: char) -> String {
@@ -94,7 +94,7 @@ pub fn coords(lon: f64, lat: f64) -> String {
 }
 
 pub fn decimal(lon: f64, lat: f64) -> String {
-    format!("{lat:.5}, {lon:.5}")
+    tf!("{:.5}, {:.5}", lat, lon)
 }
 
 const DIRS: [&str; 16] = [

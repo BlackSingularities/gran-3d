@@ -63,10 +63,10 @@ pub enum CostMode {
 impl CostMode {
     pub fn label(self) -> &'static str {
         match self {
-            CostMode::Time => "Najszybsza",
-            CostMode::Distance => "Najkrótsza",
-            CostMode::Ascent => "Najmniej podejść",
-            CostMode::Easy => "Najłatwiejsza",
+            CostMode::Time => crate::i18n::tr("Najszybsza"),
+            CostMode::Distance => crate::i18n::tr("Najkrótsza"),
+            CostMode::Ascent => crate::i18n::tr("Najmniej podejść"),
+            CostMode::Easy => crate::i18n::tr("Najłatwiejsza"),
         }
     }
 }
@@ -680,7 +680,7 @@ impl TrailGraph {
                 break;
             }
             variant += 1;
-            alt.labels = vec![format!("Wariant {variant}")];
+            alt.labels = vec![tf!("Wariant {}", variant)];
             if !push(&mut out, alt) {
                 variant -= 1;
             }

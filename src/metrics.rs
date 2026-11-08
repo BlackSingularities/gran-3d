@@ -18,7 +18,7 @@ pub enum TimeModel {
 impl TimeModel {
     pub fn label(self) -> &'static str {
         match self {
-            TimeModel::Pttk => "reguła PTTK",
+            TimeModel::Pttk => crate::i18n::tr("reguła PTTK"),
             TimeModel::Din => "DIN 33466",
         }
     }
@@ -150,16 +150,16 @@ impl TrailColor {
 
     pub fn name(self) -> &'static str {
         match self {
-            TrailColor::Red => "czerwony",
-            TrailColor::Blue => "niebieski",
-            TrailColor::Green => "zielony",
-            TrailColor::Yellow => "żółty",
-            TrailColor::Black => "czarny",
-            TrailColor::Other => "inny",
-            TrailColor::Offtrail => "poza szlakiem",
-            TrailColor::Orange => "pomarańczowy",
-            TrailColor::Purple => "fioletowy",
-            TrailColor::Brown => "brązowy",
+            TrailColor::Red => crate::i18n::tr("czerwony"),
+            TrailColor::Blue => crate::i18n::tr("niebieski"),
+            TrailColor::Green => crate::i18n::tr("zielony"),
+            TrailColor::Yellow => crate::i18n::tr("żółty"),
+            TrailColor::Black => crate::i18n::tr("czarny"),
+            TrailColor::Other => crate::i18n::tr("inny"),
+            TrailColor::Offtrail => crate::i18n::tr("poza szlakiem"),
+            TrailColor::Orange => crate::i18n::tr("pomarańczowy"),
+            TrailColor::Purple => crate::i18n::tr("fioletowy"),
+            TrailColor::Brown => crate::i18n::tr("brązowy"),
         }
     }
 }

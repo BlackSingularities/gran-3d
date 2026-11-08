@@ -34,7 +34,7 @@ pub fn bake(layer: Layer, source: &[u8]) -> Result<Vec<u8>, BakeError> {
         }
         Layer::Sat | Layer::Ortho => {
             if source.len() < 4 || source[0] != 0xFF || source[1] != 0xD8 {
-                return Err(BakeError("odpowiedź nie jest obrazem JPEG".into()));
+                return Err(BakeError(crate::i18n::tr("odpowiedź nie jest obrazem JPEG").into()));
             }
             let mut out = Vec::with_capacity(source.len() + 1);
             out.push(JPEG_TAG);
@@ -47,7 +47,7 @@ pub fn bake(layer: Layer, source: &[u8]) -> Result<Vec<u8>, BakeError> {
 /// Wysokości z PNG Terrarium: (metry, szerokość, wysokość).
 pub fn terrarium(source: &[u8]) -> Result<(Vec<f32>, usize, usize), BakeError> {
     let img = image::load_from_memory(source)
-        .map_err(|e| BakeError(format!("PNG terenu: {e}")))?
+        .map_err(|e| BakeError(tf!("PNG terenu: {}", e)))?
         .to_rgb8();
     let (w, h) = (img.width() as usize, img.height() as usize);
     let elev = img
