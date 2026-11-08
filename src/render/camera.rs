@@ -175,14 +175,21 @@ impl View {
             height(p.x, p.z).map(|h| p.y + curv(t) - h * exag)
         };
         let min_step = (self.near * 0.5).max(0.5);
-        for _ in 0..1500 {
+        // krok bezpieczny dla stromego terenu: po przejściu `s` wzdłuż promienia teren może się podnieść
+        // najwyżej o L·s·(składowa pozioma), a promień opaść o s·|dir.y| – inaczej cienka grań między
+        // okiem a zboczem za nią bywała przeskakiwana i znacznik lądował gdzie indziej
+        const MAX_SLOPE: f64 = 3.0; // ok. 72°
+        let hdir = (dir.x * dir.x + dir.z * dir.z).sqrt();
+        let rate = (MAX_SLOPE * exag * hdir - dir.y).max(0.05);
+        for _ in 0..6000 {
             if t > max_t {
                 return None;
             }
             let gap = match gap_at(t) {
                 Some(g) => g,
+                // brak danych wysokości: drobny krok (duży przeskakiwał najbliższe grzbiety)
                 None => {
-                    t += (t * 0.02).max(200.0);
+                    t += (t * 0.004).max(20.0);
                     prev_t = t;
                     continue;
                 }
@@ -202,7 +209,7 @@ impl View {
                 return Some(DVec3::new(p.x, h, p.z));
             }
             prev_t = t;
-            t += (gap * 0.5).max(min_step).max(t * 0.0015);
+            t += (gap / rate).max(min_step).max(t * 0.002);
         }
         None
     }

@@ -685,3 +685,43 @@ rano	in the morning
 Okolica dzieli się na sektory ok. 50 × 50 km. Najpierw wczytuje się sektor pod kamerą, potem sąsiednie (to tylko dalsza okolica – to, co widać, jest już gotowe). Nazwy pobierają się w kilka sekund z kafli wektorowych, szlaki – z serwerów Overpass, w czterech częściach na sektor; przy obciążeniu serwerów trwa to do kilku minut. Pobrane sektory zapisują się na dysku i przy kolejnym uruchomieniu wczytują od razu.	The area is divided into sectors of about 50 × 50 km. The sector under the camera loads first, then the neighbouring ones (just the wider surroundings – what you see is already done). Names load in a few seconds from vector tiles, trails from Overpass servers in four parts per sector; when the servers are busy this takes up to a few minutes. Downloaded sectors are saved to disk and load instantly next time.
 szlaki dalszej okolicy: {}/{} ({})	trails of the wider area: {}/{} ({})
 Liczy się tylko to, co widać w kadrze; okolica poza kadrem doczytuje się w tle i nie jest tu wliczana.	Only what is in view is counted; the area outside the view loads in the background and is not included here.
+Woda pitna	Drinking water
+Parking	Parking
+Przystanek	Bus stop
+Kolejka linowa	Cable car
+Kapliczka	Shrine
+Kamera internetowa	Webcam
+Przekrój terenu	Terrain cross-section
+Pomiar, przekrój terenu i linia wzroku (3)	Measure, cross-section and line of sight (3)
+Pomiar, przekrój i linia wzroku	Measure, cross-section and line of sight
+Klikaj na mapie, żeby dodać punkty pomiaru. Przekrój terenu wzdłuż linii pokaże się na dole, a dla dwóch punktów program sprawdzi też, czy jeden widać z drugiego.	Click on the map to add measurement points. The terrain cross-section along the line appears at the bottom, and for two points the program also checks whether one can be seen from the other.
+Łańcuchy i klamry	Chains and rungs
+Granice parków	Park boundaries
+OpenStreetMap nie ma dla tego miejsca godzin otwarcia ani kontaktu – możesz je tam uzupełnić.	OpenStreetMap has no opening hours or contact for this place – you can add them there.
+Informacje	Information
+całą dobę	24/7
+Otwarte:	Open:
+Miejsca noclegowe:	Beds:
+Rezerwacja:	Booking:
+wymagana	required
+zalecana	recommended
+możliwa	possible
+brak	none
+Prowadzi:	Operator:
+Opłata:	Fee:
+płatne	paid
+bezpłatne	free
+Kopiuj numer	Copy number
+Skopiowano numer {}	Number {} copied
+Strona	Website
+E-mail	E-mail
+Kamera	Webcam
+pobieram obraz kamery…	loading the webcam image…
+Obraz niedostępny: {}	Image unavailable: {}
+Otwórz stronę kamery	Open the webcam page
+gotowe · uzupełnianie schronisk, punktów i granic… {} s	ready · adding huts, points and boundaries… {} s
+Parkingi	Car parks
+Przystanki	Bus stops
+Kolejki linowe	Cable cars
+Kapliczki	Shrines
+Kamery	Webcams

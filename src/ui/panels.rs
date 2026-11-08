@@ -345,7 +345,7 @@ pub const STATUS_H: f32 = 24.0;
 
 /// Odsunięcie od dołu okna: pasek stanu i profil trasy (gdy otwarty).
 pub fn bottom_inset(a: &Atlas) -> f32 {
-    STATUS_H + match (a.current_route().is_some(), a.prefs.profile_open) {
+    STATUS_H + match (a.profile_route().is_some(), a.prefs.profile_open) {
         (false, _) => 0.0,
         (true, true) => PROFILE_H + 20.0,
         (true, false) => PROFILE_BAR_H + 20.0,
@@ -410,7 +410,7 @@ fn tools(a: &mut Atlas, ui: &mut egui::Ui) {
         a.prefs.panel_open = true;
         a.tab = Tab::Info;
     }
-    if theme::icon_button(ui, theme::icon::RULER, a.tool == Tool::Measure).on_hover_text(crate::i18n::tr("Pomiar i linia wzroku (3)")).clicked() {
+    if theme::icon_button(ui, theme::icon::RULER, a.tool == Tool::Measure).on_hover_text(crate::i18n::tr("Pomiar, przekrój terenu i linia wzroku (3)")).clicked() {
         a.tool = if a.tool == Tool::Measure { Tool::Explore } else { Tool::Measure };
         a.prefs.panel_open = true;
         a.tab = Tab::Info;
@@ -505,7 +505,7 @@ fn style_button(a: &mut Atlas, ui: &mut egui::Ui) {
 /// Warstwy: osobny przycisk z liczbą włączonych.
 fn layers_button(a: &mut Atlas, ui: &mut egui::Ui) {
     let p = &a.prefs;
-    let n = [p.labels, p.trails, p.contours, p.km_grid, p.shadows, p.detail, p.snow, p.landcover].iter().filter(|v| **v).count();
+    let n = [p.labels, p.trails, p.chains, p.boundaries, p.contours, p.km_grid, p.shadows, p.detail, p.snow, p.landcover].iter().filter(|v| **v).count();
     let shown = bar_menu(ui, theme::icon::STACK, theme::BRASS, crate::i18n::tr("Warstwy"), &tf!("włączone: {}", n), 118.0, crate::i18n::tr("Warstwy na mapie"), 380.0, |ui| layers_tab(a, ui));
     if let Some(r) = shown {
         a.glass.push((r, 1.0));
@@ -837,6 +837,7 @@ fn poi_info(a: &mut Atlas, ui: &mut egui::Ui, i: usize) {
     if p.poi.ele.is_some() && (p.ele - p.dem).abs() > 25.0 {
         theme::para(ui, crate::i18n::tr("Model terenu wygładza najostrzejsze granie – wysokość szczytu pochodzi z OSM."));
     }
+    poi_details(a, ui, &p.poi);
     ui.horizontal(|ui| {
         if !p.poi.osm.is_empty() && ui.link("OpenStreetMap").clicked() {
             let _ = open::that(format!("https://www.openstreetmap.org/{}", p.poi.osm));
@@ -1136,10 +1137,10 @@ fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
 }
 
 fn measure_info(a: &mut Atlas, ui: &mut egui::Ui) {
-    ui.label(theme::kicker(crate::i18n::tr("Pomiar i linia wzroku")));
+    ui.label(theme::kicker(crate::i18n::tr("Pomiar, przekrój i linia wzroku")));
     ui.heading(crate::i18n::tr("Odległość po terenie"));
     if a.measure.is_empty() {
-        theme::para(ui, crate::i18n::tr("Klikaj na mapie, żeby dodać punkty pomiaru. Dla dwóch punktów program sprawdzi też, czy jeden widać z drugiego."));
+        theme::para(ui, crate::i18n::tr("Klikaj na mapie, żeby dodać punkty pomiaru. Przekrój terenu wzdłuż linii pokaże się na dole, a dla dwóch punktów program sprawdzi też, czy jeden widać z drugiego."));
         return;
     }
     ui.horizontal(|ui| {
@@ -1358,6 +1359,8 @@ fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
         (theme::icon::PATH, crate::i18n::tr("Szlaki (T)"), &mut p.trails, None),
         (theme::icon::WAVE_SINE, crate::i18n::tr("Poziomice (C)"), &mut p.contours, None),
         (theme::icon::GRID_FOUR, crate::i18n::tr("Siatka km"), &mut p.km_grid, None),
+        (theme::icon::LINK, crate::i18n::tr("Łańcuchy i klamry"), &mut p.chains, None),
+        (theme::icon::FLAG, crate::i18n::tr("Granice parków"), &mut p.boundaries, None),
     ]);
     ui.add_space(10.0);
     ui.label(theme::kicker(crate::i18n::tr("Teren")));
@@ -1538,7 +1541,8 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
     if !open {
         a.profile_cursor = a.flight.as_ref().map(|f| f.dist);
     }
-    let Some(route) = a.current_route().cloned() else {
+    let is_section = a.current_route().is_none();
+    let Some(route) = a.profile_route().cloned() else {
         // profil pomiaru (2+ punktów)
         a.profile_cursor = None;
         return;
@@ -1557,7 +1561,7 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
             ui.set_max_size(size);
             ui.horizontal(|ui| {
                 ui.label(RichText::new(theme::icon::CHART_LINE_UP).size(17.0).color(theme::BRASS));
-                ui.label(RichText::new(crate::i18n::tr("Profil wysokości")).strong());
+                ui.label(RichText::new(crate::i18n::tr(if is_section { "Przekrój terenu" } else { "Profil wysokości" })).strong());
                 ui.add_space(10.0);
                 let s = route.stats;
                 let tr = &route.track;
@@ -1814,5 +1818,108 @@ pub fn load_window(a: &mut Atlas, ctx: &egui::Context) {
         });
     if !open {
         a.load_details = false;
+    }
+}
+
+/// Informacje o punkcie z OSM (godziny, telefon, strona, noclegi…) i podgląd kamery internetowej.
+fn poi_details(a: &mut Atlas, ui: &mut egui::Ui, p: &crate::osm::Poi) {
+    use crate::i18n::tr;
+    if p.info.is_empty() {
+        if matches!(p.kind, PoiKind::Hut | PoiKind::Shelter) {
+            theme::para(ui, "OpenStreetMap nie ma dla tego miejsca godzin otwarcia ani kontaktu – możesz je tam uzupełnić.");
+        }
+        return;
+    }
+    section(ui, theme::icon::INFO, tr("Informacje"));
+    let get = |k: &str| p.info.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
+    let row = |ui: &mut egui::Ui, glyph: &str, label: &str, value: &str| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(glyph).color(theme::BRASS));
+            ui.label(RichText::new(tr(label)).color(theme::PAPER_3));
+            ui.label(RichText::new(value).color(theme::PAPER));
+        });
+    };
+    if let Some(h) = get("hours") {
+        let h = if h == "24/7" { tr("całą dobę").to_string() } else { h };
+        row(ui, theme::icon::CLOCK, "Otwarte:", &h);
+    }
+    if let Some(b) = get("beds").or_else(|| get("capacity")) {
+        row(ui, theme::icon::BED, "Miejsca noclegowe:", &b);
+    }
+    if let Some(r) = get("reservation") {
+        let r = match r.as_str() {
+            "required" => tr("wymagana").to_string(),
+            "recommended" => tr("zalecana").to_string(),
+            "yes" => tr("możliwa").to_string(),
+            "no" => tr("brak").to_string(),
+            _ => r,
+        };
+        row(ui, theme::icon::CALENDAR, "Rezerwacja:", &r);
+    }
+    if let Some(o) = get("operator") {
+        row(ui, theme::icon::USERS, "Prowadzi:", &o);
+    }
+    if let Some(f) = get("fee") {
+        let f = match f.as_str() {
+            "yes" => tr("płatne").to_string(),
+            "no" => tr("bezpłatne").to_string(),
+            _ => f,
+        };
+        row(ui, theme::icon::COINS, "Opłata:", &f);
+    }
+    if let Some(d) = get("description") {
+        ui.add(egui::Label::new(RichText::new(d).small().color(theme::PAPER_2)).wrap());
+    }
+    ui.horizontal_wrapped(|ui| {
+        if let Some(ph) = get("phone") {
+            let first = ph.split(';').next().unwrap_or("").trim().to_string();
+            if ui.button(theme::ic(theme::icon::PHONE, &first)).on_hover_text(tr("Kopiuj numer")).clicked() {
+                ui.ctx().copy_text(first.clone());
+                a.notify(tf!("Skopiowano numer {}", first));
+            }
+        }
+        if let Some(w) = get("website") {
+            let url = if w.starts_with("http") { w } else { format!("https://{w}") };
+            if ui.button(theme::ic(theme::icon::GLOBE, "Strona")).on_hover_text(&url).clicked() {
+                let _ = open::that(&url);
+            }
+        }
+        if let Some(m) = get("email") {
+            if ui.button(theme::ic(theme::icon::ENVELOPE, "E-mail")).on_hover_text(&m).clicked() {
+                let _ = open::that(format!("mailto:{m}"));
+            }
+        }
+    });
+    if let Some(cam) = get("webcam") {
+        let url = if cam.starts_with("http") { cam } else { format!("https://{cam}") };
+        section(ui, theme::icon::CAMERA, tr("Kamera"));
+        webcam(a, ui, &url);
+    }
+}
+
+/// Podgląd obrazu kamery (gdy adres prowadzi do zdjęcia) albo odnośnik do strony kamery.
+fn webcam(a: &mut Atlas, ui: &mut egui::Ui, url: &str) {
+    use crate::i18n::tr;
+    let state = a.webcam_image(ui.ctx(), url);
+    match state {
+        crate::ui::atlas::CamState::Loading => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(tr("pobieram obraz kamery…")).color(theme::PAPER_3));
+            });
+        }
+        crate::ui::atlas::CamState::Image(tex) => {
+            let w = ui.available_width();
+            let size = tex.size_vec2();
+            let h = w * size.y / size.x.max(1.0);
+            ui.add(egui::Image::new((tex.id(), egui::vec2(w, h))).corner_radius(8.0));
+        }
+        crate::ui::atlas::CamState::NotImage => {}
+        crate::ui::atlas::CamState::Failed(e) => {
+            ui.label(RichText::new(tf!("Obraz niedostępny: {}", e)).small().color(theme::PAPER_3));
+        }
+    }
+    if ui.link(tr("Otwórz stronę kamery")).clicked() {
+        let _ = open::that(url);
     }
 }

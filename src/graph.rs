@@ -753,6 +753,7 @@ mod tests {
             routes: vec![],
             pois: vec![],
             partial: false,
+            ..Default::default()
         }
     }
 

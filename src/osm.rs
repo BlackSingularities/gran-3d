@@ -110,6 +110,16 @@ pub enum PoiKind {
     Spring,
     /// Dolina.
     Valley,
+    /// Woda pitna (kran, źródełko z ujęciem).
+    DrinkingWater,
+    Parking,
+    BusStop,
+    /// Stacja kolejki linowej lub wyciągu.
+    Cableway,
+    /// Kapliczka, krzyż przydrożny, kaplica.
+    Shrine,
+    /// Kamera internetowa.
+    Webcam,
 }
 
 impl PoiKind {
@@ -128,6 +138,12 @@ impl PoiKind {
             PoiKind::Locality => crate::i18n::tr("Hala / polana"),
             PoiKind::Spring => crate::i18n::tr("Źródło"),
             PoiKind::Valley => crate::i18n::tr("Dolina"),
+            PoiKind::DrinkingWater => crate::i18n::tr("Woda pitna"),
+            PoiKind::Parking => crate::i18n::tr("Parking"),
+            PoiKind::BusStop => crate::i18n::tr("Przystanek"),
+            PoiKind::Cableway => crate::i18n::tr("Kolejka linowa"),
+            PoiKind::Shrine => crate::i18n::tr("Kapliczka"),
+            PoiKind::Webcam => crate::i18n::tr("Kamera internetowa"),
         }
     }
 }
@@ -147,6 +163,9 @@ pub struct Poi {
     /// Miejscowość: city/town/village/hamlet.
     #[serde(default)]
     pub place: String,
+    /// Dodatkowe informacje z OSM (klucz → wartość): godziny otwarcia, telefon, strona, noclegi, kamera…
+    #[serde(default)]
+    pub info: Vec<(String, String)>,
     #[serde(default)]
     pub pop: u32,
 }
@@ -164,7 +183,34 @@ pub struct SectorData {
     /// Same punkty, bez szlaków (szlaki dociągną się później).
     #[serde(default)]
     pub partial: bool,
+    /// Wersja dodatkowych danych (punkty usługowe, łańcuchy, granice); starsze sektory uzupełniają się
+    /// jednym lekkim zapytaniem, bez ponownego pobierania szlaków.
+    #[serde(default)]
+    pub extra_ver: u32,
+    /// Odcinki ubezpieczone łańcuchami, klamrami, linami (dł., szer.).
+    #[serde(default)]
+    pub chains: Vec<Vec<(f64, f64)>>,
+    #[serde(default)]
+    pub boundaries: Vec<Boundary>,
 }
+
+/// Granica obszaru: parku narodowego, rezerwatu albo państwa (linie przycięte do sektora).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Boundary {
+    pub kind: BoundaryKind,
+    pub name: String,
+    pub lines: Vec<Vec<(f64, f64)>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BoundaryKind {
+    NationalPark,
+    Reserve,
+    Country,
+}
+
+/// Bieżąca wersja dodatkowych danych sektora.
+pub const EXTRA_VER: u32 = 1;
 
 pub fn load(root: &Path, id: SectorId) -> Option<SectorData> {
     let b = std::fs::read(id.path(root)).ok()?;
@@ -410,6 +456,7 @@ fn vector_poi(p: &crate::mvt::Point, lon: f64, lat: f64) -> Option<Poi> {
         osm: String::new(),
         place: place.to_string(),
         pop: 0,
+        info: Vec::new(),
     })
 }
 
@@ -427,37 +474,122 @@ fn overpass_pois(id: SectorId) -> Result<Vec<Poi>, String> {
 /// `worker` wybiera serwer Overpass, od którego zaczynamy (równoległe pobierania nie biją w jeden).
 pub fn fetch_trails(id: SectorId, pois: Vec<Poi>, worker: usize) -> Result<SectorData, String> {
     let b = id.bbox();
-    let bb = format!("{:.6},{:.6},{:.6},{:.6}", b.s, b.w, b.n, b.e);
-    // nazwy, których brak lub mało w kafelkach wektorowych: doliny, granie, hale, źródła, małe stawy,
-    // wodospady – małe zapytanie
-    // równolegle ze szlakami (niepowodzenie nie blokuje szlaków)
-    let extra_q = format!(
-        "[out:json][timeout:60];(nwr[\"natural\"~\"^(valley|ridge|arete|spring|water)$\"][\"name\"]({bb});node[\"place\"=\"locality\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb}););out center tags;"
-    );
+    // szlaki i dodatkowe dane (punkty usługowe, łańcuchy, granice) równolegle; niepowodzenie
+    // dodatkowych danych nie blokuje szlaków – uzupełnią się później
     let (tj, extra) = std::thread::scope(|sc| {
-        let ex = sc.spawn(|| overpass(&extra_q, worker + 1));
+        let ex = sc.spawn(|| fetch_extra(id, worker + 1));
         let tj = trails_by_quarters(&b, worker);
         (tj, ex.join().unwrap_or_else(|_| Err("panic".into())))
     });
     let tj = tj?;
-
     let mut d = parse(id, &tj, &serde_json::Value::Null);
     d.pois = pois;
     match extra {
+        Ok(x) => apply_extra(&mut d, x),
+        Err(e) => log::warn!("dodatkowe dane {}/{}: {e}", id.x, id.y),
+    }
+    Ok(d)
+}
 
-        Ok(ej) => {
-            let extra = parse(id, &serde_json::Value::Null, &ej).pois;
-            for p in extra {
-                if matches!(p.kind, PoiKind::Valley | PoiKind::Ridge | PoiKind::Spring | PoiKind::Locality | PoiKind::Lake | PoiKind::Waterfall)
-                    && !d.pois.iter().any(|q| q.name == p.name && (q.lon - p.lon).abs() < 0.01 && (q.lat - p.lat).abs() < 0.01)
-                {
-                    d.pois.push(p);
+/// Dodatkowe dane sektora: punkty spoza kafli wektorowych (z tagami), łańcuchy i klamry, granice.
+pub struct Extra {
+    pois: Vec<Poi>,
+    chains: Vec<Vec<(f64, f64)>>,
+    boundaries: Vec<Boundary>,
+}
+
+/// Linie z geometrii Overpass (`geometry`: lista {lat, lon}, przerwy jako null).
+fn geometry_lines(g: &serde_json::Value) -> Vec<Vec<(f64, f64)>> {
+    let mut out = Vec::new();
+    let mut cur: Vec<(f64, f64)> = Vec::new();
+    for p in g.as_array().into_iter().flatten() {
+        match (p["lon"].as_f64(), p["lat"].as_f64()) {
+            (Some(lon), Some(lat)) => cur.push((lon, lat)),
+            _ => {
+                if cur.len() >= 2 {
+                    out.push(std::mem::take(&mut cur));
+                }
+                cur.clear();
+            }
+        }
+    }
+    if cur.len() >= 2 {
+        out.push(cur);
+    }
+    out
+}
+
+pub fn fetch_extra(id: SectorId, worker: usize) -> Result<Extra, String> {
+    let b = id.bbox();
+    let bb = format!("{:.6},{:.6},{:.6},{:.6}", b.s, b.w, b.n, b.e);
+    let points_q = format!(
+        "[out:json][timeout:90];(nwr[\"natural\"~\"^(valley|ridge|arete|spring|water)$\"][\"name\"]({bb});node[\"place\"=\"locality\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb});nwr[\"tourism\"~\"^(alpine_hut|wilderness_hut)$\"]({bb});nwr[\"amenity\"=\"shelter\"][\"name\"]({bb});node[\"amenity\"=\"drinking_water\"]({bb});nwr[\"amenity\"=\"parking\"][\"access\"!~\"^(private|no)$\"]({bb});node[\"highway\"=\"bus_stop\"][\"name\"]({bb});node[\"aerialway\"=\"station\"]({bb});node[\"historic\"~\"^(wayside_shrine|wayside_cross)$\"]({bb});nwr[\"building\"=\"chapel\"]({bb});nwr[\"contact:webcam\"]({bb});nwr[\"webcam\"]({bb}););out center tags;(way[\"safety_rope\"]({bb});way[\"via_ferrata_scale\"]({bb}););out tags geom;"
+    );
+    let bounds_q = format!(
+        "[out:json][timeout:90];(relation[\"boundary\"=\"national_park\"]({bb});way[\"boundary\"=\"national_park\"]({bb});relation[\"leisure\"=\"nature_reserve\"]({bb});way[\"leisure\"=\"nature_reserve\"]({bb});relation[\"boundary\"=\"protected_area\"][\"protect_class\"~\"^(1|1a|1b|2|4)$\"]({bb});relation[\"boundary\"=\"administrative\"][\"admin_level\"=\"2\"]({bb}););out tags geom({bb});"
+    );
+    let pj = overpass(&points_q, worker)?;
+    let mut chains = Vec::new();
+    for el in pj["elements"].as_array().into_iter().flatten() {
+        if el["type"] == "way" && el.get("geometry").is_some() {
+            chains.extend(geometry_lines(&el["geometry"]));
+        }
+    }
+    let pois = parse(id, &serde_json::Value::Null, &pj).pois;
+    // granice: osobne zapytanie; błąd nie przekreśla punktów
+    let mut boundaries = Vec::new();
+    match overpass(&bounds_q, worker + 1) {
+        Ok(bj) => {
+            for el in bj["elements"].as_array().into_iter().flatten() {
+                let t = &el["tags"];
+                let tag = |k: &str| t[k].as_str().unwrap_or("");
+                let kind = if tag("admin_level") == "2" && tag("boundary") == "administrative" {
+                    BoundaryKind::Country
+                } else if tag("boundary") == "national_park" || tag("protect_class") == "2" {
+                    BoundaryKind::NationalPark
+                } else {
+                    BoundaryKind::Reserve
+                };
+                let name = if tag("name:pl").is_empty() { tag("name") } else { tag("name:pl") }.to_string();
+                let mut lines = geometry_lines(&el["geometry"]);
+                for m in el["members"].as_array().into_iter().flatten() {
+                    lines.extend(geometry_lines(&m["geometry"]));
+                }
+                if !lines.is_empty() {
+                    boundaries.push(Boundary { kind, name, lines });
                 }
             }
         }
-        Err(e) => log::warn!("dodatkowe nazwy {}/{}: {e}", id.x, id.y),
+        Err(e) => log::warn!("granice {}/{}: {e}", id.x, id.y),
     }
-    Ok(d)
+    Ok(Extra { pois, chains, boundaries })
+}
+
+/// Dołączenie dodatkowych danych do sektora: nowe punkty, informacje do istniejących (np. schronisk
+/// z kafli wektorowych), łańcuchy i granice.
+pub fn apply_extra(d: &mut SectorData, x: Extra) {
+    for p in x.pois {
+        let same = d.pois.iter_mut().find(|q| {
+            q.kind == p.kind && (q.name == p.name || p.kind == PoiKind::Hut) && (q.lon - p.lon).abs() < 0.004 && (q.lat - p.lat).abs() < 0.004
+        });
+        match same {
+            Some(q) => {
+                if q.info.is_empty() {
+                    q.info = p.info;
+                }
+                if q.osm.is_empty() {
+                    q.osm = p.osm;
+                }
+                if q.wiki.is_empty() {
+                    q.wiki = p.wiki;
+                }
+            }
+            None => d.pois.push(p),
+        }
+    }
+    d.chains = x.chains;
+    d.boundaries = x.boundaries;
+    d.extra_ver = EXTRA_VER;
 }
 
 /// Sektor z samymi punktami – do czasu pobrania szlaków.
@@ -625,6 +757,18 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
             PoiKind::Ridge
         } else if get("place") == "locality" {
             PoiKind::Locality
+        } else if get("amenity") == "drinking_water" || get("drinking_water") == "yes" && nat != "spring" {
+            PoiKind::DrinkingWater
+        } else if get("amenity") == "parking" {
+            PoiKind::Parking
+        } else if get("highway") == "bus_stop" || get("public_transport") == "platform" {
+            PoiKind::BusStop
+        } else if get("aerialway") == "station" {
+            PoiKind::Cableway
+        } else if matches!(get("historic"), "wayside_shrine" | "wayside_cross") || get("building") == "chapel" {
+            PoiKind::Shrine
+        } else if !get("contact:webcam").is_empty() || !get("webcam").is_empty() {
+            PoiKind::Webcam
         } else if !get("place").is_empty() {
             PoiKind::Place
         } else {
@@ -635,9 +779,31 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
         } else {
             get("name")
         };
-        if name.is_empty() && kind != PoiKind::Hut {
+        // punkty usługowe często bez nazwy – podpisujemy je rodzajem
+        let unnamed_ok = matches!(kind, PoiKind::Hut | PoiKind::DrinkingWater | PoiKind::Parking | PoiKind::Shrine | PoiKind::Cableway | PoiKind::Webcam);
+        if name.is_empty() && !unnamed_ok {
             continue;
         }
+        let name = if name.is_empty() && kind != PoiKind::Hut { kind.label() } else { name };
+        let mut info: Vec<(String, String)> = Vec::new();
+        for (k, keys) in [
+            ("hours", &["opening_hours"][..]),
+            ("phone", &["phone", "contact:phone"][..]),
+            ("website", &["website", "contact:website", "url"][..]),
+            ("email", &["email", "contact:email"][..]),
+            ("beds", &["beds"][..]),
+            ("capacity", &["capacity"][..]),
+            ("operator", &["operator"][..]),
+            ("fee", &["fee"][..]),
+            ("webcam", &["contact:webcam", "webcam"][..]),
+            ("description", &["description:pl", "description"][..]),
+            ("reservation", &["reservation"][..]),
+        ] {
+            if let Some(v) = keys.iter().map(|x| get(x)).find(|v| !v.is_empty()) {
+                info.push((k.to_string(), v.to_string()));
+            }
+        }
+
         let ele = get("ele").replace(',', ".").trim_end_matches(" m").parse::<f32>().ok();
         pois.push(Poi {
             kind,
@@ -662,6 +828,7 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
                 .collect::<String>()
                 .parse()
                 .unwrap_or(0),
+            info,
         });
     }
     log::info!(
@@ -680,6 +847,7 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
         routes,
         pois,
         partial: false,
+        ..Default::default()
     }
 }
 

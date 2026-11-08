@@ -25,6 +25,10 @@ pub struct PoiView {
 pub struct Snapshot {
     pub graph: TrailGraph,
     pub pois: Vec<PoiView>,
+    /// Odcinki z łańcuchami i klamrami: (dł., szer., wysokość).
+    pub chains: Vec<Vec<(f64, f64, f32)>>,
+    /// Granice: rodzaj, nazwa, linie z wysokościami.
+    pub boundaries: Vec<(osm::BoundaryKind, String, Vec<Vec<(f64, f64, f32)>>)>,
     pub sectors: Vec<SectorId>,
     pub version: u64,
 }
@@ -34,6 +38,8 @@ impl Snapshot {
         Snapshot {
             graph: TrailGraph::empty(),
             pois: Vec::new(),
+            chains: Vec::new(),
+            boundaries: Vec::new(),
             sectors: Vec::new(),
             version: 0,
         }
@@ -51,6 +57,8 @@ struct State {
     trails_busy: Vec<(SectorId, Instant)>,
     /// Ostatni błąd pobierania sektora (do okna szczegółów).
     errors: HashMap<SectorId, String>,
+    /// Nieudane uzupełnienie dodatkowych danych (ponowienie po 5 minutach).
+    extra_failed: HashMap<SectorId, Instant>,
     busy_since: Option<Instant>,
     /// Rośnie przy każdej zmianie danych sektorów.
     data_gen: u64,
@@ -213,7 +221,11 @@ impl World {
                 let (txt, ok) = if s.busy == Some(*id) {
                     (tf!("pobieranie nazw… {} s", s.busy_since.map(|t| t.elapsed().as_secs()).unwrap_or(0)), false)
                 } else if let Some((_, t)) = s.trails_busy.iter().find(|b| b.0 == *id) {
-                    (tf!("nazwy gotowe · pobieranie szlaków z Overpass… {} s", t.elapsed().as_secs()), false)
+                    if s.partial.contains(id) {
+                        (tf!("nazwy gotowe · pobieranie szlaków z Overpass… {} s", t.elapsed().as_secs()), false)
+                    } else {
+                        (tf!("gotowe · uzupełnianie schronisk, punktów i granic… {} s", t.elapsed().as_secs()), true)
+                    }
                 } else if s.partial.contains(id) {
                     match s.trails_failed.get(id) {
                         Some(t) => (tf!("nazwy gotowe · szlaki: błąd ({}), ponowienie za {} s", err, 90u64.saturating_sub(t.elapsed().as_secs())), false),
@@ -386,7 +398,10 @@ impl World {
                 id.and_then(|id| s.loaded.get(&id).map(|d| (id, d.pois.clone())))
             };
             let Some((id, pois)) = next else {
-                thread::sleep(Duration::from_secs(1));
+                // bez szlaków do pobrania: uzupełnienie dodatkowych danych w zapisanych sektorach
+                if !self.upgrade_extra(&ctx, worker) {
+                    thread::sleep(Duration::from_secs(1));
+                }
                 continue;
             };
             ctx.request_repaint();
@@ -422,6 +437,54 @@ impl World {
         }
     }
 
+    /// Sektor zapisany przed nowszą wersją dodatkowych danych (punkty usługowe, łańcuchy, granice):
+    /// jedno lekkie zapytanie zamiast ponownego pobierania szlaków. `false`, gdy nie było pracy.
+    fn upgrade_extra(&self, ctx: &eframe::egui::Context, worker: usize) -> bool {
+        let next = {
+            let mut s = self.state.0.lock().unwrap();
+            let id = s
+                .wanted
+                .iter()
+                .find(|id| {
+                    !s.partial.contains(id)
+                        && s.loaded.get(id).is_some_and(|d| d.extra_ver < osm::EXTRA_VER)
+                        && !s.trails_busy.iter().any(|b| b.0 == **id)
+                        && s.extra_failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(300))
+                })
+                .copied();
+            if let Some(id) = id {
+                s.trails_busy.push((id, Instant::now()));
+            }
+            id.and_then(|id| s.loaded.get(&id).map(|d| (id, (**d).clone())))
+        };
+        let Some((id, mut d)) = next else { return false };
+        ctx.request_repaint();
+        let r = osm::fetch_extra(id, worker);
+        let root = self.heights.store().root().to_path_buf();
+        let (m, cv) = &*self.state;
+        let mut s = m.lock().unwrap();
+        s.trails_busy.retain(|b| b.0 != id);
+        match r {
+            Ok(x) => {
+                osm::apply_extra(&mut d, x);
+                if let Err(e) = osm::save(&root, id, &d) {
+                    log::error!("zapis sektora: {e}");
+                }
+                s.loaded.insert(id, Arc::new(d));
+                s.data_gen += 1;
+                s.changed = true;
+                cv.notify_all();
+            }
+            Err(e) => {
+                log::warn!("dodatkowe dane {}/{}: {e}", id.x, id.y);
+                s.extra_failed.insert(id, Instant::now());
+            }
+        }
+        drop(s);
+        ctx.request_repaint();
+        true
+    }
+
     fn build(&self, sectors: &[(SectorId, Arc<SectorData>)]) -> Snapshot {
         let h = self.heights.clone();
         let height = move |lon: f64, lat: f64| h.sample(lon, lat).unwrap_or(0.0);
@@ -443,9 +506,43 @@ impl World {
             .collect();
         prominence(&mut pois, &height);
         pois.sort_by(|a, b| b.prom.total_cmp(&a.prom));
+        let with_e = |l: &Vec<(f64, f64)>| -> Vec<(f64, f64, f32)> { l.iter().map(|&(lon, lat)| (lon, lat, height(lon, lat))).collect() };
+        let chains: Vec<Vec<(f64, f64, f32)>> = refs.iter().flat_map(|s| s.chains.iter()).map(with_e).collect();
+        // granice: ta sama linia z kilku sektorów tylko raz
+        let mut seen = std::collections::HashSet::new();
+        let mut boundaries = Vec::new();
+        for b in refs.iter().flat_map(|s| s.boundaries.iter()) {
+            let lines: Vec<Vec<(f64, f64, f32)>> = b
+                .lines
+                .iter()
+                .filter(|l| seen.insert((l[0].0.to_bits(), l[0].1.to_bits(), l.len())))
+                .map(|l| {
+                    // co ~30 m (granice z OSM mają rzadkie punkty – linia ma leżeć na terenie)
+                    let mut out = Vec::new();
+                    for w in l.windows(2) {
+                        let d = crate::geo::haversine(w[0].0, w[0].1, w[1].0, w[1].1);
+                        let n = (d / 30.0).ceil().clamp(1.0, 400.0) as usize;
+                        for k in 0..n {
+                            let f = k as f64 / n as f64;
+                            let (lon, lat) = (w[0].0 + (w[1].0 - w[0].0) * f, w[0].1 + (w[1].1 - w[0].1) * f);
+                            out.push((lon, lat, height(lon, lat)));
+                        }
+                    }
+                    if let Some(&(lon, lat)) = l.last() {
+                        out.push((lon, lat, height(lon, lat)));
+                    }
+                    out
+                })
+                .collect();
+            if !lines.is_empty() {
+                boundaries.push((b.kind, b.name.clone(), lines));
+            }
+        }
         Snapshot {
             graph,
             pois,
+            chains,
+            boundaries,
             sectors: sectors.iter().map(|s| s.0).collect(),
             version: self.version.fetch_add(1, Ordering::Relaxed) + 1,
         }

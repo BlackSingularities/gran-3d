@@ -161,6 +161,10 @@ pub struct Prefs {
     pub autohide: bool,
     /// Rodzaje nazw na mapie.
     pub names: Names,
+    /// Odcinki z łańcuchami i klamrami na szlakach.
+    pub chains: bool,
+    /// Granice parków narodowych, rezerwatów i państw.
+    pub boundaries: bool,
 }
 
 /// Które nazwy pokazywać na mapie (główny przełącznik – `Prefs::labels`, klawisz L).
@@ -181,6 +185,12 @@ pub struct Names {
     pub localities: bool,
     pub towns: bool,
     pub villages: bool,
+    pub water: bool,
+    pub parking: bool,
+    pub bus: bool,
+    pub cableways: bool,
+    pub shrines: bool,
+    pub webcams: bool,
     /// Wysokość przy nazwach szczytów i przełęczy.
     pub elevation: bool,
 }
@@ -202,6 +212,12 @@ impl Default for Names {
             localities: true,
             towns: true,
             villages: true,
+            water: true,
+            parking: false,
+            bus: false,
+            cableways: true,
+            shrines: false,
+            webcams: true,
             elevation: true,
         }
     }
@@ -222,6 +238,12 @@ impl Names {
             PoiKind::Cave => self.caves,
             PoiKind::Viewpoint => self.viewpoints,
             PoiKind::Locality => self.localities,
+            PoiKind::DrinkingWater => self.water,
+            PoiKind::Parking => self.parking,
+            PoiKind::BusStop => self.bus,
+            PoiKind::Cableway => self.cableways,
+            PoiKind::Shrine => self.shrines,
+            PoiKind::Webcam => self.webcams,
             PoiKind::Place => {
                 if matches!(p.place.as_str(), "city" | "town") {
                     self.towns
@@ -250,6 +272,12 @@ impl Names {
             (i::PLANT, "Hale i polany", &mut self.localities),
             (i::BUILDINGS, "Miasta", &mut self.towns),
             (i::HOUSE, "Wsie", &mut self.villages),
+            (i::DROP, "Woda pitna", &mut self.water),
+            (i::CAR, "Parkingi", &mut self.parking),
+            (i::BUS, "Przystanki", &mut self.bus),
+            (i::ARROW_UP_RIGHT, "Kolejki linowe", &mut self.cableways),
+            (i::CROSS, "Kapliczki", &mut self.shrines),
+            (i::CAMERA, "Kamery", &mut self.webcams),
         ]
     }
 }
@@ -288,6 +316,8 @@ impl Default for Prefs {
             prefetch: 1,
             autohide: false,
             names: Names::default(),
+            chains: true,
+            boundaries: true,
         }
     }
 }
@@ -479,12 +509,49 @@ pub struct Atlas {
     pub cond_at: Option<crate::ui::conditions::Place>,
     /// Okno ze szczegółami wczytywania danych (klik w stan na dolnym pasku).
     pub load_details: bool,
+    /// Obraz kamery internetowej: adres, wynik pobierania, tekstura, czas pobrania.
+    cam: Option<CamSlot>,
+    /// Przekrój terenu wzdłuż punktów pomiaru: klucz punktów i „trasa” z wysokościami.
+    pub section: Option<(u64, Route)>,
     /// Zaznaczony odcinek profilu (dystanse od startu, m).
     pub profile_sel: Option<(f32, f32)>,
     /// Trasa do porównania: nazwa i ślad.
     pub compare: Option<(String, Route)>,
     last_want: Instant,
     pub status_line: String,
+}
+
+/// Podgląd kamery internetowej w panelu punktu.
+pub enum CamState {
+    Loading,
+    Image(egui::TextureHandle),
+    /// Adres prowadzi do strony, nie do obrazu.
+    NotImage,
+    Failed(String),
+}
+
+type CamResult = Arc<std::sync::Mutex<Option<Result<Option<egui::ColorImage>, String>>>>;
+
+struct CamSlot {
+    url: String,
+    result: CamResult,
+    tex: Option<egui::TextureHandle>,
+    at: Instant,
+}
+
+/// Obraz z adresu kamery: `None`, gdy to nie obraz (strona z odtwarzaczem itp.).
+fn fetch_cam(url: &str) -> Result<Option<egui::ColorImage>, String> {
+    let r = crate::download::agent().get(url).timeout(Duration::from_secs(20)).call().map_err(|e| e.to_string())?;
+    if !r.content_type().starts_with("image/") {
+        return Ok(None);
+    }
+    let mut buf = Vec::new();
+    use std::io::Read;
+    r.into_reader().take(12 << 20).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    let img = image::load_from_memory(&buf).map_err(|e| e.to_string())?;
+    let img = if img.width() > 1280 { img.resize(1280, 1280, image::imageops::FilterType::Triangle) } else { img };
+    let rgba = img.to_rgba8();
+    Ok(Some(egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw())))
 }
 
 /// Stan planowania do historii: punkty i tryb wyznaczania.
@@ -596,6 +663,8 @@ impl Atlas {
             avalanche: Default::default(),
             cond_at: None,
             profile_sel: None,
+            section: None,
+            cam: None,
             load_details: false,
 
             compare: None,
@@ -898,6 +967,80 @@ impl Atlas {
         self.cam.distance = FLIGHT_DIST;
         self.profile_cursor = Some(fl.dist);
         ctx.request_repaint();
+    }
+
+    /// Obraz kamery (pobierany w tle, odświeżany co 5 minut).
+    pub fn webcam_image(&mut self, ctx: &egui::Context, url: &str) -> CamState {
+        let stale = self.cam.as_ref().is_none_or(|c| c.url != url || c.at.elapsed() > Duration::from_secs(300));
+        if stale {
+            let result: CamResult = Default::default();
+            let (slot, u, c) = (result.clone(), url.to_string(), ctx.clone());
+            thread::spawn(move || {
+                let r = fetch_cam(&u);
+                *slot.lock().unwrap() = Some(r);
+                c.request_repaint();
+            });
+            let tex = self.cam.take().filter(|c| c.url == url).and_then(|c| c.tex);
+            self.cam = Some(CamSlot { url: url.to_string(), result, tex, at: Instant::now() });
+        }
+        let c = self.cam.as_mut().unwrap();
+        let done = c.result.lock().unwrap().take();
+        match done {
+            Some(Ok(Some(img))) => c.tex = Some(ctx.load_texture("kamera", img, egui::TextureOptions::LINEAR)),
+            Some(Ok(None)) => {
+                c.tex = None;
+                *c.result.lock().unwrap() = Some(Ok(None));
+                return CamState::NotImage;
+            }
+            Some(Err(e)) => {
+                *c.result.lock().unwrap() = Some(Err(e.clone()));
+                return match &c.tex {
+                    Some(t) => CamState::Image(t.clone()),
+                    None => CamState::Failed(e),
+                };
+            }
+            None => {}
+        }
+        match &c.tex {
+            Some(t) => CamState::Image(t.clone()),
+            None => CamState::Loading,
+        }
+    }
+
+    /// Linia do profilu na dole: trasa albo – w narzędziu pomiaru – przekrój terenu.
+    pub fn profile_route(&self) -> Option<&Route> {
+        self.current_route().or_else(|| if self.tool == Tool::Measure { self.section.as_ref().map(|s| &s.1) } else { None })
+    }
+
+    /// Przekrój terenu wzdłuż punktów pomiaru (liczony od nowa po zmianie punktów).
+    fn update_section(&mut self) {
+        if self.tool != Tool::Measure || self.measure.len() < 2 {
+            self.section = None;
+            return;
+        }
+        let key = self.measure.iter().fold(self.measure.len() as u64, |h, p| {
+            h.wrapping_mul(31).wrapping_add(p.0.to_bits() ^ p.1.to_bits().rotate_left(17))
+        });
+        if self.section.as_ref().is_some_and(|s| s.0 == key) {
+            return;
+        }
+        let total: f64 = self.measure.windows(2).map(|w| haversine(w[0].0, w[0].1, w[1].0, w[1].1)).sum();
+        let step = (total / 3000.0).max(10.0);
+        let mut pts: Vec<(f64, f64, f32)> = Vec::new();
+        for w in self.measure.windows(2) {
+            let d = haversine(w[0].0, w[0].1, w[1].0, w[1].1);
+            let n = (d / step).ceil().max(1.0) as usize;
+            for k in 0..n {
+                let f = k as f64 / n as f64;
+                let (lon, lat) = (w[0].0 + (w[1].0 - w[0].0) * f, w[0].1 + (w[1].1 - w[0].1) * f);
+                pts.push((lon, lat, self.heights.sample_cached(lon, lat).unwrap_or(w[0].2)));
+            }
+        }
+        if let Some(l) = self.measure.last() {
+            pts.push((l.0, l.1, self.heights.sample_cached(l.0, l.1).unwrap_or(l.2)));
+        }
+        let r = route_from_points(&pts, RouteKind::Terrain, crate::i18n::tr("Przekrój terenu"), 1.0);
+        self.section = Some((key, r));
     }
 
     /// Bieżąca trasa (wybrany wariant albo ślad GPX).
@@ -2128,6 +2271,8 @@ impl Atlas {
         }
         self.keyboard(&ctx);
         self.track_history();
+        self.update_section();
+
         if self.export_pending && !self.routing && !self.route_dirty {
             self.export_pending = false;
             self.export_route();
@@ -2224,9 +2369,24 @@ impl Atlas {
         let ppp = ctx.pixels_per_point();
         let dim = self.current_route().is_some();
         if let Some(r) = &mut self.renderer {
-            let key = self.snap.version * 1_000_000 + self.frame_version * 4 + self.prefs.trails as u64 + dim as u64 * 2;
+            let key = self.snap.version * 1_000_000
+                + self.frame_version * 16
+                + self.prefs.trails as u64
+                + dim as u64 * 2
+                + self.prefs.chains as u64 * 4
+                + self.prefs.boundaries as u64 * 8;
             if r.static_version() != key {
-                let tl = if self.prefs.trails { trail_lines(&self.snap, &self.frame, ppp, dim) } else { Vec::new() };
+                let mut tl = Vec::new();
+                // granice pod szlakami, łańcuchy nad nimi
+                if self.prefs.boundaries {
+                    tl.extend(boundary_lines(&self.snap, &self.frame, ppp));
+                }
+                if self.prefs.trails {
+                    tl.extend(trail_lines(&self.snap, &self.frame, ppp, dim));
+                }
+                if self.prefs.chains && self.prefs.trails {
+                    tl.extend(chain_lines(&self.snap, &self.frame, ppp));
+                }
                 r.set_static_lines(key, &tl);
             }
             if r.trees_version() != self.trees_ver {
@@ -3177,6 +3337,57 @@ fn short(s: &str) -> String {
 
 /// Linie szlaków z grafu: kolory relacji (kilka kolorów – równoległe pasy).
 /// Szlaki; przy wyznaczonej trasie przyciemnione i cieńsze, żeby trasa się wyróżniała.
+/// Łańcuchy i klamry: pomarańczowe odcinki z ciemnym brzegiem, nad kolorami szlaków.
+fn chain_lines(snap: &Snapshot, frame: &Frame, ppp: f32) -> Vec<LineInst> {
+    let mut out = Vec::new();
+    let w = 4.0 * ppp.max(1.0);
+    for line in &snap.chains {
+        let pts: Vec<[f32; 3]> = line
+            .iter()
+            .map(|&(lon, lat, e)| {
+                let (x, z) = frame.to_local(lon, lat);
+                [x as f32, e + 1.5, z as f32]
+            })
+            .collect();
+        for (width, color) in [(w + 3.0, [0.02, 0.02, 0.02, 1.0]), (w, lin([255, 140, 20], 1.0))] {
+            for p in pts.windows(2) {
+                out.push(LineInst { p0: p[0], p1: p[1], color, wo: [width, 0.0] });
+            }
+        }
+    }
+    out
+}
+
+/// Granice: parki narodowe (zielone), rezerwaty (jasnozielone), państwa (jasne).
+fn boundary_lines(snap: &Snapshot, frame: &Frame, ppp: f32) -> Vec<LineInst> {
+    use crate::osm::BoundaryKind as B;
+    let mut out = Vec::new();
+    for (kind, _, lines) in &snap.boundaries {
+        let (rgb, w) = match kind {
+            B::NationalPark => ([70, 190, 100], 2.4),
+            B::Reserve => ([150, 215, 120], 1.6),
+            B::Country => ([240, 240, 240], 2.8),
+        };
+        let color = lin(rgb, 0.9);
+        for line in lines {
+            let pts: Vec<[f32; 3]> = line
+                .iter()
+                .map(|&(lon, lat, e)| {
+                    let (x, z) = frame.to_local(lon, lat);
+                    [x as f32, e + 1.0, z as f32]
+                })
+                .collect();
+            // przerywana: co drugi odcinek ~ co 30 m
+            for (k, p) in pts.windows(2).enumerate() {
+                if k % 2 == 0 || *kind == B::Country {
+                    out.push(LineInst { p0: p[0], p1: p[1], color, wo: [w * ppp.max(1.0), 0.0] });
+                }
+            }
+        }
+    }
+    out
+}
+
 fn trail_lines(snap: &Snapshot, frame: &Frame, ppp: f32, dim: bool) -> Vec<LineInst> {
     let mut out = Vec::new();
     let w = if dim { 1.6 } else { 2.6 } * ppp.max(1.0);
