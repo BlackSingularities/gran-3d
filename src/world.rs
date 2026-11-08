@@ -209,6 +209,32 @@ impl World {
         (done, s.wanted.len(), work)
     }
 
+    /// Sektory okolicy względem sektora pod kamerą: (przesunięcie x, y, stan, opis).
+    /// Stan: 0 – gotowy, 1 – w toku, 2 – w kolejce, 3 – błąd.
+    pub fn sector_grid(&self) -> Vec<(i64, i64, u8, String)> {
+        let details = self.details();
+        let s = self.state.0.lock().unwrap();
+        let Some(c) = s.wanted.first().copied() else { return Vec::new() };
+        let n = 1i64 << osm::SECTOR_Z;
+        s.wanted
+            .iter()
+            .zip(details)
+            .map(|(id, (_, txt, ok))| {
+                let mut dx = id.x as i64 - c.x as i64;
+                if dx > n / 2 {
+                    dx -= n;
+                } else if dx < -n / 2 {
+                    dx += n;
+                }
+                let dy = id.y as i64 - c.y as i64;
+                let busy = s.busy == Some(*id) || s.trails_busy.iter().any(|b| b.0 == *id);
+                let err = s.failed.contains_key(id) || s.trails_failed.contains_key(id);
+                let st = if busy { 1 } else if ok { 0 } else if err { 3 } else { 2 };
+                (dx, dy, st, txt)
+            })
+            .collect()
+    }
+
     /// Stan każdego sektora okolicy (do okna szczegółów): nazwa sektora, opis, czy gotowy.
     pub fn details(&self) -> Vec<(String, String, bool)> {
         let s = self.state.0.lock().unwrap();

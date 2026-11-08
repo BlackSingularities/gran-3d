@@ -502,6 +502,8 @@ pub struct Atlas {
     export_pending: bool,
     /// Szkło interfejsu (prostokąty ekranu i siła): pod nim obraz 3D jest rozmyty.
     pub glass: Vec<(Rect, f32)>,
+    /// Klikalne obszary narysowanych etykiet (napis z kropką) i indeksy punktów.
+    label_hits: Vec<(Rect, usize)>,
     /// Prognozy pogody i komunikaty lawinowe (pobierane w tle).
     pub weather: crate::weather::Weather,
     pub avalanche: crate::avalanche::Avalanche,
@@ -659,6 +661,7 @@ impl Atlas {
             hist_now: (Vec::new(), RouteMode::Trails),
             export_pending: false,
             glass: Vec::new(),
+            label_hits: Vec::new(),
             weather: Default::default(),
             avalanche: Default::default(),
             cond_at: None,
@@ -2357,6 +2360,10 @@ impl Atlas {
         let local_px = |p: Pos2| [p.x - rect.left(), p.y - rect.top()];
         self.hover = pointer.and_then(|p| self.ground(&view, local_px(p)));
 
+        // nad etykietą – kursor wskazujący (kliknięcie zaznacza punkt)
+        if pointer.is_some_and(|p| self.label_hit(p, rect, &view).is_some()) && self.tool == Tool::Explore {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
         self.handle_mouse(ui, &resp, rect, &view);
 
         // analizy zależne od kursora i Słońca
@@ -2633,19 +2640,13 @@ impl Atlas {
         let _ = ctx;
     }
 
-    fn label_hit(&self, p: Pos2, rect: Rect, view: &View) -> Option<usize> {
-        if !self.prefs.labels {
-            return None;
-        }
-        for (i, poi) in self.snap.pois.iter().enumerate().take(600) {
-            if let Some(s) = view.project(self.local(poi.poi.lon, poi.poi.lat, poi.dem)) {
-                let sp = Pos2::new(s[0] + rect.left(), s[1] + rect.top());
-                if (sp - p).length() < 9.0 {
-                    return Some(i);
-                }
-            }
-        }
-        None
+    /// Narysowana etykieta pod kursorem (napis albo kropka); najbliższa, gdy kilka się nakłada.
+    fn label_hit(&self, p: Pos2, _rect: Rect, _view: &View) -> Option<usize> {
+        self.label_hits
+            .iter()
+            .filter(|(r, _)| r.contains(p))
+            .min_by(|a, b| (a.0.center() - p).length().total_cmp(&(b.0.center() - p).length()))
+            .map(|(_, i)| *i)
     }
 
     fn scene(&self, view: &View) -> Scene {
@@ -2788,6 +2789,22 @@ impl Atlas {
         if let Some((_, r)) = &self.compare {
             push_track(&mut out, r, lin([214, 120, 255], 1.0), 4.0, true);
         }
+        // zaznaczony odcinek szlaku: jasna obwódka i niebieskie wyróżnienie
+        if let Selection::Trail(ei) = self.selection {
+            if let Some(ed) = self.snap.graph.edges.get(ei as usize) {
+                let pts: Vec<[f32; 3]> = (0..ed.lon.len())
+                    .map(|i| {
+                        let (x, z) = self.frame.to_local(ed.lon[i], ed.lat[i]);
+                        [x as f32, ed.e[i] + 2.5, z as f32]
+                    })
+                    .collect();
+                for (width, color) in [(14.0, lin([255, 255, 255], 0.95)), (10.0, [0.01, 0.01, 0.012, 1.0]), (6.0, lin([122, 176, 255], 1.0))] {
+                    for w in pts.windows(2) {
+                        out.push(LineInst { p0: w[0], p1: w[1], color, wo: [width, 0.0] });
+                    }
+                }
+            }
+        }
         if let Some(r) = self.routes.get(self.route_sel) {
             // wybrana trasa: jasna obwódka, ciemny brzeg i barwy nachylenia jak na profilu
             let tr = &r.track;
@@ -2889,11 +2906,19 @@ impl Atlas {
             // miejscowości najpierw (własny przydział), żeby szczyty ich nie wypierały
             let snap = self.snap.clone();
             let names = &self.prefs.names;
-            let places = snap.pois.iter().filter(|p| p.poi.kind == PoiKind::Place && names.shows(&p.poi)).take(1500);
-            let rest = snap.pois.iter().filter(|p| p.poi.kind != PoiKind::Place && names.shows(&p.poi)).take(2500);
-            for poi in places.chain(rest) {
+            // zaznaczony punkt najpierw i zawsze z nazwą
+            let sel = match self.selection {
+                Selection::Poi(i) if i < snap.pois.len() => Some(i),
+                _ => None,
+            };
+            let first = sel.map(|i| (i, &snap.pois[i]));
+            let places = snap.pois.iter().enumerate().filter(|(i, p)| Some(*i) != sel && p.poi.kind == PoiKind::Place && names.shows(&p.poi)).take(1500);
+            let rest = snap.pois.iter().enumerate().filter(|(i, p)| Some(*i) != sel && p.poi.kind != PoiKind::Place && names.shows(&p.poi)).take(2500);
+            let mut hits: Vec<(Rect, usize)> = Vec::new();
+            for (idx, poi) in first.into_iter().chain(places).chain(rest) {
+                let is_sel = Some(idx) == sel;
                 let is_place = poi.poi.kind == PoiKind::Place;
-                if shown >= max || (is_place && shown_places >= max_places) {
+                if !is_sel && (shown >= max || (is_place && shown_places >= max_places)) {
                     if is_place {
                         continue;
                     }
@@ -2908,10 +2933,10 @@ impl Atlas {
                 let dist = pos.distance(view.eye);
                 // drobne punkty tylko z bliska
                 let min_prom = (dist / 9000.0) as f32 * if is_place { 0.35 } else { 1.0 };
-                if poi.prom < min_prom.min(30.0) * 0.6 {
+                if !is_sel && poi.prom < min_prom.min(30.0) * 0.6 {
                     continue;
                 }
-                if self.occluded(view, pos) {
+                if !is_sel && self.occluded(view, pos) {
                     continue;
                 }
                 let (label, color, size) = match poi.poi.kind {
@@ -2926,15 +2951,18 @@ impl Atlas {
                     PoiKind::Lake => (poi.poi.name.clone(), Color32::from_rgb(150, 205, 240), 11.0),
                     _ => (poi.poi.name.clone(), theme::PAPER_2, 11.0),
                 };
+                let (color, size) = if is_sel { (theme::BRASS, size + 1.5) } else { (color, size) };
                 let font = FontId::proportional(size);
                 let galley = p.layout_no_wrap(label, font, color);
                 let lr = Rect::from_min_size(sp + Vec2::new(7.0, -galley.size().y - 3.0), galley.size()).expand(2.0);
                 // w panoramie pod nazwą jest jeszcze odległość – miejsce zajmuje też ona
                 let busy = if self.panorama.is_some() { Rect::from_min_max(lr.min, lr.max + Vec2::new(0.0, 13.0)) } else { lr };
-                if taken.iter().any(|t| t.intersects(busy)) {
+                if !is_sel && taken.iter().any(|t| t.intersects(busy)) {
                     continue;
                 }
                 taken.push(busy);
+                // klikalny obszar: napis i kropka
+                hits.push((busy.union(Rect::from_center_size(sp, Vec2::splat(16.0))), idx));
                 shown += 1;
                 shown_places += is_place as usize;
                 let dot = match poi.poi.kind {
@@ -2971,6 +2999,9 @@ impl Atlas {
                     p.galley(dp, g, theme::PAPER_2);
                 }
             }
+            self.label_hits = hits;
+        } else {
+            self.label_hits.clear();
         }
         // punkty trasy
         let n = self.waypoints.len();
@@ -3005,13 +3036,22 @@ impl Atlas {
             Selection::Point { lon, lat } => {
                 let e = self.heights.sample_cached(*lon, *lat).unwrap_or(0.0);
                 if let Some(s) = view.project(self.local(*lon, *lat, e)) {
-                    p.circle_stroke(at(s), 7.0, Stroke::new(2.0, theme::TEAL));
+                    let c = at(s);
+                    p.line_segment([c, c - Vec2::new(0.0, 22.0)], Stroke::new(2.0, theme::TEAL));
+                    p.circle_stroke(c, 8.0, Stroke::new(4.0, Color32::from_black_alpha(160)));
+                    p.circle_stroke(c, 8.0, Stroke::new(2.0, theme::TEAL));
+                    p.circle_filled(c - Vec2::new(0.0, 22.0), 3.5, theme::TEAL);
                 }
             }
             Selection::Poi(i) => {
                 if let Some(poi) = self.snap.pois.get(*i) {
                     if let Some(s) = view.project(self.local(poi.poi.lon, poi.poi.lat, poi.dem)) {
-                        p.circle_stroke(at(s), 9.0, Stroke::new(2.0, theme::TEAL));
+                        // wyraźny znacznik: ciemna obwódka, jasny pierścień i pionowa szpilka
+                        let c = at(s);
+                        p.line_segment([c, c - Vec2::new(0.0, 26.0)], Stroke::new(2.0, theme::BRASS));
+                        p.circle_stroke(c, 11.0, Stroke::new(4.0, Color32::from_black_alpha(160)));
+                        p.circle_stroke(c, 11.0, Stroke::new(2.2, theme::BRASS));
+                        p.circle_filled(c - Vec2::new(0.0, 26.0), 4.0, theme::BRASS);
                     }
                 }
             }

@@ -725,3 +725,19 @@ Przystanki	Bus stops
 Kolejki linowe	Cable cars
 Kapliczki	Shrines
 Kamery	Webcams
+Pogoda	Weather
+Do ulubionych	Favourite
+Współrzędne	Coordinates
+Zamknij (Esc)	Close (Esc)
+w pobliżu: {}	nearby: {}
+{} z {} sektorów gotowe	{} of {} sectors ready
+w toku: {}	in progress: {}
+gotowe	ready
+w toku	in progress
+kolejka	queued
+błąd	error
+Teren i zdjęcia w kadrze	Terrain and imagery in view
+{} kafli w kolejce	{} tiles queued
+Lasy, woda, skały	Forests, water, rocks
+pobieranie…	loading…
+Pobrane dane zapisują się na dysku – przy następnym uruchomieniu wczytują się od razu.	Downloaded data is saved to disk – next time it loads instantly.
