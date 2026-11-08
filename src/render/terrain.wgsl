@@ -180,9 +180,10 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let lz = dot(textureSample(img_tex, samp, in.img_uv + vec2(0.0, px.y)).rgb - textureSample(img_tex, samp, in.img_uv - vec2(0.0, px.y)).rgb, lum);
     let mx = fbm((in.wp + vec2(2.0, 0.0)) / 11.0) - fbm((in.wp - vec2(2.0, 0.0)) / 11.0);
     let mz = fbm((in.wp + vec2(0.0, 2.0)) / 11.0) - fbm((in.wp - vec2(0.0, 2.0)) / 11.0);
-    let detail_on = g.flags.w * (1.0 - smoothstep(1500.0, 25000.0, in.dist));
+    let detail_on = g.flags.w * (1.0 - smoothstep(2000.0, 30000.0, in.dist));
     let photo = style == 4 && tile.img.w > 0.5;
-    let detail = select(vec2(mx, mz) * 0.8, vec2(lx, lz) * 1.6, photo) * detail_on;
+    // wyraźnie silniej niż dotąd: przy rzeźbie gór poprzednia siła ginęła pod nachyleniem terenu
+    let detail = select(vec2(mx, mz) * 2.2, vec2(lx, lz) * 5.5, photo) * detail_on;
     let n = normalize(vec3(-grad.x * exag - detail.x, 1.0, -grad.y * exag - detail.y));
     let slope = length(grad);
     let slope_deg = degrees(atan(slope));
@@ -318,13 +319,13 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     var col: vec3<f32>;
     if (style == 4 && tile.img.w > 0.5) {
         // zdjęcie: łagodne dodatkowe światło z rzeźby, żeby bryła była czytelna
-        let shade = mix(0.78, 1.12, ndl) * mix(0.6, 1.0, shadow);
+        let shade = mix(0.7, 1.16, ndl) * mix(0.6, 1.0, shadow);
         col = base * shade * mix(vec3(1.0), g.sun_color.rgb * 0.8 + g.sky_color.rgb * 0.35, 0.35);
     } else if (style == 0) {
         col = base * light;
     } else {
         // style analityczne: cieniowanie z wielu kierunków (czytelna rzeźba), bez kolorów pory dnia
-        let nc = normalize(vec3(-grad.x * 1.6, 1.0, -grad.y * 1.6));
+        let nc = normalize(vec3(-(grad.x + detail.x) * 1.6, 1.0, -(grad.y + detail.y) * 1.6));
         let h1 = max(dot(nc, normalize(vec3(-0.6, 0.7, -0.6))), 0.0);
         let h2 = max(dot(nc, normalize(vec3(-0.9, 0.9, 0.1))), 0.0);
         let h3 = max(dot(nc, normalize(vec3(0.0, 0.8, -0.8))), 0.0);
