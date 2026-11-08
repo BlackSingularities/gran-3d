@@ -681,6 +681,7 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
         runs: runs_out,
         routes,
         pois,
+        partial: false,
     }
 }
 
