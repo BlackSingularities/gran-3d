@@ -1187,24 +1187,27 @@ fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     }
     ui.add_space(10.0);
     ui.label(theme::kicker("Warstwy"));
+    // śnieg i pokrycie terenu działają tylko w stylach realistycznych (teren, satelita)
+    let realistic = matches!(a.prefs.style, Style::Terrain | Style::Satellite);
+    let only_real = (!realistic).then_some("działa tylko w stylach Teren i Satelita");
     let p = &mut a.prefs;
-    let items: [(&str, &str, &mut bool); 10] = [
-        (theme::icon::MOUNTAINS, "Szczyty (L)", &mut p.labels),
-        (theme::icon::BUILDINGS, "Miejscowości", &mut p.places),
-        (theme::icon::PATH, "Szlaki (T)", &mut p.trails),
-        (theme::icon::WAVE_SINE, "Poziomice (C)", &mut p.contours),
-        (theme::icon::GRID_FOUR, "Siatka km", &mut p.km_grid),
-        (theme::icon::CLOUD_SUN, "Cienie", &mut p.shadows),
-        (theme::icon::DROP_HALF, "Rzeźba", &mut p.detail),
-        (theme::icon::SNOWFLAKE, "Śnieg", &mut p.snow),
-        (theme::icon::TREE_EVERGREEN, "Pokrycie", &mut p.landcover),
-        (theme::icon::EYE_SLASH, "Auto-ukryj", &mut p.autohide),
+    let items: [(&str, &str, &mut bool, Option<&str>); 10] = [
+        (theme::icon::MOUNTAINS, "Szczyty (L)", &mut p.labels, None),
+        (theme::icon::BUILDINGS, "Miejscowości", &mut p.places, None),
+        (theme::icon::PATH, "Szlaki (T)", &mut p.trails, None),
+        (theme::icon::WAVE_SINE, "Poziomice (C)", &mut p.contours, None),
+        (theme::icon::GRID_FOUR, "Siatka km", &mut p.km_grid, None),
+        (theme::icon::CLOUD_SUN, "Cienie", &mut p.shadows, None),
+        (theme::icon::DROP_HALF, "Rzeźba", &mut p.detail, None),
+        (theme::icon::SNOWFLAKE, "Śnieg", &mut p.snow, only_real),
+        (theme::icon::TREE_EVERGREEN, "Pokrycie", &mut p.landcover, only_real),
+        (theme::icon::EYE_SLASH, "Auto-ukryj", &mut p.autohide, None),
     ];
     theme::tile_grid(ui, 4, |ui, w| {
-        for (g, t, v) in items {
-            let on = *v;
-            if theme::tile(ui, g, t, on, w).clicked() {
-                *v = !on;
+        for (g, t, v, off) in items {
+            let on = *v && off.is_none();
+            if theme::tile_ex(ui, g, t, on, w, off).clicked() {
+                *v = !*v;
             }
         }
     });

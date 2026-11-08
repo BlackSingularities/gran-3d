@@ -138,7 +138,22 @@ pub fn glass() -> egui::Frame {
 
 /// Kafelek z ikoną i podpisem (warstwy, style, pory dnia).
 pub fn tile(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool, w: f32) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 74.0), Sense::click());
+    tile_ex(ui, glyph, text, on, w, None)
+}
+
+/// Kafelek, który może być nieaktywny (`disabled` – powód widoczny po najechaniu): szary, bez kliknięcia.
+pub fn tile_ex(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool, w: f32, disabled: Option<&str>) -> egui::Response {
+    let sense = if disabled.is_some() { Sense::hover() } else { Sense::click() };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 74.0), sense);
+    if let Some(why) = disabled {
+        let p = ui.painter();
+        p.rect_filled(rect, 14.0, Color32::from_white_alpha(3));
+        p.rect_stroke(rect, 14.0, Stroke::new(1.0_f32, Color32::from_white_alpha(8)), egui::StrokeKind::Inside);
+        let gray = Color32::from_gray(88);
+        p.text(rect.center_top() + egui::vec2(0.0, 26.0), egui::Align2::CENTER_CENTER, glyph, FontId::proportional(24.0), gray);
+        p.text(egui::pos2(rect.center().x, rect.bottom() - 17.0), egui::Align2::CENTER_CENTER, text, FontId::proportional(12.0), gray);
+        return resp.on_hover_text(format!("{text}: {why}"));
+    }
     let p = ui.painter();
     let bg = if on {
         Color32::from_rgba_unmultiplied(122, 176, 255, 46)
