@@ -140,6 +140,8 @@ pub struct Scene {
     pub time: f32,
     /// Drzewa z pokrycia terenu.
     pub trees: bool,
+    /// Ruch w scenie (kamera, mysz, klawisze): fale wody animowane na bieżąco.
+    pub animate: bool,
 }
 
 struct Targets {
@@ -194,6 +196,10 @@ pub struct Renderer {
     empty_land: wgpu::TextureView,
     empty_water: wgpu::TextureView,
     pub drawn: usize,
+    /// Odcisk wejścia ostatnio narysowanej klatki; ten sam – klatka 3D nie jest liczona od nowa.
+    last_key: u64,
+    /// Wymuszenie ponownego rysowania (nowe tekstury, bufory, rozmiar).
+    dirty: bool,
 }
 
 /// Brak wody w teksturze poziomów lustra.
@@ -548,6 +554,8 @@ impl Renderer {
             trees_pipe,
             dyn_lines,
             drawn: 0,
+            last_key: 0,
+            dirty: true,
         }
     }
 
@@ -576,6 +584,7 @@ impl Renderer {
     }
 
     fn rebind_globals(&mut self) {
+        self.dirty = true;
         self.globals_bind = Self::make_globals_bind(&self.device, &self.globals_layout, &self.globals_buf, &self.sampler, &self.shadow.view, &self.vs.view, &self.land.view, &self.water);
     }
 
@@ -638,6 +647,7 @@ impl Renderer {
         if self.targets.as_ref().is_some_and(|t| t.size == size) {
             return;
         }
+        self.dirty = true;
         let mk = |format, samples, usage| {
             self.device
                 .create_texture(&wgpu::TextureDescriptor {
@@ -698,6 +708,7 @@ impl Renderer {
         if !trees.is_empty() {
             self.queue.write_buffer(&self.trees.0, 0, bytemuck::cast_slice(trees));
         }
+        self.dirty = true;
         self.trees.1 = near.min(trees.len()) as u32;
         self.trees.2 = trees.len() as u32;
         self.trees.3 = version;
@@ -713,6 +724,7 @@ impl Renderer {
             return;
         }
         Self::upload_lines(&self.device, &self.queue, &mut self.static_lines.0, lines);
+        self.dirty = true;
         self.static_lines.1 = lines.len() as u32;
         self.static_lines.2 = version;
     }
@@ -724,7 +736,6 @@ impl Renderer {
     /// Klatka 3D do bufora poza ekranem; zwraca wywołanie zwrotne do wklejenia w egui.
     pub fn render(&mut self, view: &View, scene: &Scene, dyn_lines: &[LineInst], ppp: f32) -> (Blit, Vec<DrawTile>) {
         let any = self.tiles.receive(&self.device, &self.queue);
-        let _ = any;
         let size = [
             ((view.size[0] * ppp * scene.render_scale).round() as u32).max(1),
             ((view.size[1] * ppp * scene.render_scale).round() as u32).max(1),
@@ -804,7 +815,29 @@ impl Renderer {
             self.queue.write_buffer(&self.tile_buf, 0, &tbytes);
         }
 
+        // nieruchomy obraz: to samo wejście co w poprzedniej klatce i nic nowego nie doszło –
+        // zostaje gotowa klatka (bez rysowania terenu, MSAA i shaderów), egui tylko ją wkleja
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            let mut gk = g;
+            gk.water = [0.0; 4]; // sama animacja fal nie wymusza klatki, gdy widok stoi
+            bytemuck::bytes_of(&gk).hash(&mut h);
+            tbytes.hash(&mut h);
+            bytemuck::cast_slice::<LineInst, u8>(dyn_lines).hash(&mut h);
+            (n, size, scene.trees, self.static_lines.1, self.trees.2).hash(&mut h);
+            for d in draw.iter().take(n) {
+                (d.dem, d.img.map(|x| x.0)).hash(&mut h);
+            }
+            h.finish()
+        };
+        let skip = !any && !self.dirty && key == self.last_key && !scene.animate;
+        self.last_key = key;
+        self.dirty = false;
         let t = self.targets.as_ref().unwrap();
+        if skip {
+            return (Blit { pipeline: self.blit.clone(), bind: t.blit_bind.clone() }, draw);
+        }
         let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("3D") });
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {

@@ -395,7 +395,10 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
             let shore = (1.0 - smoothstep(0.0, 1.2, depth)) * near * 0.25;
             wcol = mix(wcol, wcol * 1.25 + vec3(0.04), shore);
         }
-        col = mix(col, wcol, wet);
+        // delikatnie przezroczysta: przy brzegu i na płyciźnie prześwituje dno, w głębi prawie pełny kolor
+        let clear = 1.0 - exp(-depth / 7.0);
+        let opacity = select(mix(0.62, 0.9, clear), 1.0, style == 5);
+        col = mix(col, wcol, wet * opacity);
     }
 
     // soczewka / wysokość względna

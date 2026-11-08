@@ -409,9 +409,6 @@ fn tools(a: &mut Atlas, ui: &mut egui::Ui) {
             a.enter_panorama(lon, lat);
         }
     }
-    if theme::icon_button(ui, theme::icon::AIRPLANE_TILT, a.flight.is_some()).on_hover_text("Przelot nad trasą (F)").clicked() {
-        a.toggle_flight();
-    }
 }
 
 /// Pora dnia: ikona słońca lub księżyca, godzina i data; rozwija panel światła.

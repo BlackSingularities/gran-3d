@@ -1879,7 +1879,8 @@ impl Atlas {
         } else if !self.status_line.is_empty() {
             ctx.request_repaint_after(Duration::from_millis(33));
         } else {
-            ctx.request_repaint_after(Duration::from_millis(500));
+            // spoczynek: rzadkie odświeżenie (zegar, stan); klatka 3D i tak nie jest liczona od nowa
+            ctx.request_repaint_after(Duration::from_millis(1000));
         }
     }
 
@@ -2171,6 +2172,7 @@ impl Atlas {
             water_rect: to_rect(self.water_rect),
             time: self.epoch.elapsed().as_secs_f32() % 3600.0,
             trees: self.trees_on() && !self.trees.is_empty(),
+            animate: self.fly.is_some() || self.flight.is_some(),
         }
     }
 
