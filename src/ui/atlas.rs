@@ -1788,6 +1788,15 @@ impl Atlas {
     // ------------------------------------------------------------------ wejście
 
     fn ground(&self, view: &View, px: [f32; 2]) -> Option<(f64, f64, f32)> {
+        // najpierw głębia z karty graficznej (ten sam widok, ten sam piksel ±1,5) – dokładnie to, co widać
+        if let Some(pk) = self.renderer.as_ref().and_then(|r| r.pick) {
+            if pk.eye == view.eye && (pk.at[0] - px[0]).abs() <= 1.5 && (pk.at[1] - px[1]).abs() <= 1.5 {
+                return pk.world.map(|w| {
+                    let (lon, lat) = view.frame.to_lonlat(w.x, w.z);
+                    (lon, lat, (w.y / view.exag) as f32)
+                });
+            }
+        }
         let dir = view.ray(px);
         let frame = view.frame;
         let h = |x: f64, z: f64| {
@@ -2403,7 +2412,17 @@ impl Atlas {
                     })
                 })
                 .collect();
-            let (blit, _) = r.render(&view, &scene, &lines, ppp, &glass);
+            let pick_at = pointer.map(local_px);
+            let (blit, _) = r.render(&view, &scene, &lines, ppp, &glass, pick_at);
+            // punkt pod kursorem odczytany z właśnie narysowanej głębi – dokładnie tam, gdzie widać teren
+            if let (Some(at), Some(pk)) = (pick_at, r.pick) {
+                if pk.at == at && pk.eye == view.eye {
+                    self.hover = pk.world.map(|w| {
+                        let (lon, lat) = self.frame.to_lonlat(w.x, w.z);
+                        (lon, lat, (w.y / view.exag) as f32)
+                    });
+                }
+            }
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, blit));
             let [dem, sat, ortho, local] = r.tiles.loading_kinds;
             let mut parts = Vec::new();

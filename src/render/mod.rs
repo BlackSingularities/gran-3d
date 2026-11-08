@@ -163,6 +163,27 @@ struct Targets {
     resolved: wgpu::TextureView,
     depth: wgpu::TextureView,
     blit_bind: wgpu::BindGroup,
+    pick_bind: wgpu::BindGroup,
+}
+
+/// Prośba o odczyt głębi: piksel bufora, piksel widoku (logiczny) i widok z chwili prośby.
+#[derive(Clone, Copy)]
+struct PickReq {
+    px: [u32; 2],
+    at: [f32; 2],
+    size: [u32; 2],
+    eye: glam::DVec3,
+    inv: glam::DMat4,
+}
+
+/// Wynik wskazania: piksel widoku (logiczny) i punkt świata (lokalnie, y = wysokość × przewyższenie)
+/// albo `None`, gdy pod kursorem jest niebo.
+#[derive(Clone, Copy, Debug)]
+pub struct Pick {
+    pub at: [f32; 2],
+    /// Oko kamery w chwili odczytu (wynik ważny tylko dla tego samego widoku).
+    pub eye: glam::DVec3,
+    pub world: Option<glam::DVec3>,
 }
 
 /// Mapa rastrowa nakładana na teren (cienie, widoczność): prostokąt w metrach ramki.
@@ -191,6 +212,16 @@ pub struct Renderer {
     sampler: wgpu::Sampler,
     clamp_sampler: wgpu::Sampler,
     glass_buf: wgpu::Buffer,
+    pick_pipe: wgpu::ComputePipeline,
+    pick_layout: wgpu::BindGroupLayout,
+    pick_out: wgpu::Buffer,
+    pick_read: wgpu::Buffer,
+    pick_px: wgpu::Buffer,
+    /// 0 – wolne, 1 – czeka na zmapowanie, 2 – wynik gotowy do odczytu.
+    pick_state: Arc<std::sync::atomic::AtomicU8>,
+    pick_inflight: Option<PickReq>,
+    /// Ostatnie wskazanie (punkt pod kursorem odczytany z głębi).
+    pub pick: Option<Pick>,
     vbuf: wgpu::Buffer,
     ibuf: wgpu::Buffer,
     index_count: u32,
@@ -313,6 +344,37 @@ impl Renderer {
         let sky_buf = buf("sky", std::mem::size_of::<SkyUniform>() as u64, wgpu::BufferUsages::UNIFORM);
         let line_params = buf("line-params", 16, wgpu::BufferUsages::UNIFORM);
         let glass_buf = buf("szklo", std::mem::size_of::<GlassUniform>() as u64, wgpu::BufferUsages::UNIFORM);
+        // wskazywanie: głębia piksela pod kursorem kopiowana do bufora odczytu
+        let pick_out = buf("wskazanie", 16, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
+        let pick_read = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("wskazanie-odczyt"),
+            size: 16,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let pick_px = buf("wskazanie-piksel", 16, wgpu::BufferUsages::UNIFORM);
+        let pick_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("wskazanie"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: true,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
+                    count: None,
+                },
+                uniform(2, wgpu::ShaderStages::COMPUTE, false),
+            ],
+        });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("liniowy"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -363,6 +425,7 @@ impl Renderer {
         let lines_sh = module("linie", include_str!("lines.wgsl"));
         let trees_sh = module("drzewa", include_str!("trees.wgsl"));
         let sky_sh = module("niebo", include_str!("sky.wgsl"));
+        let pick_sh = module("wskazanie", include_str!("pick.wgsl"));
         let blit_sh = module("blit", include_str!("blit.wgsl"));
         let layout = |label, groups: &[&wgpu::BindGroupLayout]| {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -453,6 +516,14 @@ impl Renderer {
                 })],
             }),
             multiview: None,
+            cache: None,
+        });
+        let pick_pipe = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("wskazanie"),
+            layout: Some(&layout("wskazanie", &[&pick_layout])),
+            module: &pick_sh,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
             cache: None,
         });
         let trees_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -562,6 +633,14 @@ impl Renderer {
             sampler,
             clamp_sampler,
             glass_buf,
+            pick_pipe,
+            pick_layout,
+            pick_out,
+            pick_read,
+            pick_px,
+            pick_state: Arc::default(),
+            pick_inflight: None,
+            pick: None,
             vbuf,
             ibuf,
             index_count: idx.len() as u32,
@@ -681,7 +760,16 @@ impl Renderer {
         };
         let color_ms = mk(COLOR, MSAA, wgpu::TextureUsages::RENDER_ATTACHMENT);
         let resolved = mk(COLOR, 1, wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING);
-        let depth = mk(DEPTH, MSAA, wgpu::TextureUsages::RENDER_ATTACHMENT);
+        let depth = mk(DEPTH, MSAA, wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING);
+        let pick_bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("wskazanie"),
+            layout: &self.pick_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&depth) },
+                wgpu::BindGroupEntry { binding: 1, resource: self.pick_out.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: self.pick_px.as_entire_binding() },
+            ],
+        });
         let blit_bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("blit"),
             layout: &self.blit_layout,
@@ -691,7 +779,9 @@ impl Renderer {
                 wgpu::BindGroupEntry { binding: 2, resource: self.glass_buf.as_entire_binding() },
             ],
         });
-        self.targets = Some(Targets { size, color_ms, resolved, depth, blit_bind });
+        self.targets = Some(Targets { size, color_ms, resolved, depth, blit_bind, pick_bind });
+        // stare wskazanie dotyczy innego bufora
+        self.pick = None;
     }
 
     fn upload_lines(device: &wgpu::Device, queue: &wgpu::Queue, slot: &mut wgpu::Buffer, lines: &[LineInst]) {
@@ -753,7 +843,10 @@ impl Renderer {
 
     /// Klatka 3D do bufora poza ekranem; zwraca wywołanie zwrotne do wklejenia w egui.
     /// `glass` – prostokąty pod szkłem interfejsu we współrzędnych 0–1 widoku i siła rozmycia.
-    pub fn render(&mut self, view: &View, scene: &Scene, dyn_lines: &[LineInst], ppp: f32, glass: &[([f32; 4], f32)]) -> (Blit, Vec<DrawTile>) {
+    /// `pick_at` – punkt widoku (logiczny), pod którym odczytać głębię; wynik w `self.pick`
+    /// (zwykle w następnej klatce).
+    #[allow(clippy::too_many_arguments)]
+    pub fn render(&mut self, view: &View, scene: &Scene, dyn_lines: &[LineInst], ppp: f32, glass: &[([f32; 4], f32)], pick_at: Option<[f32; 2]>) -> (Blit, Vec<DrawTile>) {
         let any = self.tiles.receive(&self.device, &self.queue);
         let size = [
             ((view.size[0] * ppp * scene.render_scale).round() as u32).max(1),
@@ -864,7 +957,9 @@ impl Renderer {
         self.dirty = false;
         let t = self.targets.as_ref().unwrap();
         if skip {
-            return (Blit { pipeline: self.blit.clone(), bind: t.blit_bind.clone() }, draw);
+            let blit = Blit { pipeline: self.blit.clone(), bind: t.blit_bind.clone() };
+            self.do_pick(view, ppp * scene.render_scale, pick_at);
+            return (blit, draw);
         }
         let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("3D") });
         {
@@ -878,7 +973,8 @@ impl Renderer {
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &t.depth,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Discard }),
+                    // głębia zostaje: z niej odczytujemy punkt pod kursorem
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Store }),
                     stencil_ops: None,
                 }),
                 timestamp_writes: None,
@@ -921,13 +1017,76 @@ impl Renderer {
             }
         }
         self.queue.submit(Some(enc.finish()));
-        (
-            Blit {
-                pipeline: self.blit.clone(),
-                bind: t.blit_bind.clone(),
-            },
-            draw,
-        )
+        let blit = Blit { pipeline: self.blit.clone(), bind: t.blit_bind.clone() };
+        self.do_pick(view, ppp * scene.render_scale, pick_at);
+        (blit, draw)
+    }
+
+    /// Wskazywanie: odczyt głębi piksela pod kursorem z właśnie narysowanego obrazu. Czeka na kartę
+    /// graficzną najwyżej kilkadziesiąt milisekund, więc wynik dotyczy tej samej klatki co obraz.
+    fn do_pick(&mut self, view: &View, scale: f32, at: Option<[f32; 2]>) {
+        use std::sync::atomic::Ordering::*;
+        // spóźniony odczyt z poprzedniej klatki: zwolnić bufor
+        match self.pick_state.load(Acquire) {
+            2 => {
+                self.pick_read.unmap();
+                self.pick_inflight = None;
+                self.pick_state.store(0, Release);
+            }
+            3 => self.pick_state.store(0, Release),
+            _ => {}
+        }
+        let Some(at) = at else { return };
+        let Some(t) = &self.targets else { return };
+        // poprzedni odczyt jeszcze nie oddany – nie zlecamy nowego
+        if self.pick_state.load(Acquire) == 1 {
+            let _ = self.device.poll(wgpu::PollType::Poll);
+            return;
+        }
+        let px = [
+            ((at[0] * scale).floor().max(0.0) as u32).min(t.size[0].saturating_sub(1)),
+            ((at[1] * scale).floor().max(0.0) as u32).min(t.size[1].saturating_sub(1)),
+        ];
+        let rel = glam::DMat4::look_at_rh(glam::DVec3::ZERO, view.target - view.eye, glam::DVec3::Y);
+        let req = PickReq { px, at, size: t.size, eye: view.eye, inv: (view.proj * rel).inverse() };
+        self.queue.write_buffer(&self.pick_px, 0, bytemuck::cast_slice(&[px[0], px[1], 0u32, 0u32]));
+        let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("wskazanie") });
+        {
+            let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("wskazanie"), timestamp_writes: None });
+            pass.set_pipeline(&self.pick_pipe);
+            pass.set_bind_group(0, &t.pick_bind, &[]);
+            pass.dispatch_workgroups(1, 1, 1);
+        }
+        enc.copy_buffer_to_buffer(&self.pick_out, 0, &self.pick_read, 0, 16);
+        self.queue.submit(Some(enc.finish()));
+        self.pick_state.store(1, Release);
+        let state = self.pick_state.clone();
+        self.pick_read.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+            state.store(if r.is_ok() { 2 } else { 3 }, Release);
+        });
+        let t0 = std::time::Instant::now();
+        while self.pick_state.load(Acquire) == 1 && t0.elapsed() < std::time::Duration::from_millis(60) {
+            let _ = self.device.poll(wgpu::PollType::Poll);
+            if self.pick_state.load(Acquire) == 1 {
+                std::thread::sleep(std::time::Duration::from_micros(200));
+            }
+        }
+        match self.pick_state.load(Acquire) {
+            2 => {
+                let d = {
+                    let range = self.pick_read.slice(..).get_mapped_range();
+                    f32::from_le_bytes([range[0], range[1], range[2], range[3]])
+                };
+                self.pick_read.unmap();
+                self.pick = Some(Pick { at, eye: view.eye, world: unproject(&req, d) });
+                self.pick_state.store(0, Release);
+            }
+            3 => self.pick_state.store(0, Release),
+            // karta nie zdążyła: wynik przepada, odczyt odblokuje się przy następnym wywołaniu
+            _ => {
+                self.pick_inflight = Some(req);
+            }
+        }
     }
 }
 
@@ -942,6 +1101,20 @@ impl egui_wgpu::CallbackTrait for Blit {
         pass.set_bind_group(0, &self.bind, &[]);
         pass.draw(0..3, 0..1);
     }
+}
+
+/// Punkt świata z głębi piksela (odwrotność rzutowania i krzywizny Ziemi z shadera terenu);
+/// `None` dla nieba (głębia 0 przy odwróconym Z).
+fn unproject(req: &PickReq, depth: f32) -> Option<glam::DVec3> {
+    if depth <= 0.0 || !depth.is_finite() {
+        return None;
+    }
+    let nx = (req.px[0] as f64 + 0.5) / req.size[0] as f64 * 2.0 - 1.0;
+    let ny = 1.0 - (req.px[1] as f64 + 0.5) / req.size[1] as f64 * 2.0;
+    let rel = req.inv.project_point3(glam::DVec3::new(nx, ny, depth as f64));
+    let hd2 = rel.x * rel.x + rel.z * rel.z;
+    let drop = hd2 / (2.0 * crate::geo::EARTH_R) * 0.87;
+    Some(glam::DVec3::new(req.eye.x + rel.x, req.eye.y + rel.y + drop, req.eye.z + rel.z))
 }
 
 /// Wspólny wskaźnik do renderera (tworzony po starcie, gdy znany jest adapter wgpu).
