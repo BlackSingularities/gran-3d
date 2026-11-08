@@ -1319,7 +1319,7 @@ dependencies = [
 
 [[package]]
 name = "gran"
-version = "2.9.1"
+version = "2.10.0"
 dependencies = [
  "base64",
  "bytemuck",
