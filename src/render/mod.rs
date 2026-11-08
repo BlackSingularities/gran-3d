@@ -932,6 +932,7 @@ mod tests {
     fn shaders_validate() {
         check(include_str!("terrain.wgsl"));
         check(include_str!("lines.wgsl"));
+        check(include_str!("trees.wgsl"));
         check(include_str!("sky.wgsl"));
         check(include_str!("blit.wgsl"));
     }
