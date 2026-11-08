@@ -115,6 +115,8 @@ pub struct TileSettings {
     /// Ortofoto krajowe (PL, CZ, SK) na bliskich kaflach.
     pub ortho: bool,
     pub max_dist: f64,
+    /// Doczytywanie z wyprzedzeniem poza kadrem: 0 – wyłączone, 1 – lekkie, 2 – mocne.
+    pub prefetch: u8,
 }
 
 pub struct Tiles {
@@ -140,7 +142,6 @@ pub struct Tiles {
     pub loading_kinds: [usize; 4],
 }
 
-const WORKERS: usize = 16;
 /// Tyle wątków może czekać na usługi krajowe; reszta zawsze obsługuje szybkie źródła.
 const SLOW_WORKERS: usize = 6;
 
@@ -175,7 +176,7 @@ impl Tiles {
         });
         let queue = Arc::new((Mutex::new(Queue::default()), Condvar::new()));
         let (tx, rx) = channel();
-        for i in 0..WORKERS {
+        for i in 0..crate::limits::workers() {
             let (q, tx, h, ctx) = (queue.clone(), tx.clone(), heights.clone(), ctx.clone());
             thread::Builder::new()
                 .name(format!("kafle-{i}"))
@@ -387,10 +388,34 @@ impl Tiles {
             let d = DVec3::new(px, py, pz).distance(view.eye).max(1.0);
             let rel_min = DVec3::new(x0, y0, z0) - view.eye;
             let rel_max = DVec3::new(x0 + size, y1, z0 + size) - view.eye;
+            let px_size = size / d * focal;
             if !aabb_visible(&planes, rel_min, rel_max) {
+                // doczytywanie z wyprzedzeniem: okolica poza kadrem w mniejszej szczegółowości,
+                // na końcu kolejki – po obrocie lub przesunięciu obraz jest od razu
+                let reach = s.max_dist * if s.prefetch >= 2 { 0.3 } else { 0.12 };
+                if s.prefetch > 0 && hd < reach {
+                    let coarse = s.target_px as f64 * if s.prefetch >= 2 { 2.0 } else { 4.0 };
+                    if t.z < MAX_RENDER_Z && (px_size > coarse || t.z < 6) {
+                        let (x, y, z) = (t.x * 2, t.y * 2, t.z + 1);
+                        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                            stack.push(TileId::new(z, x + dx, y + dy));
+                        }
+                        continue;
+                    }
+                    let prio = 3000.0 + d as f32 / 1000.0;
+                    let own = ancestor_at(t, t.z.min(download::TERRAIN_MAX_Z));
+                    if !self.dem.contains_key(&own) && !self.missing.contains(&Key(Kind::Dem, own)) {
+                        want.push(Request { key: Key(Kind::Dem, own), prio, sticky: false });
+                    }
+                    if s.imagery {
+                        let own_i = ancestor_at(t, t.z.min(SAT_MAX_Z));
+                        if !self.img.contains_key(&(Kind::Sat, own_i)) && !self.missing.contains(&Key(Kind::Sat, own_i)) {
+                            want.push(Request { key: Key(Kind::Sat, own_i), prio: prio + 0.5, sticky: false });
+                        }
+                    }
+                }
                 continue;
             }
-            let px_size = size / d * focal;
             if t.z < MAX_RENDER_Z && (px_size > s.target_px as f64 || t.z < 6) {
                 let (x, y, z) = (t.x * 2, t.y * 2, t.z + 1);
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
@@ -563,7 +588,7 @@ fn worker(q: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Loaded>, heights: Heights,
             let mut g = m.lock().unwrap();
             loop {
                 // najważniejsze: najmniejszy priorytet (ortofoto tylko, gdy są na nie wolne wątki)
-                let slow_free = g.slow < SLOW_WORKERS;
+                let slow_free = g.slow < SLOW_WORKERS.min(crate::limits::workers() / 2).max(1);
                 let best = g
                     .list
                     .iter()

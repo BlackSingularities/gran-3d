@@ -42,14 +42,18 @@ struct Moving {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     General,
+    Map,
     Graphics,
+    Performance,
     Data,
     About,
 }
 
-const PAGES: [(Page, &str, &str); 4] = [
+const PAGES: [(Page, &str, &str); 6] = [
     (Page::General, theme::icon::SLIDERS_HORIZONTAL, "Ogólne"),
+    (Page::Map, theme::icon::MAP_TRIFOLD, "Mapa"),
     (Page::Graphics, theme::icon::MONITOR, "Grafika"),
+    (Page::Performance, theme::icon::GAUGE, "Zasoby"),
     (Page::Data, theme::icon::HARD_DRIVE, "Dane map"),
     (Page::About, theme::icon::INFO, "O programie"),
 ];
@@ -83,6 +87,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::apply(&cc.egui_ctx);
         let settings = Settings::load();
+        crate::limits::apply(settings.resources);
         let store = Store::new(&settings.data_dir);
         let heights = Heights::new(store.clone());
         let world = World::new(heights.clone(), cc.egui_ctx.clone());
@@ -180,6 +185,7 @@ impl App {
 
     fn commit_settings(&mut self, next: Settings) {
         let moved = next.data_dir != self.settings.data_dir;
+        crate::limits::apply(next.resources);
         self.settings = next;
         if let Err(e) = self.settings.save() {
             self.atlas.notify(format!("Nie udało się zapisać ustawień: {e}"));
@@ -279,7 +285,30 @@ impl App {
                             theme::switch(ui, &mut view.draft.vsync, "Synchronizacja z monitorem");
                             theme::para(ui, "Bez synchronizacji więcej klatek na sekundę, ale możliwe rozrywanie obrazu. Zmiana działa po ponownym uruchomieniu.");
                         }
+                        Page::Map => crate::ui::panels::map_settings(atlas, ui),
                         Page::Graphics => crate::ui::panels::graphics(atlas, ui),
+                        Page::Performance => {
+                            ui.label(theme::kicker("Limit zużycia zasobów"));
+                            theme::para(ui, "Ile pamięci RAM, pamięci karty graficznej i wątków pobierania może zająć GRAŃ. Niższy poziom odciąża słabszy komputer kosztem wolniejszego doczytywania mapy.");
+                            ui.add_space(6.0);
+                            for (i, (name, desc)) in crate::limits::LEVELS.iter().enumerate() {
+                                let on = view.draft.resources == i as u8;
+                                if theme::option_card(ui, name, desc, on).clicked() {
+                                    view.draft.resources = i as u8;
+                                }
+                            }
+                            theme::para(ui, "Limit pamięci działa po zapisaniu; liczba wątków pobierania zmienia się po ponownym uruchomieniu.");
+                            ui.add_space(12.0);
+                            ui.label(theme::kicker("Doczytywanie z wyprzedzeniem"));
+                            theme::para(ui, "W tle, z najniższym priorytetem, program pobiera okolicę poza kadrem, żeby po obrocie lub przesunięciu obraz był od razu.");
+                            ui.horizontal(|ui| {
+                                for (v, name) in [(0u8, "Wyłączone"), (1, "Lekkie"), (2, "Mocne")] {
+                                    if ui.selectable_label(atlas.prefs.prefetch == v, name).clicked() {
+                                        atlas.prefs.prefetch = v;
+                                    }
+                                }
+                            });
+                        }
                         Page::Data => {
                             ui.label(theme::kicker("Zajęte miejsce"));
                             ui.horizontal(|ui| {

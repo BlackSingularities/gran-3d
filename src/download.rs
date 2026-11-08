@@ -47,7 +47,6 @@ impl Drop for Claim {
 }
 
 /// Zdekodowane zdjęcia satelitarne: jeden przodek służy wielu kaflom ortofoto.
-const SAT_CACHE: usize = 256;
 
 fn decoded_sat(store: &Store, t: TileId) -> Option<Arc<image::RgbaImage>> {
     type Cache = (HashMap<TileId, Arc<image::RgbaImage>>, VecDeque<TileId>);
@@ -63,7 +62,7 @@ fn decoded_sat(store: &Store, t: TileId) -> Option<Arc<image::RgbaImage>> {
     if c.0.insert(t, img.clone()).is_none() {
         c.1.push_back(t);
     }
-    if c.1.len() > SAT_CACHE {
+    if c.1.len() > crate::limits::sat_cache() {
         if let Some(old) = c.1.pop_front() {
             c.0.remove(&old);
         }

@@ -25,6 +25,13 @@ pub struct Settings {
     /// Synchronizacja klatek z monitorem (zmiana działa po ponownym uruchomieniu).
     #[serde(default = "yes")]
     pub vsync: bool,
+    /// Limit zużycia zasobów: 0 oszczędny … 3 maksymalny.
+    #[serde(default = "res_level")]
+    pub resources: u8,
+}
+
+fn res_level() -> u8 {
+    crate::limits::DEFAULT_LEVEL
 }
 
 fn yes() -> bool {
@@ -67,6 +74,7 @@ impl Default for Settings {
             auto_update: true,
             setup_done: false,
             vsync: true,
+            resources: res_level(),
         }
     }
 }

@@ -180,9 +180,10 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let lz = dot(textureSample(img_tex, samp, in.img_uv + vec2(0.0, px.y)).rgb - textureSample(img_tex, samp, in.img_uv - vec2(0.0, px.y)).rgb, lum);
     let mx = fbm((in.wp + vec2(2.0, 0.0)) / 11.0) - fbm((in.wp - vec2(2.0, 0.0)) / 11.0);
     let mz = fbm((in.wp + vec2(0.0, 2.0)) / 11.0) - fbm((in.wp - vec2(0.0, 2.0)) / 11.0);
-    let detail_on = g.flags.w * (1.0 - smoothstep(1500.0, 25000.0, in.dist));
+    let detail_on = g.flags.w * (1.0 - smoothstep(2000.0, 30000.0, in.dist));
     let photo = style == 4 && tile.img.w > 0.5;
-    let detail = select(vec2(mx, mz) * 0.8, vec2(lx, lz) * 1.6, photo) * detail_on;
+    // wyraźnie silniej niż dotąd: przy rzeźbie gór poprzednia siła ginęła pod nachyleniem terenu
+    let detail = select(vec2(mx, mz) * 2.2, vec2(lx, lz) * 5.5, photo) * detail_on;
     let n = normalize(vec3(-grad.x * exag - detail.x, 1.0, -grad.y * exag - detail.y));
     let slope = length(grad);
     let slope_deg = degrees(atan(slope));
@@ -197,6 +198,9 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let shadow_s = textureSample(shadow_tex, samp, clamp(sr.xy, vec2(0.0), vec2(1.0))).r;
     let vr = in_rect(wp, g.vs_rect);
     let vs_s = textureSample(vs_tex, samp, clamp(vr.xy, vec2(0.0), vec2(1.0))).r;
+    // widoczność wygładzona i jej granica (pochodne poza rozgałęzieniami)
+    let vs_v = smoothstep(0.0, 0.012, vs_s);
+    let vs_fw = max(fwidth(vs_v), 1e-4);
     let img_s = textureSample(img_tex, samp, in.img_uv).rgb;
     let lr = in_rect(wp, g.land_rect);
     let land_s = textureSample(land_tex, samp, clamp(lr.xy, vec2(0.0), vec2(1.0)));
@@ -315,13 +319,13 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     var col: vec3<f32>;
     if (style == 4 && tile.img.w > 0.5) {
         // zdjęcie: łagodne dodatkowe światło z rzeźby, żeby bryła była czytelna
-        let shade = mix(0.78, 1.12, ndl) * mix(0.6, 1.0, shadow);
+        let shade = mix(0.7, 1.16, ndl) * mix(0.6, 1.0, shadow);
         col = base * shade * mix(vec3(1.0), g.sun_color.rgb * 0.8 + g.sky_color.rgb * 0.35, 0.35);
     } else if (style == 0) {
         col = base * light;
     } else {
         // style analityczne: cieniowanie z wielu kierunków (czytelna rzeźba), bez kolorów pory dnia
-        let nc = normalize(vec3(-grad.x * 1.6, 1.0, -grad.y * 1.6));
+        let nc = normalize(vec3(-(grad.x + detail.x) * 1.6, 1.0, -(grad.y + detail.y) * 1.6));
         let h1 = max(dot(nc, normalize(vec3(-0.6, 0.7, -0.6))), 0.0);
         let h2 = max(dot(nc, normalize(vec3(-0.9, 0.9, 0.1))), 0.0);
         let h3 = max(dot(nc, normalize(vec3(0.0, 0.8, -0.8))), 0.0);
@@ -331,7 +335,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 
     if (water > 0.5 && !(wa.x > 0.0)) {
         // woda z samej maski (bez poziomu lustra) – jak dotąd
-        let wc = select(srgb(vec3(0.36, 0.60, 0.80)), srgb(vec3(0.62, 0.80, 0.93)), style == 5);
+        let wc = select(srgb(vec3(0.16, 0.56, 0.66)), srgb(vec3(0.62, 0.80, 0.93)), style == 5);
         col = select(wc * (0.4 + 0.6 * light), wc, style != 0 && style != 4);
     }
     if (wa.x > 0.0 && (style == 0 || style == 4 || style == 5)) {
@@ -356,20 +360,22 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
             // odbicie nieba: horyzont → zenit
             let r = reflect(-v, wn);
             let sky = mix(g.fog_color.rgb, g.sky_color.rgb * 1.6, smoothstep(0.0, 0.6, r.y));
-            // kolor toni: płytko turkus, głęboko granat; górskie stawy są ciemne i przejrzyste
-            let d = 1.0 - exp(-depth / 9.0);
-            let deep = srgb(vec3(0.03, 0.10, 0.14));
-            let shallow = srgb(vec3(0.10, 0.32, 0.33));
-            var body = mix(shallow, deep, d) * (g.sky_color.rgb * 0.9 + g.sun_color.rgb * 0.35 * g.sun_dir.w);
+            // kolor toni: górskie stawy są przejrzyste i lazurowe – płytko jasny turkus, w głębi
+            // nasycony błękit (tatrzańskie stawy: Morskie Oko, Czarny Staw, Pięć Stawów)
+            let d = 1.0 - exp(-depth / 12.0);
+            let deep = srgb(vec3(0.02, 0.26, 0.38));
+            let shallow = srgb(vec3(0.20, 0.62, 0.62));
+            let lit = clamp(g.sky_color.rgb * 0.75 + g.sun_color.rgb * 0.55 * g.sun_dir.w, vec3(0.25), vec3(1.4));
+            var body = mix(shallow, deep, d) * lit;
             if (photo) {
-                // na zdjęciu: przy brzegu prześwituje dno ze zdjęcia, dalej ton zdjęcia przyciemniony w głąb
+                // na zdjęciu: przy samym brzegu prześwituje dno ze zdjęcia, dalej lazurowa toń
                 let bottom = img_s * 1.1;
-                body = mix(bottom, mix(bottom * 0.55, body, 0.6), smoothstep(0.0, 1.0, d * 1.4));
+                body = mix(mix(bottom, body, 0.45), body, smoothstep(0.0, 1.0, d * 2.5));
             }
             // odblask słońca
             let hv = normalize(sun + v);
             let spec = pow(max(dot(wn, hv), 0.0), 380.0) * 7.0 * g.sun_dir.w * shadow;
-            wcol = mix(body, sky, fres) + g.sun_color.rgb * spec;
+            wcol = mix(body, sky, fres * 0.7) + g.sun_color.rgb * spec;
             // jasna linia brzegu (płycizna i piana), tylko z bliska
             let shore = (1.0 - smoothstep(0.0, 1.2, depth)) * near * 0.25;
             wcol = mix(wcol, wcol * 1.25 + vec3(0.04), shore);
@@ -423,12 +429,16 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     // pole widoczności
     if (g.flags.y > 0.5) {
         let lum = vec3(dot(col, vec3(0.3, 0.59, 0.11)));
+        // niewidoczne: wyblakłe i przygaszone w chłodnym tonie; widoczne: naturalne barwy, lekko rozjaśnione
+        let hidden = mix(col, lum, 0.7) * vec3(0.40, 0.45, 0.58);
         if (vr.z > 0.5) {
-            let v = vs_s;
-            let inside = mix(col, srgb(vec3(0.25, 0.85, 0.92)), 0.55) * 1.15 + srgb(vec3(0.02, 0.08, 0.1));
-            col = mix(lum * 0.35, inside, smoothstep(0.0, 0.02, v));
+            let seen = col * 1.1 + srgb(vec3(0.03, 0.035, 0.01));
+            col = mix(hidden, seen, vs_v);
+            // złota linia granicy widoczności
+            let edge = 1.0 - smoothstep(0.0, 1.0, abs(vs_v - 0.5) / vs_fw);
+            col = mix(col, srgb(vec3(1.0, 0.82, 0.32)), edge * 0.9);
         } else {
-            col = lum * 0.35;
+            col = hidden;
         }
     }
 
