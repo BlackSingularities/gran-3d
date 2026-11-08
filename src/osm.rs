@@ -20,7 +20,7 @@ const OVERPASS: [&str; 3] = [
     "https://overpass.private.coffee/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 ];
-const FORMAT: u32 = 2;
+const FORMAT: u32 = 3;
 
 /// Sektor danych okolicy (kafel z9).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -102,6 +102,14 @@ pub enum PoiKind {
     Cave,
     Viewpoint,
     Place,
+    /// Grań, grzbiet (natural=ridge/arete).
+    Ridge,
+    /// Hala, polana, nazwane miejsce (place=locality).
+    Locality,
+    /// Źródło.
+    Spring,
+    /// Dolina.
+    Valley,
 }
 
 impl PoiKind {
@@ -116,6 +124,10 @@ impl PoiKind {
             PoiKind::Cave => crate::i18n::tr("Jaskinia"),
             PoiKind::Viewpoint => crate::i18n::tr("Punkt widokowy"),
             PoiKind::Place => crate::i18n::tr("Miejscowość"),
+            PoiKind::Ridge => crate::i18n::tr("Grań"),
+            PoiKind::Locality => crate::i18n::tr("Hala / polana"),
+            PoiKind::Spring => crate::i18n::tr("Źródło"),
+            PoiKind::Valley => crate::i18n::tr("Dolina"),
         }
     }
 }
@@ -364,10 +376,12 @@ fn vector_poi(p: &crate::mvt::Point, lon: f64, lat: f64) -> Option<Poi> {
         "mountain_peak" => match class {
             "peak" | "volcano" => (PoiKind::Peak, ""),
             "saddle" => (PoiKind::Saddle, ""),
+            "ridge" | "arete" => (PoiKind::Ridge, ""),
             _ => return None,
         },
         "place" => match class {
             "city" | "town" | "village" | "hamlet" => (PoiKind::Place, class),
+            "locality" | "isolated_dwelling" => (PoiKind::Locality, ""),
             _ => return None,
         },
         "water_name" => (PoiKind::Lake, ""),
@@ -377,6 +391,7 @@ fn vector_poi(p: &crate::mvt::Point, lon: f64, lat: f64) -> Option<Poi> {
             "viewpoint" => (PoiKind::Viewpoint, ""),
             "waterfall" => (PoiKind::Waterfall, ""),
             "cave_entrance" => (PoiKind::Cave, ""),
+            "spring" => (PoiKind::Spring, ""),
             _ => return None,
         },
         _ => return None,
@@ -399,7 +414,7 @@ fn overpass_pois(id: SectorId) -> Result<Vec<Poi>, String> {
     let b = id.bbox();
     let bb = format!("{:.6},{:.6},{:.6},{:.6}", b.s, b.w, b.n, b.e);
     let poi_q = format!(
-        "[out:json][timeout:90];(node[\"natural\"~\"^(peak|saddle|volcano)$\"][\"name\"]({bb});node[\"place\"~\"^(city|town|village|hamlet)$\"][\"name\"]({bb});node[\"mountain_pass\"=\"yes\"][\"name\"]({bb});nwr[\"tourism\"~\"^(alpine_hut|wilderness_hut)$\"]({bb});nwr[\"amenity\"=\"shelter\"][\"name\"]({bb});nwr[\"natural\"=\"water\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb});node[\"natural\"=\"cave_entrance\"][\"name\"]({bb});node[\"tourism\"=\"viewpoint\"][\"name\"]({bb}););out center tags;"
+        "[out:json][timeout:90];(node[\"natural\"~\"^(peak|saddle|volcano)$\"][\"name\"]({bb});node[\"place\"~\"^(city|town|village|hamlet)$\"][\"name\"]({bb});node[\"mountain_pass\"=\"yes\"][\"name\"]({bb});nwr[\"tourism\"~\"^(alpine_hut|wilderness_hut)$\"]({bb});nwr[\"amenity\"=\"shelter\"][\"name\"]({bb});nwr[\"natural\"=\"water\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb});node[\"natural\"=\"cave_entrance\"][\"name\"]({bb});node[\"tourism\"=\"viewpoint\"][\"name\"]({bb});node[\"natural\"=\"spring\"][\"name\"]({bb});nwr[\"natural\"~\"^(valley|ridge|arete)$\"][\"name\"]({bb});node[\"place\"=\"locality\"][\"name\"]({bb}););out center tags;"
     );
     let pj = overpass(&poi_q, 1)?;
     Ok(parse(id, &serde_json::Value::Null, &pj).pois)
@@ -415,6 +430,24 @@ pub fn fetch_trails(id: SectorId, pois: Vec<Poi>) -> Result<SectorData, String> 
     let tj = overpass(&trails_q, 0)?;
     let mut d = parse(id, &tj, &serde_json::Value::Null);
     d.pois = pois;
+    // nazwy, których nie ma w kafelkach wektorowych: doliny, granie, hale, źródła (małe zapytanie;
+    // niepowodzenie nie blokuje szlaków)
+    let extra_q = format!(
+        "[out:json][timeout:60];(nwr[\"natural\"~\"^(valley|ridge|arete|spring)$\"][\"name\"]({bb});node[\"place\"=\"locality\"][\"name\"]({bb}););out center tags;"
+    );
+    match overpass(&extra_q, 1) {
+        Ok(ej) => {
+            let extra = parse(id, &serde_json::Value::Null, &ej).pois;
+            for p in extra {
+                if matches!(p.kind, PoiKind::Valley | PoiKind::Ridge | PoiKind::Spring | PoiKind::Locality)
+                    && !d.pois.iter().any(|q| q.name == p.name && (q.lon - p.lon).abs() < 0.01 && (q.lat - p.lat).abs() < 0.01)
+                {
+                    d.pois.push(p);
+                }
+            }
+        }
+        Err(e) => log::warn!("dodatkowe nazwy {}/{}: {e}", id.x, id.y),
+    }
     Ok(d)
 }
 
@@ -575,6 +608,14 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
             PoiKind::Cave
         } else if get("tourism") == "viewpoint" {
             PoiKind::Viewpoint
+        } else if nat == "spring" {
+            PoiKind::Spring
+        } else if nat == "valley" {
+            PoiKind::Valley
+        } else if nat == "ridge" || nat == "arete" {
+            PoiKind::Ridge
+        } else if get("place") == "locality" {
+            PoiKind::Locality
         } else if !get("place").is_empty() {
             PoiKind::Place
         } else {

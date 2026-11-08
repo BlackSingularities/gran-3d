@@ -124,7 +124,7 @@ pub fn card(selected: bool) -> egui::Frame {
 }
 
 /// Szkło: lekko przezroczyste tło powierzchni nad mapą.
-pub const GLASS_FILL: Color32 = Color32::from_rgba_premultiplied(17, 19, 24, 208);
+pub const GLASS_FILL: Color32 = Color32::from_rgba_premultiplied(17, 19, 24, 170);
 /// Delikatna jasna obwódka szkła.
 pub const GLASS_EDGE: Color32 = Color32::from_rgba_premultiplied(30, 30, 30, 30);
 

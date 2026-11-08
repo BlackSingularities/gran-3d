@@ -140,6 +140,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         s.sel = hits.len().saturating_sub(1);
     }
 
+    crate::ui::panels::glass_area(a, ctx, egui::Id::new(crate::i18n::tr("Szukaj")), 1.0);
     egui::Window::new(crate::i18n::tr("Szukaj"))
         .title_bar(false)
         .collapsible(false)

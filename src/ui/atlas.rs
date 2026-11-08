@@ -159,8 +159,99 @@ pub struct Prefs {
     pub prefetch: u8,
     /// Kontrolki na mapie chowają się, gdy mysz stoi.
     pub autohide: bool,
-    /// Nazwy miejscowości.
-    pub places: bool,
+    /// Rodzaje nazw na mapie.
+    pub names: Names,
+}
+
+/// Które nazwy pokazywać na mapie (główny przełącznik – `Prefs::labels`, klawisz L).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Names {
+    pub peaks: bool,
+    pub passes: bool,
+    pub ridges: bool,
+    pub valleys: bool,
+    pub huts: bool,
+    pub shelters: bool,
+    pub lakes: bool,
+    pub waterfalls: bool,
+    pub springs: bool,
+    pub caves: bool,
+    pub viewpoints: bool,
+    pub localities: bool,
+    pub towns: bool,
+    pub villages: bool,
+    /// Wysokość przy nazwach szczytów i przełęczy.
+    pub elevation: bool,
+}
+
+impl Default for Names {
+    fn default() -> Self {
+        Names {
+            peaks: true,
+            passes: true,
+            ridges: false,
+            valleys: true,
+            huts: true,
+            shelters: false,
+            lakes: true,
+            waterfalls: true,
+            springs: false,
+            caves: false,
+            viewpoints: false,
+            localities: true,
+            towns: true,
+            villages: true,
+            elevation: true,
+        }
+    }
+}
+
+impl Names {
+    pub fn shows(&self, p: &crate::osm::Poi) -> bool {
+        match p.kind {
+            PoiKind::Peak => self.peaks,
+            PoiKind::Saddle => self.passes,
+            PoiKind::Ridge => self.ridges,
+            PoiKind::Valley => self.valleys,
+            PoiKind::Hut => self.huts,
+            PoiKind::Shelter => self.shelters,
+            PoiKind::Lake => self.lakes,
+            PoiKind::Waterfall => self.waterfalls,
+            PoiKind::Spring => self.springs,
+            PoiKind::Cave => self.caves,
+            PoiKind::Viewpoint => self.viewpoints,
+            PoiKind::Locality => self.localities,
+            PoiKind::Place => {
+                if matches!(p.place.as_str(), "city" | "town") {
+                    self.towns
+                } else {
+                    self.villages
+                }
+            }
+        }
+    }
+
+    /// Rodzaje nazw: ikona, podpis, przełącznik.
+    pub fn kinds(&mut self) -> Vec<(&'static str, &'static str, &mut bool)> {
+        use theme::icon as i;
+        vec![
+            (i::MOUNTAINS, "Szczyty", &mut self.peaks),
+            (i::ARROWS_VERTICAL, "Przełęcze", &mut self.passes),
+            (i::TREND_UP, "Granie", &mut self.ridges),
+            (i::TREND_DOWN, "Doliny", &mut self.valleys),
+            (i::HOUSE_LINE, "Schroniska", &mut self.huts),
+            (i::TENT, "Wiaty", &mut self.shelters),
+            (i::DROP, "Stawy i jeziora", &mut self.lakes),
+            (i::WAVES, "Wodospady", &mut self.waterfalls),
+            (i::DROP_HALF, "Źródła", &mut self.springs),
+            (i::CIRCLE_HALF, "Jaskinie", &mut self.caves),
+            (i::BINOCULARS, "Punkty widokowe", &mut self.viewpoints),
+            (i::PLANT, "Hale i polany", &mut self.localities),
+            (i::BUILDINGS, "Miasta", &mut self.towns),
+            (i::HOUSE, "Wsie", &mut self.villages),
+        ]
+    }
 }
 
 impl Default for Prefs {
@@ -196,7 +287,7 @@ impl Default for Prefs {
             profile_open: true,
             prefetch: 1,
             autohide: false,
-            places: true,
+            names: Names::default(),
         }
     }
 }
@@ -379,6 +470,8 @@ pub struct Atlas {
     hist_now: RouteState,
     /// Eksport trasy z biblioteki, gdy tylko zostanie wyznaczona.
     export_pending: bool,
+    /// Szkło interfejsu (prostokąty ekranu i siła): pod nim obraz 3D jest rozmyty.
+    pub glass: Vec<(Rect, f32)>,
     last_want: Instant,
     pub status_line: String,
 }
@@ -487,6 +580,7 @@ impl Atlas {
             redo: Vec::new(),
             hist_now: (Vec::new(), RouteMode::Trails),
             export_pending: false,
+            glass: Vec::new(),
             last_want: Instant::now() - Duration::from_secs(10),
             status_line: String::new(),
         }
@@ -2098,7 +2192,18 @@ impl Atlas {
             if r.trees_version() != self.trees_ver {
                 r.set_trees(self.trees_ver, &self.trees, self.trees_near);
             }
-            let (blit, _) = r.render(&view, &scene, &lines, ppp);
+            // paski i panele z tej i poprzedniej klatki (rysowane przed i po widoku)
+            let glass: Vec<([f32; 4], f32)> = std::mem::take(&mut self.glass)
+                .into_iter()
+                .filter_map(|(g, k)| {
+                    let i = g.intersect(rect);
+                    (i.width() > 0.0 && i.height() > 0.0 && k > 0.01).then(|| {
+                        let (w, h) = (rect.width(), rect.height());
+                        ([(i.left() - rect.left()) / w, (i.top() - rect.top()) / h, (i.right() - rect.left()) / w, (i.bottom() - rect.top()) / h], k)
+                    })
+                })
+                .collect();
+            let (blit, _) = r.render(&view, &scene, &lines, ppp, &glass);
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, blit));
             let [dem, sat, ortho, local] = r.tiles.loading_kinds;
             let mut parts = Vec::new();
@@ -2532,7 +2637,7 @@ impl Atlas {
         let p = ui.painter_at(rect);
         let at = |s: [f32; 2]| Pos2::new(s[0] + rect.left(), s[1] + rect.top());
         // etykiety punktów z rozrzedzaniem i zasłanianiem przez teren
-        if self.prefs.labels || self.prefs.places {
+        if self.prefs.labels {
             let mut taken: Vec<Rect> = Vec::new();
             let max = (70.0 * self.prefs.label_density) as usize;
             let max_places = (28.0 * self.prefs.label_density) as usize;
@@ -2540,8 +2645,9 @@ impl Atlas {
             let mut shown_places = 0;
             // miejscowości najpierw (własny przydział), żeby szczyty ich nie wypierały
             let snap = self.snap.clone();
-            let places = snap.pois.iter().filter(|p| p.poi.kind == PoiKind::Place && self.prefs.places).take(1500);
-            let rest = snap.pois.iter().filter(|p| p.poi.kind != PoiKind::Place && self.prefs.labels).take(2500);
+            let names = &self.prefs.names;
+            let places = snap.pois.iter().filter(|p| p.poi.kind == PoiKind::Place && names.shows(&p.poi)).take(1500);
+            let rest = snap.pois.iter().filter(|p| p.poi.kind != PoiKind::Place && names.shows(&p.poi)).take(2500);
             for poi in places.chain(rest) {
                 let is_place = poi.poi.kind == PoiKind::Place;
                 if shown >= max || (is_place && shown_places >= max_places) {
@@ -2566,7 +2672,12 @@ impl Atlas {
                     continue;
                 }
                 let (label, color, size) = match poi.poi.kind {
-                    PoiKind::Peak => (format!("{}  {}", poi.poi.name, fmt::int(poi.ele as f64)), theme::PAPER, 12.5),
+                    PoiKind::Peak if self.prefs.names.elevation => (format!("{}  {}", poi.poi.name, fmt::int(poi.ele as f64)), theme::PAPER, 12.5),
+                    PoiKind::Peak => (poi.poi.name.clone(), theme::PAPER, 12.5),
+                    PoiKind::Saddle if self.prefs.names.elevation && poi.ele > 0.0 => (format!("{}  {}", poi.poi.name, fmt::int(poi.ele as f64)), Color32::from_rgb(215, 222, 235), 11.0),
+                    PoiKind::Waterfall | PoiKind::Spring => (poi.poi.name.clone(), Color32::from_rgb(150, 205, 240), 11.0),
+                    PoiKind::Valley | PoiKind::Ridge => (poi.poi.name.clone(), Color32::from_rgb(205, 214, 190), 11.0),
+                    PoiKind::Locality => (poi.poi.name.clone(), Color32::from_rgb(190, 225, 160), 11.0),
                     PoiKind::Place => (poi.poi.name.clone(), Color32::from_rgb(230, 222, 200), if poi.poi.place == "city" || poi.poi.place == "town" { 13.5 } else { 11.5 }),
                     PoiKind::Hut | PoiKind::Shelter => (poi.poi.name.clone(), Color32::from_rgb(255, 214, 150), 11.5),
                     PoiKind::Lake => (poi.poi.name.clone(), Color32::from_rgb(150, 205, 240), 11.0),
@@ -2586,7 +2697,9 @@ impl Atlas {
                 let dot = match poi.poi.kind {
                     PoiKind::Peak => theme::PAPER,
                     PoiKind::Hut | PoiKind::Shelter => Color32::from_rgb(255, 170, 70),
-                    PoiKind::Lake => Color32::from_rgb(110, 180, 230),
+                    PoiKind::Lake | PoiKind::Waterfall | PoiKind::Spring => Color32::from_rgb(110, 180, 230),
+                    PoiKind::Locality => Color32::from_rgb(150, 205, 110),
+                    PoiKind::Valley | PoiKind::Ridge => Color32::from_rgb(170, 180, 150),
                     PoiKind::Place => Color32::from_rgb(200, 190, 170),
                     _ => theme::PAPER_2,
                 };
@@ -2679,15 +2792,18 @@ impl Atlas {
             }
         }
 
-        // kompas
+        // kompas (chowa się razem z kontrolkami)
+        let alpha = crate::ui::panels::controls_alpha(self, ui.ctx());
+        let mut pc = p.clone();
+        pc.multiply_opacity(alpha);
         let r = 30.0;
         // pod górnym paskiem, obok panelu bocznego
         let c = rect.right_top() + Vec2::new(-51.0 - crate::ui::panels::right_inset(self), 51.0 + crate::ui::panels::TOP_BAR_H);
         let compass = Rect::from_center_size(c, Vec2::splat(r * 2.0 + 4.0));
-        let resp = ui.interact(compass, ui.id().with("kompas"), Sense::click_and_drag());
+        let resp = ui.interact(compass, ui.id().with("kompas"), if alpha > 0.05 { Sense::click_and_drag() } else { Sense::hover() });
         let hot = resp.hovered() || resp.dragged();
-        p.circle_filled(c + Vec2::new(0.0, 2.0), r + 1.0, Color32::from_black_alpha(90));
-        p.circle(
+        pc.circle_filled(c + Vec2::new(0.0, 2.0), r + 1.0, Color32::from_black_alpha(90));
+        pc.circle(
             c,
             r,
             Color32::from_rgba_unmultiplied(26, 29, 35, 242),
@@ -2695,7 +2811,7 @@ impl Atlas {
         );
         // kierunek patrzenia: stały znacznik u góry tarczy
         let top = c - Vec2::new(0.0, r);
-        p.add(egui::Shape::convex_polygon(
+        pc.add(egui::Shape::convex_polygon(
             vec![top + Vec2::new(0.0, 6.0), top + Vec2::new(-4.0, -1.0), top + Vec2::new(4.0, -1.0)],
             theme::BRASS,
             Stroke::NONE,
@@ -2714,29 +2830,29 @@ impl Atlas {
                 _ => (3.0, 1.0, theme::INK_4),
             };
             if len > 0.0 {
-                p.line_segment([c + d * (r - 2.0), c + d * (r - 2.0 - len)], Stroke::new(w, col));
+                pc.line_segment([c + d * (r - 2.0), c + d * (r - 2.0 - len)], Stroke::new(w, col));
             }
         }
         for (deg, s) in [(90.0, "E"), (180.0, "S"), (270.0, "W")] {
-            p.text(c + rot(deg) * (r - 9.0), Align2::CENTER_CENTER, s, FontId::proportional(9.5), theme::PAPER_3);
+            pc.text(c + rot(deg) * (r - 9.0), Align2::CENTER_CENTER, s, FontId::proportional(9.5), theme::PAPER_3);
         }
-        p.text(c + rot(0.0) * (r - 9.0), Align2::CENTER_CENTER, "N", FontId::proportional(11.0), theme::SIGNAL);
+        pc.text(c + rot(0.0) * (r - 9.0), Align2::CENTER_CENTER, "N", FontId::proportional(11.0), theme::SIGNAL);
         // igła: czerwona połowa na północ, jasna na południe, pochylona razem z kamerą
         let n = rot(0.0);
         let side = Vec2::new(-n.y, n.x) * 3.5;
         let tip = 15.0 * (0.45 + 0.55 * (self.cam.pitch as f32).to_radians().sin().abs()).min(1.0);
-        p.add(egui::Shape::convex_polygon(vec![c + n * tip, c + side, c - side], theme::SIGNAL, Stroke::NONE));
-        p.add(egui::Shape::convex_polygon(vec![c - n * tip, c - side, c + side], theme::PAPER_3, Stroke::NONE));
-        p.circle(c, 2.5, Color32::from_rgb(26, 29, 35), Stroke::new(1.0, theme::PAPER_3));
+        pc.add(egui::Shape::convex_polygon(vec![c + n * tip, c + side, c - side], theme::SIGNAL, Stroke::NONE));
+        pc.add(egui::Shape::convex_polygon(vec![c - n * tip, c - side, c + side], theme::PAPER_3, Stroke::NONE));
+        pc.circle(c, 2.5, Color32::from_rgb(26, 29, 35), Stroke::new(1.0, theme::PAPER_3));
         // odczyt kursu pod tarczą
         let hdg = (self.cam.heading.rem_euclid(360.0).round() as i32) % 360;
         const DIRS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
         let label = tf!("{:03}° {}", hdg, DIRS[((hdg as f32 + 22.5) / 45.0) as usize % 8]);
         let lp = c + Vec2::new(0.0, r + 11.0);
-        let galley = p.layout_no_wrap(label, FontId::monospace(10.5), theme::PAPER);
+        let galley = pc.layout_no_wrap(label, FontId::monospace(10.5), theme::PAPER);
         let bg = Rect::from_center_size(lp, galley.size() + Vec2::new(10.0, 4.0));
-        p.rect_filled(bg, 4.0, Color32::from_rgba_unmultiplied(26, 29, 35, 230));
-        p.galley(bg.center() - galley.size() / 2.0, galley, theme::PAPER);
+        pc.rect_filled(bg, 4.0, Color32::from_rgba_unmultiplied(26, 29, 35, 230));
+        pc.galley(bg.center() - galley.size() / 2.0, galley, theme::PAPER);
         // klik: północ; dwuklik: północ i widok z góry; przeciągnięcie w poziomie: obrót
         if resp.dragged() {
             self.cam.heading = (self.cam.heading - resp.drag_delta().x as f64 * 1.2).rem_euclid(360.0);
@@ -2792,6 +2908,7 @@ impl Atlas {
             }
         }
         let bar = Rect::from_min_max(rect.left_bottom() - Vec2::new(0.0, 24.0), rect.right_bottom());
+        self.glass.push((bar, 1.0));
         p.rect_filled(bar, 0.0, theme::GLASS_FILL);
         p.text(bar.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, info, FontId::monospace(11.5), theme::PAPER_2);
         let attr = match self.prefs.style {
@@ -2956,13 +3073,16 @@ impl Atlas {
 
     fn occluded_now(&self, view: &View, p: DVec3) -> bool {
         let e = view.eye;
-        let n = 14;
+        // krok ~ co 70 m (najwyżej 200 próbek): cienkie granie między okiem a punktem też zasłaniają
+        let len = (p.x - e.x).hypot(p.z - e.z);
+        let n = ((len / 70.0) as usize).clamp(16, 200);
         for k in 1..n {
             let f = k as f64 / n as f64;
             let q = e + (p - e) * f;
             let (lon, lat) = self.frame.to_lonlat(q.x, q.z);
-            if let Some(h) = self.heights.sample_at(lon, lat, 12, false) {
-                let hd = (q - e).truncate().length();
+            let h = self.heights.sample_at(lon, lat, 12, false).or_else(|| self.heights.sample_cached(lon, lat));
+            if let Some(h) = h {
+                let hd = (q.x - e.x).hypot(q.z - e.z);
                 let drop = hd * hd / (2.0 * crate::geo::EARTH_R) * 0.87;
                 if h as f64 * self.prefs.exag - drop > q.y + 15.0 {
                     return true;

@@ -537,3 +537,27 @@ Brak sumy SHA-512 w latest.yml.	No SHA-512 checksum in latest.yml.
 Pobrany instalator ma niezgodną sumę kontrolną – spróbuj ponownie później.	The downloaded installer's checksum does not match – please try again later.
 Instalacja aktualizacji została przerwana (brak zgody administratora?).	The update installation was interrupted (no administrator approval?).
 Aktualizacje tylko w systemie Windows.	Updates are available on Windows only.
+Grań	Ridge
+Hala / polana	Meadow / clearing
+Źródło	Spring
+Dolina	Valley
+Nazwy na mapie	Names on the map
+Pokaż nazwy (L)	Show names (L)
+nazwy są wyłączone (L)	names are turned off (L)
+Wysokość przy szczytach i przełęczach	Elevation next to peaks and passes
+Nazwy pokazują się tylko dla miejsc, które widać – te za graniami są ukryte. Granie, doliny, hale i źródła doczytują się razem ze szlakami okolicy.	Names appear only for places you can see – those behind ridges are hidden. Ridges, valleys, meadows and springs load together with the area's trails.
+Linie	Lines
+Szczyty	Peaks
+Przełęcze	Passes
+Granie	Ridges
+Doliny	Valleys
+Schroniska	Mountain huts
+Wiaty	Shelters
+Stawy i jeziora	Lakes
+Wodospady	Waterfalls
+Źródła	Springs
+Jaskinie	Caves
+Punkty widokowe	Viewpoints
+Hale i polany	Meadows
+Miasta	Towns
+Wsie	Villages

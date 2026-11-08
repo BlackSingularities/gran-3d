@@ -144,6 +144,19 @@ pub struct Scene {
     pub animate: bool,
 }
 
+/// Najwięcej prostokątów rozmycia pod szkłem interfejsu.
+pub const GLASS_MAX: usize = 12;
+
+/// Rozmycie obrazu pod paskami: prostokąty (u0, v0, u1, v1), siła 0–1, liczba i rozmiar teksela.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct GlassUniform {
+    rects: [[f32; 4]; GLASS_MAX],
+    amount: [[f32; 4]; GLASS_MAX / 4],
+    /// liczba prostokątów, 1/szerokość, 1/wysokość, promień rozmycia (piksele bufora)
+    info: [f32; 4],
+}
+
 struct Targets {
     size: [u32; 2],
     color_ms: wgpu::TextureView,
@@ -177,6 +190,7 @@ pub struct Renderer {
     blit_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     clamp_sampler: wgpu::Sampler,
+    glass_buf: wgpu::Buffer,
     vbuf: wgpu::Buffer,
     ibuf: wgpu::Buffer,
     index_count: u32,
@@ -283,6 +297,7 @@ impl Renderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                uniform(2, wgpu::ShaderStages::FRAGMENT, false),
             ],
         });
         let buf = |label, size, usage| {
@@ -297,6 +312,7 @@ impl Renderer {
         let tile_buf = buf("tiles", TILE_STRIDE * MAX_TILES, wgpu::BufferUsages::UNIFORM);
         let sky_buf = buf("sky", std::mem::size_of::<SkyUniform>() as u64, wgpu::BufferUsages::UNIFORM);
         let line_params = buf("line-params", 16, wgpu::BufferUsages::UNIFORM);
+        let glass_buf = buf("szklo", std::mem::size_of::<GlassUniform>() as u64, wgpu::BufferUsages::UNIFORM);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("liniowy"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -545,6 +561,7 @@ impl Renderer {
             blit_layout,
             sampler,
             clamp_sampler,
+            glass_buf,
             vbuf,
             ibuf,
             index_count: idx.len() as u32,
@@ -671,6 +688,7 @@ impl Renderer {
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&resolved) },
                 wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.clamp_sampler) },
+                wgpu::BindGroupEntry { binding: 2, resource: self.glass_buf.as_entire_binding() },
             ],
         });
         self.targets = Some(Targets { size, color_ms, resolved, depth, blit_bind });
@@ -734,12 +752,22 @@ impl Renderer {
     }
 
     /// Klatka 3D do bufora poza ekranem; zwraca wywołanie zwrotne do wklejenia w egui.
-    pub fn render(&mut self, view: &View, scene: &Scene, dyn_lines: &[LineInst], ppp: f32) -> (Blit, Vec<DrawTile>) {
+    /// `glass` – prostokąty pod szkłem interfejsu we współrzędnych 0–1 widoku i siła rozmycia.
+    pub fn render(&mut self, view: &View, scene: &Scene, dyn_lines: &[LineInst], ppp: f32, glass: &[([f32; 4], f32)]) -> (Blit, Vec<DrawTile>) {
         let any = self.tiles.receive(&self.device, &self.queue);
         let size = [
             ((view.size[0] * ppp * scene.render_scale).round() as u32).max(1),
             ((view.size[1] * ppp * scene.render_scale).round() as u32).max(1),
         ];
+        let mut gu = GlassUniform { rects: [[0.0; 4]; GLASS_MAX], amount: [[0.0; 4]; GLASS_MAX / 4], info: [0.0; 4] };
+        let n = glass.len().min(GLASS_MAX);
+        for (i, (r, a)) in glass.iter().take(n).enumerate() {
+            gu.rects[i] = *r;
+            gu.amount[i / 4][i % 4] = a.clamp(0.0, 1.0);
+        }
+        // promień ok. 14 punktów ekranu, w pikselach bufora
+        gu.info = [n as f32, 1.0 / size[0] as f32, 1.0 / size[1] as f32, 14.0 * ppp * scene.render_scale];
+        self.queue.write_buffer(&self.glass_buf, 0, bytemuck::bytes_of(&gu));
         self.ensure_targets(size);
         let settings = TileSettings {
             target_px: scene.detail_px,
