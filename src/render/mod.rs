@@ -66,6 +66,18 @@ struct SkyUniform {
     sun_color: [f32; 4],
 }
 
+/// Drzewo: położenie w ramce (y – wysokość terenu w m) i parametry: wysokość, promień korony, rodzaj, ziarno.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug)]
+pub struct TreeInst {
+    pub pos: [f32; 3],
+    pub p: [f32; 4],
+}
+
+/// Wierzchołki bryły bliskiego drzewa i dalekiej piramidki (zob. trees.wgsl).
+const TREE_NEAR_VERTS: u32 = 66;
+const TREE_FAR_VERTS: u32 = 12;
+
 /// Odcinek linii: końce w ramce (y – wysokość rzeczywista), kolor liniowy RGBA, grubość i przesunięcie (px).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
@@ -126,6 +138,10 @@ pub struct Scene {
     pub land_rect: [f32; 4],
     pub water_rect: [f32; 4],
     pub time: f32,
+    /// Drzewa z pokrycia terenu.
+    pub trees: bool,
+    /// Ruch w scenie (kamera, mysz, klawisze): fale wody animowane na bieżąco.
+    pub animate: bool,
 }
 
 struct Targets {
@@ -166,6 +182,9 @@ pub struct Renderer {
     index_count: u32,
     targets: Option<Targets>,
     static_lines: (wgpu::Buffer, u32, u64),
+    /// Drzewa: bufor instancji, liczba bliskich (szczegółowych), liczba wszystkich, wersja.
+    trees: (wgpu::Buffer, u32, u32, u64),
+    trees_pipe: wgpu::RenderPipeline,
     dyn_lines: (wgpu::Buffer, u32),
     shadow: OverlayTex,
     vs: OverlayTex,
@@ -177,6 +196,10 @@ pub struct Renderer {
     empty_land: wgpu::TextureView,
     empty_water: wgpu::TextureView,
     pub drawn: usize,
+    /// Odcisk wejścia ostatnio narysowanej klatki; ten sam – klatka 3D nie jest liczona od nowa.
+    last_key: u64,
+    /// Wymuszenie ponownego rysowania (nowe tekstury, bufory, rozmiar).
+    dirty: bool,
 }
 
 /// Brak wody w teksturze poziomów lustra.
@@ -322,6 +345,7 @@ impl Renderer {
         };
         let terrain_sh = module("teren", include_str!("terrain.wgsl"));
         let lines_sh = module("linie", include_str!("lines.wgsl"));
+        let trees_sh = module("drzewa", include_str!("trees.wgsl"));
         let sky_sh = module("niebo", include_str!("sky.wgsl"));
         let blit_sh = module("blit", include_str!("blit.wgsl"));
         let layout = |label, groups: &[&wgpu::BindGroupLayout]| {
@@ -415,6 +439,37 @@ impl Renderer {
             multiview: None,
             cache: None,
         });
+        let trees_pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("drzewa"),
+            layout: Some(&layout("drzewa", &[&globals_layout])),
+            vertex: wgpu::VertexState {
+                module: &trees_sh,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<TreeInst>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4],
+                }],
+            },
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: ms,
+            fragment: Some(wgpu::FragmentState {
+                module: &trees_sh,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format: COLOR, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview: None,
+            cache: None,
+        });
         let target = rs.target_format;
         let gamma = !target.is_srgb();
         let blit = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -457,6 +512,7 @@ impl Renderer {
         let ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("indeksy"), contents: bytemuck::cast_slice(&idx), usage: wgpu::BufferUsages::INDEX });
         let line_buf = |n: u64| buf("linie", n * std::mem::size_of::<LineInst>() as u64, wgpu::BufferUsages::VERTEX);
         let static_lines = (line_buf(1), 0, u64::MAX);
+        let trees = (line_buf(1), 0, 0, u64::MAX);
         let dyn_lines = (line_buf(1024), 0);
         let empty_land = tiles::make_texture(&device, &queue, wgpu::TextureFormat::Rgba8Unorm, 1, 1, &[vec![0, 0, 0, 0]], 4).create_view(&Default::default());
         let empty_water = tiles::make_texture(&device, &queue, wgpu::TextureFormat::R32Float, 1, 1, &[bytemuck::cast_slice(&[NO_WATER]).to_vec()], 4).create_view(&Default::default());
@@ -494,8 +550,12 @@ impl Renderer {
             index_count: idx.len() as u32,
             targets: None,
             static_lines,
+            trees,
+            trees_pipe,
             dyn_lines,
             drawn: 0,
+            last_key: 0,
+            dirty: true,
         }
     }
 
@@ -524,6 +584,7 @@ impl Renderer {
     }
 
     fn rebind_globals(&mut self) {
+        self.dirty = true;
         self.globals_bind = Self::make_globals_bind(&self.device, &self.globals_layout, &self.globals_buf, &self.sampler, &self.shadow.view, &self.vs.view, &self.land.view, &self.water);
     }
 
@@ -586,6 +647,7 @@ impl Renderer {
         if self.targets.as_ref().is_some_and(|t| t.size == size) {
             return;
         }
+        self.dirty = true;
         let mk = |format, samples, usage| {
             self.device
                 .create_texture(&wgpu::TextureDescriptor {
@@ -629,12 +691,40 @@ impl Renderer {
         }
     }
 
+    /// Drzewa – wysyłane tylko po zmianie (`version`); pierwsze `near` rysowane szczegółowo.
+    pub fn set_trees(&mut self, version: u64, trees: &[TreeInst], near: usize) {
+        if self.trees.3 == version {
+            return;
+        }
+        let need = (trees.len().max(1) * std::mem::size_of::<TreeInst>()) as u64;
+        if self.trees.0.size() < need {
+            self.trees.0 = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("drzewa"),
+                size: need.next_power_of_two(),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !trees.is_empty() {
+            self.queue.write_buffer(&self.trees.0, 0, bytemuck::cast_slice(trees));
+        }
+        self.dirty = true;
+        self.trees.1 = near.min(trees.len()) as u32;
+        self.trees.2 = trees.len() as u32;
+        self.trees.3 = version;
+    }
+
+    pub fn trees_version(&self) -> u64 {
+        self.trees.3
+    }
+
     /// Linie stałe (szlaki) – wysyłane tylko po zmianie (`version`).
     pub fn set_static_lines(&mut self, version: u64, lines: &[LineInst]) {
         if self.static_lines.2 == version {
             return;
         }
         Self::upload_lines(&self.device, &self.queue, &mut self.static_lines.0, lines);
+        self.dirty = true;
         self.static_lines.1 = lines.len() as u32;
         self.static_lines.2 = version;
     }
@@ -646,7 +736,6 @@ impl Renderer {
     /// Klatka 3D do bufora poza ekranem; zwraca wywołanie zwrotne do wklejenia w egui.
     pub fn render(&mut self, view: &View, scene: &Scene, dyn_lines: &[LineInst], ppp: f32) -> (Blit, Vec<DrawTile>) {
         let any = self.tiles.receive(&self.device, &self.queue);
-        let _ = any;
         let size = [
             ((view.size[0] * ppp * scene.render_scale).round() as u32).max(1),
             ((view.size[1] * ppp * scene.render_scale).round() as u32).max(1),
@@ -726,7 +815,29 @@ impl Renderer {
             self.queue.write_buffer(&self.tile_buf, 0, &tbytes);
         }
 
+        // nieruchomy obraz: to samo wejście co w poprzedniej klatce i nic nowego nie doszło –
+        // zostaje gotowa klatka (bez rysowania terenu, MSAA i shaderów), egui tylko ją wkleja
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            let mut gk = g;
+            gk.water = [0.0; 4]; // sama animacja fal nie wymusza klatki, gdy widok stoi
+            bytemuck::bytes_of(&gk).hash(&mut h);
+            tbytes.hash(&mut h);
+            bytemuck::cast_slice::<LineInst, u8>(dyn_lines).hash(&mut h);
+            (n, size, scene.trees, self.static_lines.1, self.trees.2).hash(&mut h);
+            for d in draw.iter().take(n) {
+                (d.dem, d.img.map(|x| x.0)).hash(&mut h);
+            }
+            h.finish()
+        };
+        let skip = !any && !self.dirty && key == self.last_key && !scene.animate;
+        self.last_key = key;
+        self.dirty = false;
         let t = self.targets.as_ref().unwrap();
+        if skip {
+            return (Blit { pipeline: self.blit.clone(), bind: t.blit_bind.clone() }, draw);
+        }
         let mut enc = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("3D") });
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -758,6 +869,15 @@ impl Renderer {
                 pass.set_bind_group(2, self.tiles.dem_bind(d.dem), &[]);
                 pass.set_bind_group(3, self.tiles.img_bind(d.img.map(|x| x.0)), &[]);
                 pass.draw_indexed(0..self.index_count, 0, 0..1);
+            }
+
+            if scene.trees && self.trees.2 > 0 {
+                pass.set_pipeline(&self.trees_pipe);
+                pass.set_bind_group(0, &self.globals_bind, &[]);
+                pass.set_vertex_buffer(0, self.trees.0.slice(..));
+                // blisko szczegółowe bryły, dalej proste piramidki
+                pass.draw(0..TREE_NEAR_VERTS, 0..self.trees.1);
+                pass.draw(TREE_NEAR_VERTS..TREE_NEAR_VERTS + TREE_FAR_VERTS, self.trees.1..self.trees.2);
             }
 
             pass.set_pipeline(&self.lines);
@@ -812,6 +932,7 @@ mod tests {
     fn shaders_validate() {
         check(include_str!("terrain.wgsl"));
         check(include_str!("lines.wgsl"));
+        check(include_str!("trees.wgsl"));
         check(include_str!("sky.wgsl"));
         check(include_str!("blit.wgsl"));
     }

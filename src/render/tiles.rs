@@ -130,6 +130,8 @@ pub struct Tiles {
     missing: HashSet<Key>,
     /// Kafle narysowane w ostatniej klatce: poziom użytego terenu.
     rendered: HashMap<TileId, u8>,
+    /// Kafle podzielone w poprzedniej klatce (histereza podziału – bez migania poziomów szczegółów).
+    split: HashSet<TileId>,
     /// Nieudane składanie ortofoto z dysku: klatka próby.
     local_miss: HashMap<TileId, u64>,
     frame: u64,
@@ -192,6 +194,7 @@ impl Tiles {
             ortho_memo: HashMap::new(),
             missing: HashSet::new(),
             rendered: HashMap::new(),
+            split: HashSet::new(),
             local_miss: HashMap::new(),
             frame: 0,
             dem_layout,
@@ -329,6 +332,7 @@ impl Tiles {
     pub fn select(&mut self, view: &View, s: &TileSettings) -> Vec<DrawTile> {
         self.frame += 1;
         self.rendered.clear();
+        let prev_split = std::mem::take(&mut self.split);
         let frame = view.frame;
         let planes = frustum(view);
         let focal = view.size[1] as f64 * 0.5 / (45f64.to_radians() / 2.0).tan();
@@ -416,7 +420,11 @@ impl Tiles {
                 }
                 continue;
             }
-            if t.z < MAX_RENDER_Z && (px_size > s.target_px as f64 || t.z < 6) {
+            // histereza: kafel podzielony w poprzedniej klatce scala się dopiero wyraźnie poniżej progu
+            // (bez niej zmiana granic wysokości po wczytaniu dziecka przełącza poziom co klatkę – miganie)
+            let thr = s.target_px as f64 * if prev_split.contains(&t) { 0.75 } else { 1.0 };
+            if t.z < MAX_RENDER_Z && (px_size > thr || t.z < 6) {
+                self.split.insert(t);
                 let (x, y, z) = (t.x * 2, t.y * 2, t.z + 1);
                 for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                     stack.push(TileId::new(z, x + dx, y + dy));
@@ -521,7 +529,14 @@ impl Tiles {
             }
             cv.notify_all();
         }
-        self.evict(s);
+        self.evict(s, (view.eye.x / frame.m + frame.ox, view.eye.z / frame.m + frame.oy), frame.m);
+        // od najbliższych: zasłonięte piksele dalszych gór karta odrzuca przed liczeniem shadera
+        let (ex, ez) = (view.eye.x as f32, view.eye.z as f32);
+        let d2 = |t: &DrawTile| {
+            let (cx, cz) = (t.rect[0] + t.rect[2] * 0.5, t.rect[1] + t.rect[2] * 0.5);
+            (cx - ex).powi(2) + (cz - ez).powi(2)
+        };
+        out.sort_by(|a, b| d2(a).total_cmp(&d2(b)));
         out
     }
 
@@ -546,19 +561,34 @@ impl Tiles {
         None
     }
 
-    fn evict(&mut self, s: &TileSettings) {
+    /// Zwalnianie pamięci GPU: najpierw kafle dalekie i dawno nieużywane. Kafle w promieniu
+    /// kilku km od oka zostają, nawet gdy chwilowo są poza kadrem – przy rozglądaniu się
+    /// (spacer, obrót o 360°) zdjęcia i ortofoto nie wczytują się od nowa.
+    fn evict(&mut self, s: &TileSettings, eye: (f64, f64), m: f64) {
+        const KEEP_M: f64 = 3500.0;
+        let near = |t: &TileId| {
+            let n = (1u64 << t.z) as f64;
+            let (cx, cy) = ((t.x as f64 + 0.5) / n, (t.y as f64 + 0.5) / n);
+            let half = 0.5 / n * m;
+            ((cx - eye.0).hypot(cy - eye.1) * m - half) < KEEP_M
+        };
+        let frame = self.frame;
+        // klucz: bliskie przed dalekimi, potem świeżość użycia
+        let score = |t: &TileId, used: u64| if near(t) { u64::MAX / 2 + used.min(frame) } else { used };
         if self.dem.len() > s.max_dem {
-            let mut ages: Vec<u64> = self.dem.values().map(|d| d.used).collect();
+            let mut ages: Vec<u64> = self.dem.iter().map(|(t, d)| score(t, d.used)).collect();
             ages.sort_unstable();
             let cut = ages[self.dem.len() - s.max_dem * 4 / 5];
             // kafle z ≤ 6 zostają (tło całego widoku)
-            self.dem.retain(|t, d| d.used >= cut || t.z <= 6);
+            // kafle rysowane w ostatnich klatkach nigdy nie wypadają: inaczej teren widoczny na ekranie
+            // na przemian wczytuje się i znika (miganie gładkiego, zgrubnego kafla)
+            self.dem.retain(|t, d| score(t, d.used) >= cut || d.used + 3 >= frame || t.z <= 6);
         }
         if self.img.len() > s.max_img {
-            let mut ages: Vec<u64> = self.img.values().map(|d| d.used).collect();
+            let mut ages: Vec<u64> = self.img.iter().map(|(k, d)| score(&k.1, d.used)).collect();
             ages.sort_unstable();
             let cut = ages[self.img.len() - s.max_img * 4 / 5];
-            self.img.retain(|k, d| d.used >= cut || k.1.z <= 6);
+            self.img.retain(|k, d| score(&k.1, d.used) >= cut || d.used + 3 >= frame || k.1.z <= 6);
         }
     }
 

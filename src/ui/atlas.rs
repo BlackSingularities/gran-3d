@@ -19,7 +19,7 @@ use crate::heights::{Grid, Heights};
 use crate::metrics::{self, TimeModel};
 use crate::osm::{PoiKind, SectorId};
 use crate::render::camera::{Camera, Frame, View};
-use crate::render::{LineInst, Renderer, Scene};
+use crate::render::{LineInst, Renderer, Scene, TreeInst};
 use crate::sun::{self, Day};
 use crate::ui::theme;
 use crate::world::{Snapshot, World};
@@ -277,7 +277,15 @@ enum JobResult {
     Rel(u64, RelInfo),
     Los(u64, Option<f64>, f64),
     Land(Option<Box<(Vec<u8>, u32, [f64; 4], Option<(Vec<f32>, [f64; 4])>)>>),
+    /// Drzewa: klucz, instancje (najpierw bliskie), liczba bliskich.
+    Trees(TreesKey, Vec<TreeInst>, usize),
 }
+
+/// Położenie (co 200 m), oko (co 150 m), wersja pokrycia i ramki – po zmianie drzewa liczone od nowa.
+type TreesKey = (i64, i64, i64, i64, u64, u64);
+
+/// Mozaika pokrycia terenu trzymana do rozmieszczania drzew: dane RGBA, bok, prostokąt świata.
+type LandData = Arc<(Vec<u8>, u32, [f64; 4])>;
 
 /// Prośby atlasu do aplikacji.
 #[derive(Default)]
@@ -332,6 +340,18 @@ pub struct Atlas {
     epoch: Instant,
     land_busy: bool,
     land_rect: Option<[f64; 4]>,
+    land_data: Option<LandData>,
+    land_ver: u64,
+    trees: Vec<TreeInst>,
+    trees_near: usize,
+    trees_key: Option<TreesKey>,
+    trees_busy: bool,
+    trees_ver: u64,
+    /// Spacer: wysokość skoku nad ziemią (m) i prędkość pionowa (m/s).
+    walk_up: f64,
+    walk_vy: f64,
+    /// Pamięć zasłaniania etykiet: położenie oka, czas, wyniki dla punktów.
+    occl_cache: std::cell::RefCell<((i64, i64, i64, i64), Instant, std::collections::HashMap<(i64, i64), bool>)>,
     gen: u64,
     tx: std::sync::mpsc::Sender<JobResult>,
     rx: Receiver<JobResult>,
@@ -412,6 +432,16 @@ impl Atlas {
             epoch: Instant::now(),
             land_busy: false,
             land_rect: None,
+            land_data: None,
+            land_ver: 0,
+            trees: Vec::new(),
+            trees_near: 0,
+            trees_key: None,
+            trees_busy: false,
+            trees_ver: 0,
+            walk_up: 0.0,
+            walk_vy: 0.0,
+            occl_cache: std::cell::RefCell::new(((0, 0, 0, 0), Instant::now(), Default::default())),
             gen: 0,
             tx,
             rx,
@@ -620,7 +650,9 @@ impl Atlas {
         self.cam.height = h + 1.7 / self.prefs.exag.max(1.0);
         self.cam.distance = 2.0;
         self.cam.pitch = -2.0;
-        self.notify("Panorama: przeciągnij, żeby się rozejrzeć · Esc – powrót");
+        self.walk_up = 0.0;
+        self.walk_vy = 0.0;
+        self.notify("Spacer: W A S D – chodzenie, Shift – bieg, spacja – skok, prawy przycisk – rozglądanie · Esc – wyjście");
     }
 
     pub fn exit_panorama(&mut self) {
@@ -1034,6 +1066,115 @@ impl Atlas {
         });
     }
 
+    /// Czy rysować drzewa: pokrycie terenu włączone, styl realistyczny, kamera dość blisko.
+    fn trees_on(&self) -> bool {
+        self.prefs.landcover
+            && matches!(self.prefs.style, Style::Terrain | Style::Satellite)
+            && (self.cam.distance < 14_000.0 || self.panorama.is_some())
+    }
+
+    /// Rozmieszczenie drzew z maski lasu wokół celu kamery, w tle. Bliskie (do ~650 m od oka)
+    /// dostają szczegółowe bryły, dalsze proste piramidki; dalej niż kilka km las jest tylko na teksturze.
+    fn maybe_trees(&mut self, view: &View) {
+        if !self.trees_on() || self.trees_busy {
+            return;
+        }
+        let Some(land) = self.land_data.clone() else { return };
+        let (tx_, tz_) = self.frame.to_local(self.cam.lon, self.cam.lat);
+        let (ex, ez) = (view.eye.x, view.eye.z);
+        let key = (
+            (tx_ / 200.0).round() as i64,
+            (tz_ / 200.0).round() as i64,
+            (ex / 150.0).round() as i64,
+            (ez / 150.0).round() as i64,
+            self.land_ver,
+            self.frame_version,
+        );
+        if self.trees_key == Some(key) {
+            return;
+        }
+        self.trees_key = Some(key);
+        self.trees_busy = true;
+        let (tx, heights, frame) = (self.tx.clone(), self.heights.clone(), self.frame);
+        // promień: z wysoka szerzej, z bliska węziej (i tak widać tylko najbliższe)
+        let radius = (self.cam.distance * 0.9).clamp(1400.0, 3600.0);
+        thread::spawn(move || {
+            let (data, side, rect) = (&land.0, land.1 as f64, land.2);
+            const STEP: f64 = 15.0;
+            const MAX: usize = 70_000;
+            const NEAR: f64 = 650.0;
+            let hash = |a: i64, b: i64, k: u64| {
+                let mut h = (a as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (b as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F) ^ k.wrapping_mul(0x1656_67B1_9E37_79F9);
+                h ^= h >> 31;
+                h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                h ^= h >> 29;
+                (h >> 11) as f64 / (1u64 << 53) as f64
+            };
+            let mut near = Vec::new();
+            let mut far = Vec::new();
+            let n = (radius / STEP).ceil() as i64;
+            let (cx, cz) = ((tx_ / STEP).round() as i64, (tz_ / STEP).round() as i64);
+            'outer: for iz in -n..=n {
+                for ix in -n..=n {
+                    let (gx, gz) = (cx + ix, cz + iz);
+                    let jx = (hash(gx, gz, 1) - 0.5) * STEP * 0.9;
+                    let jz = (hash(gx, gz, 2) - 0.5) * STEP * 0.9;
+                    let (x, z) = (gx as f64 * STEP + jx, gz as f64 * STEP + jz);
+                    let d_c = (x - tx_).hypot(z - tz_);
+                    if d_c > radius {
+                        continue;
+                    }
+                    let (lon, lat) = frame.to_lonlat(x, z);
+                    let (wx, wy) = (lon_to_x(lon), lat_to_y(lat));
+                    let u = ((wx - rect[0]) / (rect[2] - rect[0]) * side) as i64;
+                    let v = ((wy - rect[1]) / (rect[3] - rect[1]) * side) as i64;
+                    if u < 0 || v < 0 || u >= side as i64 || v >= side as i64 {
+                        continue;
+                    }
+                    let i = ((v * side as i64 + u) * 4) as usize;
+                    let (water, forest, rock, alpha) = (data[i] as f64 / 255.0, data[i + 1] as f64 / 255.0, data[i + 2] as f64 / 255.0, data[i + 3]);
+                    if alpha == 0 || water > 0.5 {
+                        continue;
+                    }
+                    let scrub = rock > 0.3 && rock < 0.55;
+                    let roll = hash(gx, gz, 3);
+                    let keep = if forest > 0.4 { roll < 0.85 * forest } else if scrub { roll < 0.35 } else { false };
+                    if !keep {
+                        continue;
+                    }
+                    let Some(e) = heights.sample_cached(lon, lat) else { continue };
+                    let seed = hash(gx, gz, 4) as f32;
+                    let size = 0.75 + 0.5 * hash(gx, gz, 5) as f32;
+                    // rodzaj: kosodrzewina na zaroślach i wysoko, niżej mieszany las, wyżej świerki
+                    let (kind, h, r) = if scrub || e > 1550.0 {
+                        (2.0, 2.2 * size, 1.6 * size)
+                    } else if e < 900.0 && seed < 0.55 || e < 1200.0 && seed < 0.25 {
+                        (1.0, 20.0 * size, 5.0 * size)
+                    } else {
+                        (0.0, 24.0 * size, 3.6 * size)
+                    };
+                    // na skraju promienia drzewa maleją – bez ostrej granicy
+                    let edge = 1.0 - ((d_c / radius - 0.85) / 0.15).clamp(0.0, 1.0) as f32;
+                    if edge <= 0.02 {
+                        continue;
+                    }
+                    let t = TreeInst { pos: [x as f32, e, z as f32], p: [h * edge, r * edge.sqrt(), kind, seed] };
+                    if (x - ex).hypot(z - ez) < NEAR {
+                        near.push(t);
+                    } else {
+                        far.push(t);
+                    }
+                    if near.len() + far.len() >= MAX {
+                        break 'outer;
+                    }
+                }
+            }
+            let nn = near.len();
+            near.extend(far);
+            let _ = tx.send(JobResult::Trees(key, near, nn));
+        });
+    }
+
     fn receive_jobs(&mut self) {
         while let Ok(r) = self.rx.try_recv() {
             match r {
@@ -1095,11 +1236,23 @@ impl Atlas {
                             }
                             self.water_rect = water.map(|(_, r)| r);
                             self.land_rect = Some(rect);
+                            self.land_data = Some(Arc::new((data, side, rect)));
+                            self.land_ver += 1;
                         }
                         None => {
                             self.land_rect = None;
                             self.water_rect = None;
+                            self.land_data = None;
+                            self.land_ver += 1;
                         }
+                    }
+                }
+                JobResult::Trees(key, t, near) => {
+                    self.trees_busy = false;
+                    if self.trees_key == Some(key) {
+                        self.trees = t;
+                        self.trees_near = near;
+                        self.trees_ver += 1;
                     }
                 }
                 _ => {}
@@ -1167,10 +1320,57 @@ impl Atlas {
         DVec3::new(x, e as f64 * self.prefs.exag, z)
     }
 
+    /// Spacer po terenie: W/S – przód/tył, A/D – w bok, Shift – bieg, spacja – skok (z grawitacją).
+    fn walk(&mut self, ctx: &egui::Context) {
+        let (dt, fwd, side, run, jump) = ctx.input(|i| {
+            let k = |a: egui::Key| i.key_down(a) as i32 as f64;
+            (
+                i.stable_dt.min(0.05) as f64,
+                k(egui::Key::W) - k(egui::Key::S),
+                k(egui::Key::D) - k(egui::Key::A),
+                i.modifiers.shift,
+                i.key_pressed(egui::Key::Space),
+            )
+        });
+        let moving = fwd != 0.0 || side != 0.0;
+        if moving {
+            let speed = if run { 22.0 } else { 6.0 };
+            let len = fwd.hypot(side);
+            let (f, s) = (fwd / len * speed * dt, side / len * speed * dt);
+            let h = self.cam.heading.to_radians();
+            let east = h.sin() * f + h.cos() * s;
+            let north = h.cos() * f - h.sin() * s;
+            let kx = 111_320.0 * self.cam.lat.to_radians().cos();
+            self.cam.lon = (self.cam.lon + east / kx + 540.0).rem_euclid(360.0) - 180.0;
+            self.cam.lat = (self.cam.lat + north / 110_574.0).clamp(-84.0, 84.0);
+        }
+        if jump && self.walk_up <= 0.0 {
+            self.walk_vy = 4.2;
+        }
+        if self.walk_up > 0.0 || self.walk_vy > 0.0 {
+            self.walk_vy -= 9.81 * dt;
+            self.walk_up = (self.walk_up + self.walk_vy * dt).max(0.0);
+            if self.walk_up <= 0.0 {
+                self.walk_vy = 0.0;
+            }
+        }
+        if let Some(g) = self.heights.sample_cached(self.cam.lon, self.cam.lat) {
+            let exag = self.prefs.exag.max(1.0);
+            self.cam.height = g as f64 + (1.7 + self.walk_up) / exag;
+        }
+        if moving || self.walk_up > 0.0 {
+            ctx.request_repaint();
+        }
+    }
+
     fn keyboard(&mut self, ctx: &egui::Context) {
         if ctx.wants_keyboard_input() {
             return;
         }
+        if self.panorama.is_some() {
+            self.walk(ctx);
+        }
+        let walking = self.panorama.is_some();
         let (mut pan, mut rot, mut tilt, mut zoom) = (Vec2::ZERO, 0.0f64, 0.0f64, 0.0f64);
         let mut events = Vec::new();
         ctx.input(|i| {
@@ -1208,6 +1408,10 @@ impl Atlas {
             pan *= dt as f32;
             for e in &i.events {
                 if let egui::Event::Key { key, pressed: true, modifiers, repeat: false, .. } = e {
+                    // w spacerze W A S D i spacja służą do chodzenia
+                    if walking && matches!(key, egui::Key::W | egui::Key::A | egui::Key::S | egui::Key::D | egui::Key::Space) {
+                        continue;
+                    }
                     events.push((*key, *modifiers));
                 }
             }
@@ -1618,6 +1822,7 @@ impl Atlas {
         // analizy zależne od kursora i Słońca
         self.maybe_shadows();
         self.maybe_landcover();
+        self.maybe_trees(&view);
         if self.lens == Lens::Vis && self.lens_pin.is_none() {
             if let Some((lon, lat, _)) = self.hover {
                 let moved = self.live_vs.is_none_or(|(a, b)| haversine(a, b, lon, lat) > 60.0);
@@ -1637,6 +1842,9 @@ impl Atlas {
             if r.static_version() != key {
                 let tl = if self.prefs.trails { trail_lines(&self.snap, &self.frame, ppp, dim) } else { Vec::new() };
                 r.set_static_lines(key, &tl);
+            }
+            if r.trees_version() != self.trees_ver {
+                r.set_trees(self.trees_ver, &self.trees, self.trees_near);
             }
             let (blit, _) = r.render(&view, &scene, &lines, ppp);
             ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, blit));
@@ -1663,10 +1871,16 @@ impl Atlas {
             self.fps.2 = self.fps.1 as f32 / self.fps.0.elapsed().as_secs_f32();
             self.fps = (Instant::now(), 0, self.fps.2);
         }
-        if self.status_line.is_empty() && self.fly.is_none() && self.flight.is_none() {
-            ctx.request_repaint_after(Duration::from_millis(500));
-        } else {
+        // pełna szybkość tylko przy ruchu (animacja kamery, mysz, klawisze); samo wczytywanie
+        // przy nieruchomym widoku wystarczy pokazywać ~30 kl./s – obraz ten sam, karta odpoczywa
+        let user = ctx.input(|i| i.pointer.is_moving() || i.pointer.any_down() || !i.keys_down.is_empty() || i.smooth_scroll_delta != Vec2::ZERO);
+        if self.fly.is_some() || self.flight.is_some() || user {
             ctx.request_repaint();
+        } else if !self.status_line.is_empty() {
+            ctx.request_repaint_after(Duration::from_millis(33));
+        } else {
+            // spoczynek: rzadkie odświeżenie (zegar, stan); klatka 3D i tak nie jest liczona od nowa
+            ctx.request_repaint_after(Duration::from_millis(1000));
         }
     }
 
@@ -1726,9 +1940,7 @@ impl Atlas {
                     w.e = e;
                 }
             } else if self.panorama.is_some() {
-                let d = resp.drag_delta();
-                self.cam.heading = (self.cam.heading - d.x as f64 * 0.15).rem_euclid(360.0);
-                self.cam.pitch = (self.cam.pitch - d.y as f64 * 0.12).clamp(-35.0, 60.0);
+                // spacer: lewy przycisk to zwykły wskaźnik (rozglądanie – prawym)
             } else if let (Some(g), Some(p)) = (self.drag_grab, pointer) {
                 // chwycony punkt terenu zostaje pod kursorem
                 let dir = view.ray(to_px(p));
@@ -1959,6 +2171,8 @@ impl Atlas {
             land_rect: to_rect(self.land_rect),
             water_rect: to_rect(self.water_rect),
             time: self.epoch.elapsed().as_secs_f32() % 3600.0,
+            trees: self.trees_on() && !self.trees.is_empty(),
+            animate: self.fly.is_some() || self.flight.is_some(),
         }
     }
 
@@ -2109,10 +2323,12 @@ impl Atlas {
                 let font = FontId::proportional(size);
                 let galley = p.layout_no_wrap(label, font, color);
                 let lr = Rect::from_min_size(sp + Vec2::new(7.0, -galley.size().y - 3.0), galley.size()).expand(2.0);
-                if taken.iter().any(|t| t.intersects(lr)) {
+                // w panoramie pod nazwą jest jeszcze odległość – miejsce zajmuje też ona
+                let busy = if self.panorama.is_some() { Rect::from_min_max(lr.min, lr.max + Vec2::new(0.0, 13.0)) } else { lr };
+                if taken.iter().any(|t| t.intersects(busy)) {
                     continue;
                 }
-                taken.push(lr);
+                taken.push(busy);
                 shown += 1;
                 shown_places += is_place as usize;
                 let dot = match poi.poi.kind {
@@ -2137,7 +2353,14 @@ impl Atlas {
                 p.galley(tp, galley, color);
                 if self.panorama.is_some() {
                     let d = haversine(self.cam.lon, self.cam.lat, poi.poi.lon, poi.poi.lat);
-                    p.text(lr.left_bottom() + Vec2::new(2.0, 1.0), Align2::LEFT_TOP, fmt::dist(d), FontId::monospace(10.0), theme::PAPER_3);
+                    // odległość tuż pod nazwą, zwykłym pismem, z ikoną strzałki
+                    let txt = format!("{} {}", theme::icon::ARROWS_HORIZONTAL, fmt::dist(d));
+                    let g = p.layout_no_wrap(txt, FontId::proportional(11.0), theme::PAPER_2);
+                    let dp = lr.left_bottom() + Vec2::new(2.0, -2.0);
+                    for o in [Vec2::new(1.0, 1.0), Vec2::new(-1.0, 1.0), Vec2::new(1.0, -1.0), Vec2::new(-1.0, -1.0)] {
+                        p.galley_with_override_text_color(dp + o, g.clone(), Color32::from_black_alpha(170));
+                    }
+                    p.galley(dp, g, theme::PAPER_2);
                 }
             }
         }
@@ -2206,7 +2429,8 @@ impl Atlas {
 
         // kompas
         let r = 30.0;
-        let c = rect.right_top() + Vec2::new(-51.0, 51.0);
+        // pod górnym paskiem, obok panelu bocznego
+        let c = rect.right_top() + Vec2::new(-51.0 - crate::ui::panels::right_inset(self), 51.0 + crate::ui::panels::TOP_BAR_H);
         let compass = Rect::from_center_size(c, Vec2::splat(r * 2.0 + 4.0));
         let resp = ui.interact(compass, ui.id().with("kompas"), Sense::click_and_drag());
         let hot = resp.hovered() || resp.dragged();
@@ -2286,7 +2510,7 @@ impl Atlas {
             .filter(|v| *v <= target)
             .fold(1.0, f64::max);
         let px = (nice / mpp) as f32;
-        let base = rect.left_bottom() + Vec2::new(16.0, -40.0);
+        let base = rect.left_bottom() + Vec2::new(16.0, -16.0 - crate::ui::panels::bottom_inset(self));
         p.line_segment([base, base + Vec2::new(px, 0.0)], Stroke::new(2.0, theme::PAPER));
         p.line_segment([base, base - Vec2::new(0.0, 5.0)], Stroke::new(2.0, theme::PAPER));
         p.line_segment([base + Vec2::new(px, 0.0), base + Vec2::new(px, -5.0)], Stroke::new(2.0, theme::PAPER));
@@ -2322,7 +2546,7 @@ impl Atlas {
             }
         }
         let bar = Rect::from_min_max(rect.left_bottom() - Vec2::new(0.0, 24.0), rect.right_bottom());
-        p.rect_filled(bar, 0.0, Color32::from_black_alpha(130));
+        p.rect_filled(bar, 0.0, theme::GLASS_FILL);
         p.text(bar.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, info, FontId::monospace(11.5), theme::PAPER_2);
         let attr = match self.prefs.style {
             Style::Satellite => "Zdjęcia © Esri, Maxar, Earthstar Geographics · teren © Mapterhorn · © OpenStreetMap",
@@ -2414,7 +2638,7 @@ impl Atlas {
                         self.pin_lens(lon, lat, Lens::Vis);
                         close = true;
                     }
-                    if item(ui, "Panorama stąd") {
+                    if item(ui, "Spacer stąd") {
                         self.enter_panorama(lon, lat);
                         close = true;
                     }
@@ -2460,7 +2684,31 @@ impl Atlas {
     }
 
     /// Czy teren zasłania punkt (próbkowanie wzdłuż linii z oka, z poziomu ~38 m).
+    /// Czy teren zasłania punkt. Wyniki pamiętane, dopóki kamera stoi (i najwyżej 1 s – dane terenu
+    /// mogą się doczytać), więc przy nieruchomym widoku etykiety nie liczą linii wzroku co klatkę.
     fn occluded(&self, view: &View, p: DVec3) -> bool {
+        let key = (
+            (view.eye.x * 2.0).round() as i64,
+            (view.eye.y * 2.0).round() as i64,
+            (view.eye.z * 2.0).round() as i64,
+            (self.prefs.exag * 100.0).round() as i64,
+        );
+        let pk = ((p.x * 2.0).round() as i64, (p.z * 2.0).round() as i64);
+        {
+            let mut c = self.occl_cache.borrow_mut();
+            if c.0 != key || c.1.elapsed() > Duration::from_secs(1) {
+                *c = (key, Instant::now(), std::collections::HashMap::new());
+            }
+            if let Some(&v) = c.2.get(&pk) {
+                return v;
+            }
+        }
+        let v = self.occluded_now(view, p);
+        self.occl_cache.borrow_mut().2.insert(pk, v);
+        v
+    }
+
+    fn occluded_now(&self, view: &View, p: DVec3) -> bool {
         let e = view.eye;
         let n = 14;
         for k in 1..n {
