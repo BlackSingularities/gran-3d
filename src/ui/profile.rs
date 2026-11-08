@@ -8,12 +8,69 @@ use crate::graph::Route;
 use crate::metrics::{grade_class, GRADE_RGB};
 use crate::ui::theme;
 
+/// Statystyki odcinka trasy między dwoma dystansami (m).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SegStats {
+    pub dist: f64,
+    pub up: f64,
+    pub down: f64,
+    pub time: f64,
+    pub min_e: f32,
+    pub max_e: f32,
+    /// Średnie i największe nachylenie (%) – to drugie na odcinkach ~80 m.
+    pub avg_grade: f64,
+    pub max_grade: f64,
+}
+
+pub fn segment(route: &Route, d0: f32, d1: f32) -> SegStats {
+    let tr = &route.track;
+    let total = tr.d2.last().copied().unwrap_or(0.0);
+    let (a0, a1) = (d0.clamp(0.0, total), d1.clamp(0.0, total));
+    let (d0, d1) = (a0.min(a1), a0.max(a1));
+    let at = |d: f32| {
+        let (i, f) = tr.at_dist(d);
+        let j = (i + 1).min(tr.len() - 1);
+        (tr.lerp(i, f).2, tr.t[i] + (tr.t[j] - tr.t[i]) * f)
+    };
+    let (e0, t0) = at(d0);
+    let (e1, t1) = at(d1);
+    let mut es = vec![e0];
+    es.extend((0..tr.len()).filter(|&i| tr.d2[i] > d0 && tr.d2[i] < d1).map(|i| tr.e[i]));
+    es.push(e1);
+    let (up, down) = crate::metrics::climb(&es);
+    let mut max_grade = 0.0f64;
+    let mut d = d0;
+    while d < d1 {
+        let b = (d + 80.0).min(d1);
+        let span = (b - d).max(1.0);
+        max_grade = max_grade.max(((at(b).0 - at(d).0) / span * 100.0).abs() as f64);
+        d += 40.0;
+    }
+    let dist = (d1 - d0) as f64;
+    SegStats {
+        dist,
+        up,
+        down,
+        time: (t1 - t0).max(0.0) as f64,
+        min_e: es.iter().cloned().fold(f32::INFINITY, f32::min),
+        max_e: es.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
+        avg_grade: (up + down) / dist.max(1.0) * 100.0,
+        max_grade,
+    }
+}
+
+/// Barwa trasy porównywanej (profil i mapa).
+pub const COMPARE: Color32 = Color32::from_rgb(214, 120, 255);
+
 pub struct Mark {
     pub dist: f32,
     pub label: String,
 }
 
 /// Rysuje profil; zwraca dystans pod kursorem (m), jeśli kursor jest nad wykresem.
+/// Przeciągnięcie zaznacza odcinek (`sel`), klik bez przeciągania zaznaczenie usuwa.
+/// `compare` – druga trasa do porównania, rysowana na tej samej osi.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     route: &Route,
@@ -21,8 +78,10 @@ pub fn show(
     marks: &[Mark],
     cursor: Option<f32>,
     obstacle: Option<f32>,
+    sel: &mut Option<(f32, f32)>,
+    compare: Option<&Route>,
 ) -> Option<f32> {
-    let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
+    let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
     let p = ui.painter_at(rect);
     let tr = &route.track;
     let n = tr.len();
@@ -30,10 +89,18 @@ pub fn show(
         return None;
     }
     // oś poziomu: zawsze cała wybrana trasa (warianty przycięte do niej)
-    let total = tr.d2.last().copied().unwrap_or(1.0).max(1.0);
+    let own_total = tr.d2.last().copied().unwrap_or(1.0).max(1.0);
+    // przy porównaniu oś obejmuje dłuższą z dwóch tras
+    let total = compare.and_then(|c| c.track.d2.last().copied()).unwrap_or(0.0).max(own_total);
     let mut lo = tr.e.iter().cloned().fold(f32::INFINITY, f32::min);
     let mut hi = tr.e.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let (min_e, max_e) = (lo, hi);
+    if let Some(c) = compare {
+        for &e in &c.track.e {
+            lo = lo.min(e);
+            hi = hi.max(e);
+        }
+    }
     for o in others {
         for (k, &e) in o.track.e.iter().enumerate() {
             if o.track.d2[k] <= total {
@@ -76,14 +143,14 @@ pub fn show(
 
     // wypełnienie: nachylenie wygładzone na odcinkach, barwa przechodzi ku dołowi w przezroczystość
     let elev = |d: f32| {
-        let (i, f) = tr.at_dist(d.clamp(0.0, total));
+        let (i, f) = tr.at_dist(d.clamp(0.0, own_total));
         tr.lerp(i, f).2
     };
-    let seg = (total / 160.0).max(40.0);
+    let seg = (own_total / 160.0).max(40.0);
     let mut mesh = egui::Mesh::default();
     let mut d0 = 0.0f32;
-    while d0 < total {
-        let d1 = (d0 + seg).min(total);
+    while d0 < own_total {
+        let d1 = (d0 + seg).min(own_total);
         let g = (elev(d1) - elev(d0)) as f64 / (d1 - d0).max(0.1) as f64;
         let c = GRADE_RGB[grade_class(g)];
         let top = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], 190);
@@ -117,6 +184,11 @@ pub fn show(
             Color32::from_rgb(tc[0], tc[1], tc[2]),
         );
         i = j;
+    }
+    // trasa porównywana: fioletowa linia na tej samej osi
+    if let Some(c) = compare {
+        let pts: Vec<Pos2> = (0..c.track.len()).map(|i| Pos2::new(x(c.track.d2[i]), y(c.track.e[i]))).collect();
+        pp.add(Shape::line(pts, Stroke::new(2.0, COMPARE)));
     }
     let line: Vec<Pos2> = (0..n).map(|i| Pos2::new(x(tr.d2[i]), y(tr.e[i]))).collect();
     let shadow: Vec<Pos2> = line.iter().map(|q| *q + Vec2::new(0.0, 1.5)).collect();
@@ -166,9 +238,55 @@ pub fn show(
         p.text(Pos2::new(xx + 4.0, plot.top()), Align2::LEFT_TOP, crate::i18n::tr("przeszkoda"), FontId::proportional(10.5), theme::SIGNAL);
     }
 
+    // zaznaczanie odcinka przeciąganiem, klik usuwa zaznaczenie
+    let to_d = |px: f32| ((px - plot.left()) / plot.width() * total).clamp(0.0, own_total);
+    let anchor_id = ui.id().with("profil-kotwica");
+    if resp.drag_started() {
+        if let Some(pos) = resp.interact_pointer_pos() {
+            ui.data_mut(|m| m.insert_temp(anchor_id, to_d(pos.x)));
+        }
+    }
+    if resp.dragged() {
+        if let (Some(pos), Some(a)) = (resp.interact_pointer_pos(), ui.data(|m| m.get_temp::<f32>(anchor_id))) {
+            let b = to_d(pos.x);
+            *sel = ((b - a).abs() > total * 0.004).then_some((a.min(b), a.max(b)));
+        }
+    }
+    if resp.clicked() {
+        *sel = None;
+    }
+    if let Some((s0, s1)) = *sel {
+        let cyan = Color32::from_rgb(80, 220, 255);
+        let band = Rect::from_x_y_ranges(x(s0)..=x(s1), plot.y_range());
+        p.rect_filled(band, 0.0, Color32::from_rgba_unmultiplied(80, 220, 255, 26));
+        for xx in [x(s0), x(s1)] {
+            p.line_segment([Pos2::new(xx, plot.top()), Pos2::new(xx, plot.bottom())], Stroke::new(1.5, cyan));
+        }
+        let st = segment(route, s0, s1);
+        let rows = [
+            tf!("Odcinek {}", fmt::dist(st.dist)),
+            tf!("↑ {}  ↓ {}", fmt::ele(st.up), fmt::ele(st.down)),
+            tf!("czas {}", fmt::time(st.time)),
+            tf!("nachylenie śr. {}% · maks. {}%", fmt::dec(st.avg_grade, 0), fmt::dec(st.max_grade, 0)),
+            format!("{} – {}", fmt::ele(st.min_e as f64), fmt::ele(st.max_e as f64)),
+        ];
+        let gs: Vec<_> = rows.into_iter().map(|t| p.layout_no_wrap(t, FontId::proportional(11.0), theme::PAPER)).collect();
+        let w = gs.iter().map(|g| g.size().x).fold(0.0, f32::max) + 16.0;
+        let h = gs.iter().map(|g| g.size().y + 1.0).sum::<f32>() + 10.0;
+        let left = (band.center().x - w / 2.0).clamp(plot.left(), (plot.right() - w).max(plot.left()));
+        let card = Rect::from_min_size(Pos2::new(left, plot.bottom() - h - 4.0), Vec2::new(w, h));
+        p.rect(card, 8.0, theme::POPUP_FILL, Stroke::new(1.0, cyan), egui::StrokeKind::Inside);
+        let mut yy = card.top() + 5.0;
+        for g in gs {
+            let gh = g.size().y;
+            p.galley(Pos2::new(card.left() + 8.0, yy), g, theme::PAPER);
+            yy += gh + 1.0;
+        }
+    }
+
     let mut hover = None;
     if let Some(pos) = resp.hover_pos().filter(|p| plot.x_range().contains(p.x)) {
-        hover = Some(((pos.x - plot.left()) / plot.width() * total).clamp(0.0, total));
+        hover = Some(to_d(pos.x));
     }
     if let Some(cd) = hover.or(cursor) {
         let (i, f) = tr.at_dist(cd);
@@ -178,9 +296,9 @@ pub fn show(
         p.circle(Pos2::new(xx, y(e)), 5.0, theme::BRASS, Stroke::new(2.0, theme::INK_0));
         let j = (i + 1).min(n - 1);
         // nachylenie w oknie ±40 m
-        let (a, b) = (tr.at_dist((cd - 40.0).max(0.0)), tr.at_dist((cd + 40.0).min(total)));
+        let (a, b) = (tr.at_dist((cd - 40.0).max(0.0)), tr.at_dist((cd + 40.0).min(own_total)));
         let (ea, eb) = (tr.lerp(a.0, a.1).2, tr.lerp(b.0, b.1).2);
-        let span = ((cd + 40.0).min(total) - (cd - 40.0).max(0.0)).max(1.0);
+        let span = ((cd + 40.0).min(own_total) - (cd - 40.0).max(0.0)).max(1.0);
         let time = tr.t[i] + (tr.t[j] - tr.t[i]) * f;
         let mut up = 0.0f32;
         for k in 1..=i.min(n - 1) {

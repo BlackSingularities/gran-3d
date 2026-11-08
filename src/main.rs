@@ -8,6 +8,7 @@
 mod i18n;
 
 mod analysis;
+mod avalanche;
 mod app;
 mod bake;
 mod download;
@@ -32,6 +33,7 @@ mod store;
 mod sun;
 mod ui;
 mod updater;
+mod weather;
 mod world;
 
 /// Dziennik programu: `%LOCALAPPDATA%\GRAN\gran.log` (poprzedni przebieg w `gran.1.log`).

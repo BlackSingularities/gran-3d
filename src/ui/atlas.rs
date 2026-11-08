@@ -472,6 +472,17 @@ pub struct Atlas {
     export_pending: bool,
     /// Szkło interfejsu (prostokąty ekranu i siła): pod nim obraz 3D jest rozmyty.
     pub glass: Vec<(Rect, f32)>,
+    /// Prognozy pogody i komunikaty lawinowe (pobierane w tle).
+    pub weather: crate::weather::Weather,
+    pub avalanche: crate::avalanche::Avalanche,
+    /// Miejsce wybrane do zakładki „Warunki” (inaczej zaznaczenie albo środek widoku).
+    pub cond_at: Option<crate::ui::conditions::Place>,
+    /// Okno ze szczegółami wczytywania danych (klik w stan na dolnym pasku).
+    pub load_details: bool,
+    /// Zaznaczony odcinek profilu (dystanse od startu, m).
+    pub profile_sel: Option<(f32, f32)>,
+    /// Trasa do porównania: nazwa i ślad.
+    pub compare: Option<(String, Route)>,
     last_want: Instant,
     pub status_line: String,
 }
@@ -581,6 +592,13 @@ impl Atlas {
             hist_now: (Vec::new(), RouteMode::Trails),
             export_pending: false,
             glass: Vec::new(),
+            weather: Default::default(),
+            avalanche: Default::default(),
+            cond_at: None,
+            profile_sel: None,
+            load_details: false,
+
+            compare: None,
             last_want: Instant::now() - Duration::from_secs(10),
             status_line: String::new(),
         }
@@ -769,7 +787,8 @@ impl Atlas {
         self.cam.lon = lon;
         self.cam.lat = lat;
         self.cam.height = h + 1.7 / self.prefs.exag.max(1.0);
-        self.cam.distance = 2.0;
+        // oko prawie w punkcie obrotu: przy rozglądaniu nie wędruje w zbocze za plecami
+        self.cam.distance = 0.4;
         self.cam.pitch = -2.0;
         self.walk_up = 0.0;
         self.walk_vy = 0.0;
@@ -906,7 +925,9 @@ impl Atlas {
     }
 
     pub fn clear_route(&mut self) {
+        self.profile_sel = None;
         self.waypoints.clear();
+
         self.routes.clear();
         self.route_error = None;
         self.flight = None;
@@ -1025,7 +1046,8 @@ impl Atlas {
             created: crate::library::now(),
             waypoints: if planned { self.waypoints.iter().map(|w| (w.lon, w.lat, w.name.clone())).collect() } else { Vec::new() },
             terrain: self.route_mode == RouteMode::Terrain,
-            track: if planned { Vec::new() } else { (0..t.len()).map(|i| (t.lon[i], t.lat[i], t.e[i])).collect() },
+            // ślad zawsze: do porównań i podglądu bez wyznaczania od nowa
+            track: (0..t.len()).map(|i| (t.lon[i], t.lat[i], t.e[i])).collect(),
             dist: r.stats.len2,
             up: r.stats.up,
             time: r.stats.time,
@@ -1679,7 +1701,20 @@ impl Atlas {
                 self.walk_vy = 0.0;
             }
         }
-        if let Some(g) = self.heights.sample_cached(self.cam.lon, self.cam.lat) {
+        // grunt: najwyższy z kilku próbek najdokładniejszego terenu wokół stóp i pod okiem – na ostrych
+        // szczytach i graniach zgrubna wysokość bywa niższa od rysowanej i oko trafiało pod powierzchnię
+        // (widok „od spodu”, jak do góry nogami)
+        let kx = 111_320.0 * self.cam.lat.to_radians().cos();
+        let h = self.cam.heading.to_radians();
+        let mut g: Option<f32> = None;
+        for (de, dn) in [(0.0, 0.0), (4.0, 0.0), (-4.0, 0.0), (0.0, 4.0), (0.0, -4.0), (-h.sin() * 2.0, -h.cos() * 2.0)] {
+            let (lon, lat) = (self.cam.lon + de / kx, self.cam.lat + dn / 110_574.0);
+            let v = self.heights.sample_at(lon, lat, 15, false).or_else(|| self.heights.sample_cached(lon, lat));
+            if let Some(v) = v {
+                g = Some(g.map_or(v, |x| x.max(v)));
+            }
+        }
+        if let Some(g) = g {
             let exag = self.prefs.exag.max(1.0);
             self.cam.height = g as f64 + (1.7 + self.walk_up) / exag;
         }
@@ -1842,6 +1877,11 @@ impl Atlas {
                     self.tab = crate::ui::panels::Tab::Library;
                 }
                 K::F11 => self.toggle_fullscreen(ctx),
+                K::K => {
+                    let on = self.prefs.panel_open && self.tab == crate::ui::panels::Tab::Conditions;
+                    self.prefs.panel_open = !on;
+                    self.tab = crate::ui::panels::Tab::Conditions;
+                }
                 K::S => self.screenshot(ctx),
                 K::OpenBracket => self.shift_hour(-0.5),
                 K::CloseBracket => self.shift_hour(0.5),
@@ -1878,7 +1918,7 @@ impl Atlas {
 
     pub fn min_dist(&self) -> f64 {
         if self.panorama.is_some() {
-            1.0
+            0.4
         } else {
             120.0
         }
@@ -2566,6 +2606,9 @@ impl Atlas {
         if let Some(r) = &self.gpx {
             push_track(&mut out, r, lin([186, 104, 236], 1.0), 4.0, true);
         }
+        if let Some((_, r)) = &self.compare {
+            push_track(&mut out, r, lin([214, 120, 255], 1.0), 4.0, true);
+        }
         if let Some(r) = self.routes.get(self.route_sel) {
             // wybrana trasa: jasna obwódka, ciemny brzeg i barwy nachylenia jak na profilu
             let tr = &r.track;
@@ -2627,6 +2670,27 @@ impl Atlas {
                         wo: [2.0, 0.0],
                     });
                 }
+            }
+        }
+        // zaznaczony odcinek profilu: turkusowe wyróżnienie na trasie
+        if let (Some((s0, s1)), Some(r)) = (self.profile_sel, self.current_route()) {
+            let tr = &r.track;
+            let mut pts: Vec<[f32; 3]> = Vec::new();
+            let pt = |(lon, lat, e): (f64, f64, f32)| {
+                let (x, z) = self.frame.to_local(lon, lat);
+                [x as f32, e + 3.0, z as f32]
+            };
+            let a = tr.at_dist(s0);
+            pts.push(pt(tr.lerp(a.0, a.1)));
+            for i in 0..tr.len() {
+                if tr.d2[i] > s0 && tr.d2[i] < s1 {
+                    pts.push(pt((tr.lon[i], tr.lat[i], tr.e[i])));
+                }
+            }
+            let b = tr.at_dist(s1);
+            pts.push(pt(tr.lerp(b.0, b.1)));
+            for w in pts.windows(2) {
+                out.push(LineInst { p0: w[0], p1: w[1], color: lin([80, 220, 255], 1.0), wo: [9.0, 0.0] });
             }
         }
         out
@@ -2919,9 +2983,11 @@ impl Atlas {
 
         // stan wczytywania i tryby
         let mut chips: Vec<String> = Vec::new();
-        match self.world.status() {
-            (Some(_), _) => chips.push(crate::i18n::tr("pobieranie nazw i szlaków…").into()),
-            (_, Some(e)) => chips.push(tf!("nazwy i szlaki: {}", short(&e))),
+        let (done, all, work) = self.world.progress();
+        match (self.world.status(), work) {
+            (_, Some(w)) => chips.push(tf!("nazwy i szlaki: {}/{} sektorów ({})", done, all, w)),
+            ((Some(_), _), None) => chips.push(tf!("nazwy i szlaki: {}/{} sektorów", done, all)),
+            ((None, Some(e)), None) if done < all => chips.push(tf!("nazwy i szlaki: {}", short(&e))),
             _ => {}
         }
         if !self.status_line.is_empty() {
@@ -2959,10 +3025,15 @@ impl Atlas {
         }
         // statusy na środku dolnego paska (nad odczytem kursora i atrybucją)
         if !chips.is_empty() {
-            let g = p.layout_no_wrap(chips.join("  ·  "), FontId::proportional(11.5), theme::PAPER);
-            let r = Rect::from_center_size(bar.center(), Vec2::new(g.size().x + 20.0, bar.height() - 4.0));
-            p.rect_filled(r, 9.0, Color32::from_rgba_unmultiplied(26, 29, 35, 245));
-            p.galley(r.center() - g.size() / 2.0, g, theme::PAPER);
+            // zwykły tekst na pasku, bez tła i obwódki; klik otwiera szczegóły wczytywania
+            let g = p.layout_no_wrap(chips.join("  ·  "), FontId::proportional(11.5), theme::PAPER_2);
+            let r = Rect::from_center_size(bar.center(), g.size() + Vec2::new(8.0, 4.0));
+            let resp = ui.interact(r, ui.id().with("stan-wczytywania"), Sense::click());
+            let color = if resp.hovered() { theme::PAPER } else { theme::PAPER_2 };
+            p.galley(bar.center() - g.size() / 2.0, g, color);
+            if resp.on_hover_text(crate::i18n::tr("Kliknij, żeby zobaczyć szczegóły wczytywania")).clicked() {
+                self.load_details = !self.load_details;
+            }
         }
 
         // menu kontekstowe

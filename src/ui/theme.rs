@@ -45,7 +45,7 @@ pub fn apply(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
     let mut v = Visuals::dark();
     v.panel_fill = INK_1;
-    v.window_fill = Color32::from_rgba_premultiplied(18, 20, 25, 232);
+    v.window_fill = Color32::from_rgba_premultiplied(22, 25, 31, 246);
     v.extreme_bg_color = INK_0;
     v.faint_bg_color = INK_2;
     v.override_text_color = Some(PAPER);
@@ -128,10 +128,14 @@ pub const GLASS_FILL: Color32 = Color32::from_rgba_premultiplied(17, 19, 24, 170
 /// Delikatna jasna obwódka szkła.
 pub const GLASS_EDGE: Color32 = Color32::from_rgba_premultiplied(30, 30, 30, 30);
 
-/// Powierzchnia unosząca się nad mapą: półprzezroczyste szkło z jasną krawędzią i miękkim cieniem.
+/// Tło menu, okien i paneli, które mogą leżeć nad innymi panelami: prawie nieprzezroczyste
+/// (rozmycie działa tylko na obraz mapy, więc półprzezroczyste menu nad panelem byłoby nieczytelne).
+pub const POPUP_FILL: Color32 = Color32::from_rgba_premultiplied(22, 25, 31, 246);
+
+/// Powierzchnia unosząca się nad interfejsem: prawie nieprzezroczysta, z jasną krawędzią i miękkim cieniem.
 pub fn glass() -> egui::Frame {
     egui::Frame::new()
-        .fill(GLASS_FILL)
+        .fill(POPUP_FILL)
         .stroke(Stroke::new(1.0_f32, GLASS_EDGE))
         .corner_radius(CornerRadius::same(18))
         .inner_margin(egui::Margin::same(6))

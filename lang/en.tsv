@@ -561,3 +561,125 @@ Punkty widokowe	Viewpoints
 Hale i polany	Meadows
 Miasta	Towns
 Wsie	Villages
+nazwy i szlaki: {}/{} sektorów ({})	names and trails: {}/{} sectors ({})
+nazwy i szlaki: {}/{} sektorów	names and trails: {}/{} sectors
+Kliknij, żeby zobaczyć szczegóły wczytywania	Click to see loading details
+Środek widoku	Centre of the view
+{} · {} m n.p.m.	{} · {} m a.s.l.
+Wróć do środka widoku	Back to the centre of the view
+pobieram prognozę…	loading the forecast…
+Prognoza niedostępna: {}	Forecast unavailable: {}
+Brak prognozy na tę chwilę.	No forecast for this moment.
+{} · odczuwalna {}	{} · feels like {}
+Wiatr	Wind
+Porywy	Gusts
+Zachmurzenie	Cloud cover
+{}% (niskie {}%)	{}% (low {}%)
+Szansa opadu	Chance of precipitation
+Izoterma 0 °C	Freezing level
+Widzialność	Visibility
+{}  {} od {}	{}  {} from {}
+{} (odczuwalna {})	{} (feels like {})
+wiatr {} {}, porywy {}	wind {} {}, gusts {}
+opad {} mm ({}%) · chmury {}%	precipitation {} mm ({}%) · clouds {}%
+— temperatura	— temperature
+- - porywy (km/h)	- - gusts (km/h)
+▮ opad	▮ rain
+▮ śnieg	▮ snow
+Wyjście o {} (pora z zegara u góry); czasy dojścia według modelu czasu przejścia.	Departure at {} (time from the clock at the top); arrival times from the walking-time model.
+poza zakresem prognozy	beyond the forecast range
+{}  Na trasie: {}	{}  On the route: {}
+pobieram komunikaty lawinowe…	loading avalanche bulletins…
+Komunikaty niedostępne: {}	Bulletins unavailable: {}
+Powyżej {} m: {} · poniżej: {} (tutaj: {})	Above {} m: {} · below: {} (here: {})
+Rano: {} · po południu: {}	Morning: {} · afternoon: {}
+powyżej {} m	above {} m
+poniżej {} m	below {} m
+wystawy {}	aspects {}
+Wydano {}{} · ważny do {}{}	Issued {}{} · valid until {}{}
+Komentarz do komunikatu	Bulletin comment
+Pełny komunikat: {}	Full bulletin: {}
+Warunki: pogoda i zagrożenie lawinowe (K)	Conditions: weather and avalanche danger (K)
+Warunki	Conditions
+Pogoda i warunki tutaj	Weather and conditions here
+Porównanie tras	Route comparison
+Wariant: {}	Variant: {}
+Ślad: {}	Track: {}
+Porównaj z…	Compare with…
+Bez porównania	No comparison
+Biblioteka: {}	Library: {}
+Brak innych tras – zapisz trasy w bibliotece albo wczytaj ślad.	No other routes – save routes to the library or load a track.
+Wybierz drugą trasę: pojawi się na mapie i na profilu (fioletowa), a tu – zestawienie liczb.	Pick a second route: it appears on the map and the profile (purple), and the numbers are compared here.
+ta trasa	this route
+porównywana	compared
+różnica	difference
+Zielona różnica: porównywana trasa jest pod tym względem łatwiejsza lub krótsza.	Green difference: the compared route is easier or shorter in this respect.
+Wczytywanie danych	Data loading
+Nazwy i szlaki (OpenStreetMap)	Names and trails (OpenStreetMap)
+Okolica dzieli się na sektory ok. 50 × 50 km. Nazwy pobierają się w kilka sekund z kafli wektorowych, szlaki – z serwerów Overpass, co przy ich obciążeniu trwa nawet kilka minut. Pobrane sektory zapisują się na dysku i przy kolejnym uruchomieniu wczytują od razu.	The area is divided into sectors of about 50 × 50 km. Names load in a few seconds from vector tiles, trails from Overpass servers, which can take several minutes when they are busy. Downloaded sectors are saved to disk and load instantly next time.
+Teren i zdjęcia	Terrain and imagery
+wszystkie kafle widoku są wczytane	all tiles of the view are loaded
+w kolejce i w toku: teren {}, zdjęcia satelitarne {}, ortofoto {}, składanie ortofoto {}	queued and in progress: terrain {}, satellite imagery {}, orthophoto {}, orthophoto assembly {}
+Odcinek {}	Segment {}
+czas {}	time {}
+nachylenie śr. {}% · maks. {}%	gradient avg. {}% · max {}%
+brak połączenia z serwisem pogody	no connection to the weather service
+pusta prognoza	empty forecast
+nazwy {} s	names {} s
+szlaki {} s	trails {} s
+{}/{} (pod kamerą)	{}/{} (under the camera)
+pobieranie nazw… {} s	loading names… {} s
+nazwy gotowe · pobieranie szlaków z Overpass… {} s	names ready · loading trails from Overpass… {} s
+nazwy gotowe · szlaki: błąd ({}), ponowienie za {} s	names ready · trails: error ({}), retry in {} s
+nazwy gotowe · szlaki w kolejce	names ready · trails queued
+gotowe (zapisane na dysku)	ready (saved to disk)
+błąd ({}), ponowienie za {} s	error ({}), retry in {} s
+w kolejce	queued
+Najbliższe 48 godzin	Next 48 hours
+7 dni	7 days
+Pogoda na trasie	Weather on the route
+Zagrożenie lawinowe	Avalanche danger
+Kliknij punkt albo szczyt na mapie, żeby zobaczyć warunki w tym miejscu. Prognoza jest liczona dla wysokości punktu.	Click a point or a peak on the map to see conditions there. The forecast is computed for the point's elevation.
+Prognoza: Open-Meteo (modele ICON, ECMWF i inne). Komunikaty lawinowe: TOPR (lawiny.topr.pl) i SLP HZS (laviny.sk) – zawsze sprawdź pełny komunikat u źródła przed wyjściem.	Forecast: Open-Meteo (ICON, ECMWF and other models). Avalanche bulletins: TOPR (lawiny.topr.pl) and SLP HZS (laviny.sk) – always check the full bulletin at the source before you go.
+Komunikaty lawinowe są dostępne dla Tatr (TOPR – strona polska, SLP HZS – Słowacja). Przesuń widok w Tatry, żeby je zobaczyć.	Avalanche bulletins are available for the Tatras (TOPR – Polish side, SLP HZS – Slovakia). Move the view to the Tatras to see them.
+Brak aktualnych komunikatów (poza sezonem zimowym są wydawane rzadko albo wcale).	No current bulletins (outside the winter season they are issued rarely or not at all).
+Bezchmurnie	Clear sky
+Prawie bezchmurnie	Mostly clear
+Częściowe zachmurzenie	Partly cloudy
+Pochmurno	Overcast
+Mgła	Fog
+Mżawka	Drizzle
+Deszcz	Rain
+Przelotny deszcz	Rain showers
+Przelotny śnieg	Snow showers
+Burza	Thunderstorm
+burza	thunderstorm
+huraganowy wiatr	hurricane-force wind
+silny wiatr	strong wind
+silny mróz	severe frost
+słaba widoczność	poor visibility
+opady śniegu	snowfall
+intensywny opad	heavy precipitation
+możliwe oblodzenie	possible icing
+pon.	Mon
+wt.	Tue
+śr.	Wed
+czw.	Thu
+pt.	Fri
+sob.	Sat
+niedz.	Sun
+Niskie	Low
+Umiarkowane	Moderate
+Znaczne	Considerable
+Wysokie	High
+Bardzo wysokie	Very high
+Brak zagrożenia	No danger
+Świeży śnieg	New snow
+Deski śnieżne (wiatr)	Wind slab
+Słabe warstwy w starym śniegu	Persistent weak layers
+Mokry śnieg	Wet snow
+Ślizgający się śnieg	Gliding snow
+Brak wyraźnego problemu	No distinct problem
+Inny problem	Other problem
+po południu	in the afternoon
+rano	in the morning

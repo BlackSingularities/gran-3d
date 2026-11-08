@@ -682,6 +682,7 @@ impl eframe::App for App {
         crate::ui::panels::profile_panel(&mut self.atlas, ctx);
         crate::ui::search::show(&mut self.atlas, ctx);
         crate::ui::panels::help(&mut self.atlas, ctx);
+        crate::ui::panels::load_window(&mut self.atlas, ctx);
         self.settings_window(ctx);
         self.moving_overlay(ctx);
         self.feedback.show(ctx);

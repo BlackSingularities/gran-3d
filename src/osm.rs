@@ -161,6 +161,9 @@ pub struct SectorData {
     pub runs: Vec<WayRun>,
     pub routes: Vec<RouteInfo>,
     pub pois: Vec<Poi>,
+    /// Same punkty, bez szlaków (szlaki dociągną się później).
+    #[serde(default)]
+    pub partial: bool,
 }
 
 pub fn load(root: &Path, id: SectorId) -> Option<SectorData> {
@@ -421,25 +424,33 @@ fn overpass_pois(id: SectorId) -> Result<Vec<Poi>, String> {
 }
 
 /// Szlaki sektora (blokujące, duże zapytanie) połączone z pobranymi wcześniej punktami.
-pub fn fetch_trails(id: SectorId, pois: Vec<Poi>) -> Result<SectorData, String> {
+/// `worker` wybiera serwer Overpass, od którego zaczynamy (równoległe pobierania nie biją w jeden).
+pub fn fetch_trails(id: SectorId, pois: Vec<Poi>, worker: usize) -> Result<SectorData, String> {
     let b = id.bbox();
     let bb = format!("{:.6},{:.6},{:.6},{:.6}", b.s, b.w, b.n, b.e);
     let trails_q = format!(
         "[out:json][timeout:180];relation[\"route\"~\"^(hiking|foot)$\"]({bb})->.r;way(r.r)({bb})->.w;.r out body;.w out body;.w >;out skel qt;"
     );
-    let tj = overpass(&trails_q, 0)?;
+    // nazwy, których brak lub mało w kafelkach wektorowych: doliny, granie, hale, źródła, małe stawy,
+    // wodospady – małe zapytanie
+    // równolegle ze szlakami (niepowodzenie nie blokuje szlaków)
+    let extra_q = format!(
+        "[out:json][timeout:60];(nwr[\"natural\"~\"^(valley|ridge|arete|spring|water)$\"][\"name\"]({bb});node[\"place\"=\"locality\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb}););out center tags;"
+    );
+    let (tj, extra) = std::thread::scope(|sc| {
+        let ex = sc.spawn(|| overpass(&extra_q, worker + 1));
+        let tj = overpass(&trails_q, worker);
+        (tj, ex.join().unwrap_or_else(|_| Err("panic".into())))
+    });
+    let tj = tj?;
     let mut d = parse(id, &tj, &serde_json::Value::Null);
     d.pois = pois;
-    // nazwy, których nie ma w kafelkach wektorowych: doliny, granie, hale, źródła (małe zapytanie;
-    // niepowodzenie nie blokuje szlaków)
-    let extra_q = format!(
-        "[out:json][timeout:60];(nwr[\"natural\"~\"^(valley|ridge|arete|spring)$\"][\"name\"]({bb});node[\"place\"=\"locality\"][\"name\"]({bb}););out center tags;"
-    );
-    match overpass(&extra_q, 1) {
+    match extra {
+
         Ok(ej) => {
             let extra = parse(id, &serde_json::Value::Null, &ej).pois;
             for p in extra {
-                if matches!(p.kind, PoiKind::Valley | PoiKind::Ridge | PoiKind::Spring | PoiKind::Locality)
+                if matches!(p.kind, PoiKind::Valley | PoiKind::Ridge | PoiKind::Spring | PoiKind::Locality | PoiKind::Lake | PoiKind::Waterfall)
                     && !d.pois.iter().any(|q| q.name == p.name && (q.lon - p.lon).abs() < 0.01 && (q.lat - p.lat).abs() < 0.01)
                 {
                     d.pois.push(p);
@@ -453,7 +464,7 @@ pub fn fetch_trails(id: SectorId, pois: Vec<Poi>) -> Result<SectorData, String> 
 
 /// Sektor z samymi punktami – do czasu pobrania szlaków.
 pub fn partial(pois: Vec<Poi>) -> SectorData {
-    SectorData { format: FORMAT, pois, ..Default::default() }
+    SectorData { format: FORMAT, fetched: now_secs(), pois, partial: true, ..Default::default() }
 }
 
 fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> SectorData {
