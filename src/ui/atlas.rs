@@ -155,6 +155,12 @@ pub struct Prefs {
     pub camera: (f64, f64, f64, f64, f64, f64),
     pub panel_open: bool,
     pub profile_open: bool,
+    /// Doczytywanie okolicy poza kadrem: 0 – wyłączone, 1 – lekkie, 2 – mocne.
+    pub prefetch: u8,
+    /// Kontrolki na mapie chowają się, gdy mysz stoi.
+    pub autohide: bool,
+    /// Nazwy miejscowości.
+    pub places: bool,
 }
 
 impl Default for Prefs {
@@ -188,6 +194,9 @@ impl Default for Prefs {
             camera: (c.lon, c.lat, c.height, c.heading, c.pitch, c.distance),
             panel_open: false,
             profile_open: true,
+            prefetch: 1,
+            autohide: false,
+            places: true,
         }
     }
 }
@@ -564,6 +573,7 @@ impl Atlas {
         self.fly_to(c[0], c[1], Some((span * 1.25).max(1500.0)));
     }
 
+    /// Kamera płynnie obejmuje całą trasę: widok ukośny, trasa nad profilem i obok panelu szczegółów.
     pub fn fit_route(&mut self, r: &Route) {
         let tr = &r.track;
         if tr.len() == 0 {
@@ -576,7 +586,23 @@ impl Atlas {
             b.s = b.s.min(tr.lat[i]);
             b.n = b.n.max(tr.lat[i]);
         }
-        self.fit_bbox(&b);
+        let c = b.center();
+        let span = haversine(b.w, c[1], b.e, c[1]).max(haversine(c[0], b.s, c[0], b.n)).max(400.0);
+        let side = crate::ui::panels::right_inset(self) > 0.0;
+        let mut to = self.cam;
+        to.pitch = self.cam.pitch.clamp(38.0, 60.0);
+        to.distance = (span * if side { 1.9 } else { 1.6 }).clamp(1500.0, 400_000.0);
+        // środek widoku bliżej patrzącego (trasa wyżej, nad profilem) i w prawo (trasa obok panelu)
+        let h = to.heading.to_radians();
+        let back = if self.prefs.profile_open { span * 0.18 } else { 0.0 };
+        let right = if side { span * 0.28 } else { 0.0 };
+        let east = -h.sin() * back + h.cos() * right;
+        let north = -h.cos() * back - h.sin() * right;
+        let kx = 111_320.0 * c[1].to_radians().cos();
+        to.lon = c[0] + east / kx;
+        to.lat = c[1] + north / 110_574.0;
+        to.height = self.heights.sample_cached(to.lon, to.lat).map(|h| h as f64).unwrap_or(self.cam.height);
+        self.start_fly(to, 1.4);
     }
 
     pub fn enter_panorama(&mut self, lon: f64, lat: f64) {
@@ -995,6 +1021,13 @@ impl Atlas {
                     self.routing = false;
                     self.routes = rs;
                     self.route_sel = 0;
+                    // nowa trasa: kamera płynnie ją obejmuje (nie podczas przeciągania punktu)
+                    if self.drag_waypoint.is_none() {
+                        if let Some(r) = self.routes.first().cloned() {
+                            self.prefs.profile_open = true;
+                            self.fit_route(&r);
+                        }
+                    }
                 }
                 JobResult::RouteFail(g, e) if g == self.route_gen => {
                     self.routing = false;
@@ -1326,6 +1359,39 @@ impl Atlas {
         self.cam.lon += east / kx;
         self.cam.lat = (self.cam.lat - south / 110_574.0).clamp(-84.0, 84.0);
         self.cam.lon = (self.cam.lon + 540.0).rem_euclid(360.0) - 180.0;
+        self.land_target(1.0);
+    }
+
+    /// Cel kamery wraca na teren wzdłuż linii patrzenia: oko zostaje na tej samej wysokości
+    /// bezwzględnej, więc przesuwanie mapy nad dolinami i grzbietami nie podbija ani nie obniża kamery.
+    fn land_target(&mut self, k: f64) {
+        if self.panorama.is_some() || self.flight.is_some() {
+            return;
+        }
+        let exag = self.prefs.exag;
+        let (h, p) = (self.cam.heading.to_radians(), self.cam.pitch.to_radians());
+        if p.sin() <= 0.1 {
+            return;
+        }
+        let look = DVec3::new(h.sin() * p.cos(), -p.sin(), -h.cos() * p.cos());
+        let (tx, tz) = self.frame.to_local(self.cam.lon, self.cam.lat);
+        let mut target = DVec3::new(tx, self.cam.height * exag, tz);
+        let mut distance = self.cam.distance;
+        for _ in 0..3 {
+            let (l, t) = self.frame.to_lonlat(target.x, target.z);
+            let Some(g) = self.heights.sample_cached(l, t) else { break };
+            let step = (g as f64 * exag - target.y) / look.y * k;
+            if distance + step < self.min_dist() || distance + step > 900_000.0 {
+                break;
+            }
+            target += look * step;
+            distance += step;
+        }
+        let (l, t) = self.frame.to_lonlat(target.x, target.z);
+        self.cam.lon = (l + 540.0).rem_euclid(360.0) - 180.0;
+        self.cam.lat = t.clamp(-84.0, 84.0);
+        self.cam.height = target.y / exag;
+        self.cam.distance = distance;
     }
 
     pub fn export_gpx(&mut self) {
@@ -1479,9 +1545,21 @@ impl Atlas {
         }
         // wysokość punktu obrotu podąża za terenem
         if self.panorama.is_none() && self.flight.is_none() {
-            if let Some(h) = self.heights.sample_cached(self.cam.lon, self.cam.lat) {
-                let k = if self.fly.is_some() { 0.08 } else { 0.25 };
-                self.cam.height += (h as f64 - self.cam.height) * k;
+            if self.fly.is_some() {
+                if let Some(h) = self.heights.sample_cached(self.cam.lon, self.cam.lat) {
+                    self.cam.height += (h as f64 - self.cam.height) * 0.08;
+                }
+            } else {
+                // cel dochodzi do terenu wzdłuż linii patrzenia: oko stoi w miejscu, obraz nie skacze
+                // ani przy przesuwaniu, ani przy obracaniu
+                let before = self.cam.height;
+                self.land_target(0.35);
+                // prawie poziomy widok: łagodne dociąganie wysokości jak dawniej
+                if self.cam.height == before {
+                    if let Some(h) = self.heights.sample_cached(self.cam.lon, self.cam.lat) {
+                        self.cam.height += (h as f64 - self.cam.height) * 0.1;
+                    }
+                }
             }
         }
         let exag = self.prefs.exag;
@@ -1527,9 +1605,10 @@ impl Atlas {
         let lines = self.dyn_lines(&view);
         let ppp = ctx.pixels_per_point();
         if let Some(r) = &mut self.renderer {
-            let key = self.snap.version * 1_000_000 + self.frame_version * 2 + self.prefs.trails as u64;
+            let dim = self.current_route().is_some();
+            let key = self.snap.version * 1_000_000 + self.frame_version * 4 + self.prefs.trails as u64 + dim as u64 * 2;
             if r.static_version() != key {
-                let tl = if self.prefs.trails { trail_lines(&self.snap, &self.frame, ppp) } else { Vec::new() };
+                let tl = if self.prefs.trails { trail_lines(&self.snap, &self.frame, ppp, dim) } else { Vec::new() };
                 r.set_static_lines(key, &tl);
             }
             let (blit, _) = r.render(&view, &scene, &lines, ppp);
@@ -1845,6 +1924,7 @@ impl Atlas {
             detail: self.prefs.detail,
             max_dem: self.prefs.max_dem,
             max_img: self.prefs.max_img,
+            prefetch: self.prefs.prefetch,
             shadow_rect: to_rect(self.shadow_rect),
             vs_rect: to_rect(self.vs_rect),
             line_fade: (self.cam.distance as f32 * 3.0).clamp(15_000.0, 90_000.0),
@@ -1889,8 +1969,33 @@ impl Atlas {
             push_track(&mut out, r, lin([186, 104, 236], 1.0), 4.0, true);
         }
         if let Some(r) = self.routes.get(self.route_sel) {
-            let c = if r.kind == RouteKind::Terrain { lin([255, 140, 60], 1.0) } else { lin([255, 186, 60], 1.0) };
-            push_track(&mut out, r, c, 5.0, true);
+            // wybrana trasa: jasna obwódka, ciemny brzeg i barwy nachylenia jak na profilu
+            let tr = &r.track;
+            let n = tr.len();
+            if n >= 2 {
+                let step = (n / 6000).max(1);
+                let idx: Vec<usize> = (0..n).step_by(step).chain(std::iter::once(n - 1)).collect();
+                let pt = |i: usize| {
+                    let (x, z) = self.frame.to_local(tr.lon[i], tr.lat[i]);
+                    [x as f32, tr.e[i] + 2.5, z as f32]
+                };
+                let base = if r.kind == RouteKind::Terrain { [255, 140, 60] } else { [255, 186, 60] };
+                for (width, color) in [(13.0, lin([255, 255, 255], 1.0)), (9.0, [0.01, 0.01, 0.012, 1.0])] {
+                    for w in idx.windows(2) {
+                        out.push(LineInst { p0: pt(w[0]), p1: pt(w[1]), color, wo: [width, 0.0] });
+                    }
+                }
+                for w in idx.windows(2) {
+                    // nachylenie w oknie ~60 m wokół odcinka
+                    let mid = (tr.d2[w[0]] + tr.d2[w[1]]) * 0.5;
+                    let (a, b) = (tr.at_dist((mid - 30.0).max(0.0)), tr.at_dist(mid + 30.0));
+                    let (ea, eb) = (tr.lerp(a.0, a.1).2, tr.lerp(b.0, b.1).2);
+                    let g = (eb - ea) as f64 / 60.0;
+                    let k = crate::metrics::grade_class(g);
+                    let rgb = if k <= 1 { base } else { crate::metrics::GRADE_RGB[k] };
+                    out.push(LineInst { p0: pt(w[0]), p1: pt(w[1]), color: lin(rgb, 1.0), wo: [6.0, 0.0] });
+                }
+            }
         }
         // pomiar: linia po terenie
         if self.measure.len() >= 2 {
@@ -1934,12 +2039,22 @@ impl Atlas {
         let p = ui.painter_at(rect);
         let at = |s: [f32; 2]| Pos2::new(s[0] + rect.left(), s[1] + rect.top());
         // etykiety punktów z rozrzedzaniem i zasłanianiem przez teren
-        if self.prefs.labels {
+        if self.prefs.labels || self.prefs.places {
             let mut taken: Vec<Rect> = Vec::new();
             let max = (70.0 * self.prefs.label_density) as usize;
+            let max_places = (28.0 * self.prefs.label_density) as usize;
             let mut shown = 0;
-            for poi in self.snap.pois.iter().take(2500) {
-                if shown >= max {
+            let mut shown_places = 0;
+            // miejscowości najpierw (własny przydział), żeby szczyty ich nie wypierały
+            let snap = self.snap.clone();
+            let places = snap.pois.iter().filter(|p| p.poi.kind == PoiKind::Place && self.prefs.places).take(1500);
+            let rest = snap.pois.iter().filter(|p| p.poi.kind != PoiKind::Place && self.prefs.labels).take(2500);
+            for poi in places.chain(rest) {
+                let is_place = poi.poi.kind == PoiKind::Place;
+                if shown >= max || (is_place && shown_places >= max_places) {
+                    if is_place {
+                        continue;
+                    }
                     break;
                 }
                 let pos = self.local(poi.poi.lon, poi.poi.lat, poi.dem);
@@ -1950,7 +2065,7 @@ impl Atlas {
                 }
                 let dist = pos.distance(view.eye);
                 // drobne punkty tylko z bliska
-                let min_prom = (dist / 9000.0) as f32;
+                let min_prom = (dist / 9000.0) as f32 * if is_place { 0.35 } else { 1.0 };
                 if poi.prom < min_prom.min(30.0) * 0.6 {
                     continue;
                 }
@@ -1972,6 +2087,7 @@ impl Atlas {
                 }
                 taken.push(lr);
                 shown += 1;
+                shown_places += is_place as usize;
                 let dot = match poi.poi.kind {
                     PoiKind::Peak => theme::PAPER,
                     PoiKind::Hut | PoiKind::Shelter => Color32::from_rgb(255, 170, 70),
@@ -2345,9 +2461,10 @@ fn short(s: &str) -> String {
 }
 
 /// Linie szlaków z grafu: kolory relacji (kilka kolorów – równoległe pasy).
-fn trail_lines(snap: &Snapshot, frame: &Frame, ppp: f32) -> Vec<LineInst> {
+/// Szlaki; przy wyznaczonej trasie przyciemnione i cieńsze, żeby trasa się wyróżniała.
+fn trail_lines(snap: &Snapshot, frame: &Frame, ppp: f32, dim: bool) -> Vec<LineInst> {
     let mut out = Vec::new();
-    let w = 2.6 * ppp.max(1.0);
+    let w = if dim { 1.6 } else { 2.6 } * ppp.max(1.0);
     for ed in &snap.graph.edges {
         let n = ed.n();
         // co ~25 m wystarczy do rysowania
@@ -2366,6 +2483,13 @@ fn trail_lines(snap: &Snapshot, frame: &Frame, ppp: f32) -> Vec<LineInst> {
             let mut col = lin(c.rgb(), 0.98);
             if *c == crate::metrics::TrailColor::Other {
                 col = lin([214, 196, 160], 0.98);
+            }
+            if dim {
+                // wyblakłe: zbliżone do szarości i ciemniejsze
+                let l = col[0] * 0.2126 + col[1] * 0.7152 + col[2] * 0.0722;
+                for k in 0..3 {
+                    col[k] = (col[k] * 0.35 + l * 0.65) * 0.32;
+                }
             }
             for p in pts.windows(2) {
                 if p[0] == p[1] {

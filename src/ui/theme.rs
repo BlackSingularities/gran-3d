@@ -1,4 +1,4 @@
-//! Wygląd: ciemny, neutralny interfejs unoszący się nad mapą, z jednym niebieskim akcentem.
+//! Wygląd: ciemne, lekko przezroczyste szkło unoszące się nad mapą, z jednym niebieskim akcentem.
 
 use eframe::egui::{self, Color32, CornerRadius, FontFamily, FontId, Sense, Stroke, TextStyle, Visuals};
 
@@ -43,7 +43,7 @@ pub fn apply(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
     let mut v = Visuals::dark();
     v.panel_fill = INK_1;
-    v.window_fill = INK_1;
+    v.window_fill = Color32::from_rgba_premultiplied(18, 20, 25, 232);
     v.extreme_bg_color = INK_0;
     v.faint_bg_color = INK_2;
     v.override_text_color = Some(PAPER);
@@ -52,14 +52,16 @@ pub fn apply(ctx: &egui::Context) {
     v.selection.stroke = Stroke::new(1.0_f32, BRASS);
     v.window_corner_radius = CornerRadius::same(16);
     v.menu_corner_radius = CornerRadius::same(12);
-    v.window_stroke = Stroke::new(1.0_f32, INK_3);
+    v.window_stroke = Stroke::new(1.0_f32, GLASS_EDGE);
+    v.window_shadow = egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(110) };
+    v.popup_shadow = egui::Shadow { offset: [0, 6], blur: 22, spread: 0, color: Color32::from_black_alpha(100) };
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, INK_3);
     v.widgets.noninteractive.bg_fill = INK_1;
     v.widgets.inactive.bg_fill = INK_3;
-    v.widgets.inactive.weak_bg_fill = INK_2;
+    v.widgets.inactive.weak_bg_fill = Color32::from_white_alpha(10);
     v.widgets.inactive.bg_stroke = Stroke::NONE;
     v.widgets.hovered.bg_fill = INK_4;
-    v.widgets.hovered.weak_bg_fill = INK_3;
+    v.widgets.hovered.weak_bg_fill = Color32::from_white_alpha(20);
     v.widgets.hovered.bg_stroke = Stroke::NONE;
     v.widgets.active.bg_fill = BRASS_DIM;
     v.widgets.active.weak_bg_fill = BRASS_DIM;
@@ -119,14 +121,78 @@ pub fn card(selected: bool) -> egui::Frame {
         .inner_margin(egui::Margin::same(12))
 }
 
-/// Powierzchnia unosząca się nad mapą.
+/// Szkło: lekko przezroczyste tło powierzchni nad mapą.
+pub const GLASS_FILL: Color32 = Color32::from_rgba_premultiplied(17, 19, 24, 208);
+/// Delikatna jasna obwódka szkła.
+pub const GLASS_EDGE: Color32 = Color32::from_rgba_premultiplied(30, 30, 30, 30);
+
+/// Powierzchnia unosząca się nad mapą: półprzezroczyste szkło z jasną krawędzią i miękkim cieniem.
 pub fn glass() -> egui::Frame {
     egui::Frame::new()
-        .fill(Color32::from_rgba_unmultiplied(26, 29, 35, 242))
-        .stroke(Stroke::new(1.0_f32, Color32::from_white_alpha(14)))
-        .corner_radius(CornerRadius::same(16))
+        .fill(GLASS_FILL)
+        .stroke(Stroke::new(1.0_f32, GLASS_EDGE))
+        .corner_radius(CornerRadius::same(18))
         .inner_margin(egui::Margin::same(6))
-        .shadow(egui::Shadow { offset: [0, 4], blur: 18, spread: 0, color: Color32::from_black_alpha(100) })
+        .shadow(egui::Shadow { offset: [0, 6], blur: 24, spread: 0, color: Color32::from_black_alpha(90) })
+}
+
+/// Kafelek z ikoną i podpisem (warstwy, style, pory dnia).
+pub fn tile(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool, w: f32) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 74.0), Sense::click());
+    let p = ui.painter();
+    let bg = if on {
+        Color32::from_rgba_unmultiplied(122, 176, 255, 46)
+    } else if resp.hovered() {
+        Color32::from_white_alpha(16)
+    } else {
+        Color32::from_white_alpha(7)
+    };
+    p.rect_filled(rect, 14.0, bg);
+    let edge = if on { Stroke::new(1.5_f32, BRASS) } else { Stroke::new(1.0_f32, Color32::from_white_alpha(14)) };
+    p.rect_stroke(rect, 14.0, edge, egui::StrokeKind::Inside);
+    let color = if on { BRASS } else { PAPER };
+    p.text(rect.center_top() + egui::vec2(0.0, 26.0), egui::Align2::CENTER_CENTER, glyph, FontId::proportional(24.0), color);
+    let galley = p.layout_no_wrap(text.to_string(), FontId::proportional(12.0), if on { PAPER } else { PAPER_2 });
+    let gw = galley.size().x.min(w - 8.0);
+    let clip = rect.shrink2(egui::vec2(4.0, 0.0));
+    ui.painter_at(clip).galley(egui::pos2(rect.center().x - gw / 2.0, rect.bottom() - 24.0), galley, PAPER);
+    resp.on_hover_text(text)
+}
+
+/// Siatka kafelków o równej szerokości.
+pub fn tile_grid(ui: &mut egui::Ui, cols: usize, body: impl FnOnce(&mut egui::Ui, f32)) {
+    let gap = 8.0;
+    let w = ((ui.available_width() - gap * (cols as f32 - 1.0)) / cols as f32).floor();
+    ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
+    ui.horizontal_wrapped(|ui| {
+        ui.set_max_width(w * cols as f32 + gap * (cols as f32 - 1.0) + 1.0);
+        body(ui, w);
+    });
+}
+
+/// Karta wyboru: tytuł i opis, zaznaczona obwódką dookoła.
+pub fn option_card(ui: &mut egui::Ui, title: &str, desc: &str, on: bool) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 52.0), Sense::click());
+    let p = ui.painter();
+    let bg = if on {
+        Color32::from_rgba_unmultiplied(122, 176, 255, 40)
+    } else if resp.hovered() {
+        Color32::from_white_alpha(14)
+    } else {
+        Color32::from_white_alpha(6)
+    };
+    p.rect_filled(rect, 12.0, bg);
+    if on {
+        p.rect_stroke(rect, 12.0, Stroke::new(1.5_f32, BRASS), egui::StrokeKind::Inside);
+    }
+    let dot = rect.left_center() + egui::vec2(18.0, 0.0);
+    p.circle_stroke(dot, 7.0, Stroke::new(1.5_f32, if on { BRASS } else { PAPER_3 }));
+    if on {
+        p.circle_filled(dot, 4.0, BRASS);
+    }
+    p.text(rect.left_top() + egui::vec2(36.0, 9.0), egui::Align2::LEFT_TOP, title, FontId::proportional(14.0), PAPER);
+    p.text(rect.left_bottom() + egui::vec2(36.0, -9.0), egui::Align2::LEFT_BOTTOM, desc, FontId::proportional(11.5), PAPER_3);
+    resp
 }
 
 /// Pasek postępu.
@@ -161,7 +227,7 @@ pub fn row_button(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool) -> egui:
     let bg = if on {
         BRASS_DIM
     } else if resp.hovered() {
-        INK_3
+        Color32::from_white_alpha(16)
     } else {
         Color32::TRANSPARENT
     };
@@ -194,7 +260,7 @@ pub fn switch(ui: &mut egui::Ui, value: &mut bool, text: &str) -> egui::Response
     }
     let p = ui.painter();
     if resp.hovered() {
-        p.rect_filled(rect, 8.0, INK_3);
+        p.rect_filled(rect, 8.0, Color32::from_white_alpha(14));
     }
     p.text(
         rect.left_center() + egui::vec2(8.0, 0.0),

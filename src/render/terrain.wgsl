@@ -331,7 +331,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 
     if (water > 0.5 && !(wa.x > 0.0)) {
         // woda z samej maski (bez poziomu lustra) – jak dotąd
-        let wc = select(srgb(vec3(0.36, 0.60, 0.80)), srgb(vec3(0.62, 0.80, 0.93)), style == 5);
+        let wc = select(srgb(vec3(0.16, 0.56, 0.66)), srgb(vec3(0.62, 0.80, 0.93)), style == 5);
         col = select(wc * (0.4 + 0.6 * light), wc, style != 0 && style != 4);
     }
     if (wa.x > 0.0 && (style == 0 || style == 4 || style == 5)) {
@@ -356,20 +356,22 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
             // odbicie nieba: horyzont → zenit
             let r = reflect(-v, wn);
             let sky = mix(g.fog_color.rgb, g.sky_color.rgb * 1.6, smoothstep(0.0, 0.6, r.y));
-            // kolor toni: płytko turkus, głęboko granat; górskie stawy są ciemne i przejrzyste
-            let d = 1.0 - exp(-depth / 9.0);
-            let deep = srgb(vec3(0.03, 0.10, 0.14));
-            let shallow = srgb(vec3(0.10, 0.32, 0.33));
-            var body = mix(shallow, deep, d) * (g.sky_color.rgb * 0.9 + g.sun_color.rgb * 0.35 * g.sun_dir.w);
+            // kolor toni: górskie stawy są przejrzyste i lazurowe – płytko jasny turkus, w głębi
+            // nasycony błękit (tatrzańskie stawy: Morskie Oko, Czarny Staw, Pięć Stawów)
+            let d = 1.0 - exp(-depth / 12.0);
+            let deep = srgb(vec3(0.02, 0.26, 0.38));
+            let shallow = srgb(vec3(0.20, 0.62, 0.62));
+            let lit = clamp(g.sky_color.rgb * 0.75 + g.sun_color.rgb * 0.55 * g.sun_dir.w, vec3(0.25), vec3(1.4));
+            var body = mix(shallow, deep, d) * lit;
             if (photo) {
-                // na zdjęciu: przy brzegu prześwituje dno ze zdjęcia, dalej ton zdjęcia przyciemniony w głąb
+                // na zdjęciu: przy samym brzegu prześwituje dno ze zdjęcia, dalej lazurowa toń
                 let bottom = img_s * 1.1;
-                body = mix(bottom, mix(bottom * 0.55, body, 0.6), smoothstep(0.0, 1.0, d * 1.4));
+                body = mix(mix(bottom, body, 0.45), body, smoothstep(0.0, 1.0, d * 2.5));
             }
             // odblask słońca
             let hv = normalize(sun + v);
             let spec = pow(max(dot(wn, hv), 0.0), 380.0) * 7.0 * g.sun_dir.w * shadow;
-            wcol = mix(body, sky, fres) + g.sun_color.rgb * spec;
+            wcol = mix(body, sky, fres * 0.7) + g.sun_color.rgb * spec;
             // jasna linia brzegu (płycizna i piana), tylko z bliska
             let shore = (1.0 - smoothstep(0.0, 1.2, depth)) * near * 0.25;
             wcol = mix(wcol, wcol * 1.25 + vec3(0.04), shore);

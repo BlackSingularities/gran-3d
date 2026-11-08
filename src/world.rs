@@ -68,7 +68,6 @@ pub struct World {
     land_busy: Arc<std::sync::atomic::AtomicBool>,
 }
 
-const MAX_LOADED: usize = 25;
 
 impl World {
     pub fn new(heights: Heights, ctx: eframe::egui::Context) -> Self {
@@ -111,21 +110,29 @@ impl World {
     /// Maski pokrycia terenu dla wczytanych sektorów okolicy (po kolei, z przerwą po błędzie).
     fn run_land(&self, ctx: eframe::egui::Context) {
         let mut failed: HashMap<SectorId, Instant> = HashMap::new();
+        let mut idle = false;
         loop {
-            thread::sleep(Duration::from_secs(3));
+            // bez pracy – rzadkie sprawdzanie; po zapisanym sektorze od razu następny
+            thread::sleep(if idle { Duration::from_secs(2) } else { Duration::from_millis(200) });
+            idle = true;
             let root = self.heights.store().root().to_path_buf();
             let next = {
                 let s = self.state.0.lock().unwrap();
+                // sektor pod kamerą (pierwszy na liście) od razu, niezależnie od szlaków – woda,
+                // lasy i skały nie czekają minutami na pobranie szlaków; dalsze po wczytaniu szlaków
                 s.wanted
                     .iter()
-                    .filter(|id| s.loaded.contains_key(id) && !s.partial.contains(id))
+                    .enumerate()
+                    .filter(|(k, id)| *k == 0 || (s.loaded.contains_key(id) && !s.partial.contains(id)))
+                    .map(|(_, id)| id)
                     .find(|id| {
                         !crate::landcover::exists(&root, **id)
-                            && failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(300))
+                            && failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(90))
                     })
                     .copied()
             };
             let Some(id) = next else { continue };
+            idle = false;
             self.land_busy.store(true, Ordering::Relaxed);
             ctx.request_repaint();
             let r = crate::landcover::fetch(id).and_then(|img| crate::landcover::save(&root, id, &img));
@@ -214,7 +221,7 @@ impl World {
                 let mut s = self.state.0.lock().unwrap();
                 s.busy = None;
                 // nadmiar wczytanych: zostają te z okolicy
-                if s.loaded.len() > MAX_LOADED {
+                if s.loaded.len() > crate::limits::sectors() {
                     let keep: HashSet<SectorId> = s.wanted.iter().copied().collect();
                     s.loaded.retain(|k, _| keep.contains(k));
                     s.partial.retain(|k| keep.contains(k));
@@ -294,7 +301,7 @@ impl World {
                     .iter()
                     .find(|id| {
                         s.partial.contains(id)
-                            && s.trails_failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(300))
+                            && s.trails_failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(90))
                     })
                     .copied();
                 s.trails_busy = id;

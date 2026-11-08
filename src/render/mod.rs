@@ -115,6 +115,7 @@ pub struct Scene {
     pub detail: bool,
     pub max_dem: usize,
     pub max_img: usize,
+    pub prefetch: u8,
     /// Prostokąty map cieni i widoczności w metrach ramki: x0, z0, 1/szer., 1/wys.
     pub shadow_rect: [f32; 4],
     pub vs_rect: [f32; 4],
@@ -631,8 +632,9 @@ impl Renderer {
         self.ensure_targets(size);
         let settings = TileSettings {
             target_px: scene.detail_px,
-            max_dem: scene.max_dem,
-            max_img: scene.max_img,
+            max_dem: scene.max_dem.min(crate::limits::gpu_tiles()),
+            max_img: scene.max_img.min(crate::limits::gpu_tiles()),
+            prefetch: scene.prefetch,
             imagery: scene.imagery,
             ortho: scene.ortho,
             // z wysoka widać daleko: bez tego przy dużym oddaleniu kafle kończą się w połowie widoku

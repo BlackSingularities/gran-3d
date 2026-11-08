@@ -14,7 +14,6 @@ pub const MAX_Z: u8 = 16;
 /// Poziom pobierany do analiz i szlaków, gdy na dysku nie ma nic dokładniejszego (~25 m).
 pub const ANALYSIS_Z: u8 = 12;
 
-const CAPACITY: usize = 700;
 
 struct Entry {
     dem: Arc<Dem>,
@@ -69,10 +68,11 @@ impl Heights {
         g.clock += 1;
         let c = g.clock;
         g.tiles.insert(t, Entry { dem, used: c });
-        if g.tiles.len() > CAPACITY {
+        let cap = crate::limits::height_tiles();
+        if g.tiles.len() > cap {
             let mut ages: Vec<u64> = g.tiles.values().map(|e| e.used).collect();
             ages.sort_unstable();
-            let cut = ages[ages.len() - CAPACITY * 3 / 4];
+            let cut = ages[ages.len() - cap * 3 / 4];
             g.tiles.retain(|_, e| e.used >= cut);
         }
     }
