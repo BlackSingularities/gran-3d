@@ -510,7 +510,7 @@ pub struct Atlas {
     /// Okno ze szczegółami wczytywania danych (klik w stan na dolnym pasku).
     pub load_details: bool,
     /// Obraz kamery internetowej: adres, wynik pobierania, tekstura, czas pobrania.
-    cam: Option<CamSlot>,
+    webcam: Option<CamSlot>,
     /// Przekrój terenu wzdłuż punktów pomiaru: klucz punktów i „trasa” z wysokościami.
     pub section: Option<(u64, Route)>,
     /// Zaznaczony odcinek profilu (dystanse od startu, m).
@@ -664,7 +664,7 @@ impl Atlas {
             cond_at: None,
             profile_sel: None,
             section: None,
-            cam: None,
+            webcam: None,
             load_details: false,
 
             compare: None,
@@ -971,7 +971,7 @@ impl Atlas {
 
     /// Obraz kamery (pobierany w tle, odświeżany co 5 minut).
     pub fn webcam_image(&mut self, ctx: &egui::Context, url: &str) -> CamState {
-        let stale = self.cam.as_ref().is_none_or(|c| c.url != url || c.at.elapsed() > Duration::from_secs(300));
+        let stale = self.webcam.as_ref().is_none_or(|c| c.url != url || c.at.elapsed() > Duration::from_secs(300));
         if stale {
             let result: CamResult = Default::default();
             let (slot, u, c) = (result.clone(), url.to_string(), ctx.clone());
@@ -980,10 +980,10 @@ impl Atlas {
                 *slot.lock().unwrap() = Some(r);
                 c.request_repaint();
             });
-            let tex = self.cam.take().filter(|c| c.url == url).and_then(|c| c.tex);
-            self.cam = Some(CamSlot { url: url.to_string(), result, tex, at: Instant::now() });
+            let tex = self.webcam.take().filter(|c| c.url == url).and_then(|c| c.tex);
+            self.webcam = Some(CamSlot { url: url.to_string(), result, tex, at: Instant::now() });
         }
-        let c = self.cam.as_mut().unwrap();
+        let c = self.webcam.as_mut().unwrap();
         let done = c.result.lock().unwrap().take();
         match done {
             Some(Ok(Some(img))) => c.tex = Some(ctx.load_texture("kamera", img, egui::TextureOptions::LINEAR)),
