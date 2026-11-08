@@ -1789,8 +1789,8 @@ pub fn load_window(a: &mut Atlas, ctx: &egui::Context) {
             ui.set_width(520.0);
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
             ui.label(theme::kicker("Nazwy i szlaki (OpenStreetMap)"));
-            theme::para(ui, "Okolica dzieli się na sektory ok. 50 × 50 km. Nazwy pobierają się w kilka sekund z kafli wektorowych, szlaki – z serwerów Overpass, co przy ich obciążeniu trwa nawet kilka minut. Pobrane sektory zapisują się na dysku i przy kolejnym uruchomieniu wczytują od razu.");
-            egui::Grid::new("sektory").num_columns(2).spacing([16.0, 4.0]).striped(true).show(ui, |ui| {
+            theme::para(ui, "Okolica dzieli się na sektory ok. 50 × 50 km. Najpierw wczytuje się sektor pod kamerą, potem sąsiednie (to tylko dalsza okolica – to, co widać, jest już gotowe). Nazwy pobierają się w kilka sekund z kafli wektorowych, szlaki – z serwerów Overpass, w czterech częściach na sektor; przy obciążeniu serwerów trwa to do kilku minut. Pobrane sektory zapisują się na dysku i przy kolejnym uruchomieniu wczytują od razu.");
+            egui::Grid::new("sektory").num_columns(2).spacing([16.0, 4.0]).min_col_width(150.0).striped(true).show(ui, |ui| {
                 for (name, state, ok) in a.world.details() {
                     ui.label(RichText::new(name).monospace().color(theme::PAPER_2));
                     ui.label(RichText::new(state).color(if ok { theme::OK } else { theme::PAPER }));
@@ -1805,6 +1805,7 @@ pub fn load_window(a: &mut Atlas, ctx: &egui::Context) {
                     ui.label(RichText::new(tr("wszystkie kafle widoku są wczytane")).color(theme::OK));
                 } else {
                     ui.label(tf!("w kolejce i w toku: teren {}, zdjęcia satelitarne {}, ortofoto {}, składanie ortofoto {}", dem, sat, ortho, local));
+                    theme::para(ui, "Liczy się tylko to, co widać w kadrze; okolica poza kadrem doczytuje się w tle i nie jest tu wliczana.");
                 }
             }
             if a.world.land_busy() {

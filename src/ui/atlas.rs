@@ -2984,7 +2984,10 @@ impl Atlas {
         // stan wczytywania i tryby
         let mut chips: Vec<String> = Vec::new();
         let (done, all, work) = self.world.progress();
+        // gdy okolica pod kamerą jest gotowa, reszta to tylko dalsze sektory
+        let far = self.world.center_ready();
         match (self.world.status(), work) {
+            (_, Some(w)) if far => chips.push(tf!("szlaki dalszej okolicy: {}/{} ({})", done, all, w)),
             (_, Some(w)) => chips.push(tf!("nazwy i szlaki: {}/{} sektorów ({})", done, all, w)),
             ((Some(_), _), None) => chips.push(tf!("nazwy i szlaki: {}/{} sektorów", done, all)),
             ((None, Some(e)), None) if done < all => chips.push(tf!("nazwy i szlaki: {}", short(&e))),

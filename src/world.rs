@@ -183,6 +183,12 @@ impl World {
         (s.busy.or(s.trails_busy.first().map(|b| b.0)), s.error.clone())
     }
 
+    /// Czy sektor pod kamerą ma już nazwy i szlaki.
+    pub fn center_ready(&self) -> bool {
+        let s = self.state.0.lock().unwrap();
+        s.wanted.first().is_some_and(|id| s.loaded.contains_key(id) && !s.partial.contains(id))
+    }
+
     /// Krótki stan wczytywania do paska: (gotowe sektory, wszystkie, opis bieżącej pracy).
     pub fn progress(&self) -> (usize, usize, Option<String>) {
         let s = self.state.0.lock().unwrap();
