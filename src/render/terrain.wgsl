@@ -197,6 +197,9 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let shadow_s = textureSample(shadow_tex, samp, clamp(sr.xy, vec2(0.0), vec2(1.0))).r;
     let vr = in_rect(wp, g.vs_rect);
     let vs_s = textureSample(vs_tex, samp, clamp(vr.xy, vec2(0.0), vec2(1.0))).r;
+    // widoczność wygładzona i jej granica (pochodne poza rozgałęzieniami)
+    let vs_v = smoothstep(0.0, 0.012, vs_s);
+    let vs_fw = max(fwidth(vs_v), 1e-4);
     let img_s = textureSample(img_tex, samp, in.img_uv).rgb;
     let lr = in_rect(wp, g.land_rect);
     let land_s = textureSample(land_tex, samp, clamp(lr.xy, vec2(0.0), vec2(1.0)));
@@ -425,12 +428,16 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     // pole widoczności
     if (g.flags.y > 0.5) {
         let lum = vec3(dot(col, vec3(0.3, 0.59, 0.11)));
+        // niewidoczne: wyblakłe i przygaszone w chłodnym tonie; widoczne: naturalne barwy, lekko rozjaśnione
+        let hidden = mix(col, lum, 0.7) * vec3(0.40, 0.45, 0.58);
         if (vr.z > 0.5) {
-            let v = vs_s;
-            let inside = mix(col, srgb(vec3(0.25, 0.85, 0.92)), 0.55) * 1.15 + srgb(vec3(0.02, 0.08, 0.1));
-            col = mix(lum * 0.35, inside, smoothstep(0.0, 0.02, v));
+            let seen = col * 1.1 + srgb(vec3(0.03, 0.035, 0.01));
+            col = mix(hidden, seen, vs_v);
+            // złota linia granicy widoczności
+            let edge = 1.0 - smoothstep(0.0, 1.0, abs(vs_v - 0.5) / vs_fw);
+            col = mix(col, srgb(vec3(1.0, 0.82, 0.32)), edge * 0.9);
         } else {
-            col = lum * 0.35;
+            col = hidden;
         }
     }
 

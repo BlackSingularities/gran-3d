@@ -169,6 +169,8 @@ pub struct Renderer {
     dyn_lines: (wgpu::Buffer, u32),
     shadow: OverlayTex,
     vs: OverlayTex,
+    /// Tekstura widoczności (nadpisywana w miejscu, gdy rozmiar się nie zmienia).
+    vs_raw: Option<(wgpu::Texture, u32, u32)>,
     land: OverlayTex,
     water: wgpu::TextureView,
     empty_overlay: wgpu::TextureView,
@@ -462,6 +464,7 @@ impl Renderer {
         Renderer {
             shadow: OverlayTex { view: empty_overlay.clone() },
             vs: OverlayTex { view: empty_overlay.clone() },
+            vs_raw: None,
             land: OverlayTex { view: empty_land.clone() },
             empty_land,
             water: empty_water.clone(),
@@ -553,10 +556,29 @@ impl Renderer {
     }
 
     pub fn set_viewshed(&mut self, data: Option<(&[u8], u32, u32)>) {
-        self.vs = match data {
-            Some((d, w, h)) => OverlayTex { view: overlay_view(&self.device, &self.queue, w, h, d) },
-            None => OverlayTex { view: self.empty_overlay.clone() },
-        };
+        match data {
+            Some((d, w, h)) => {
+                // ten sam rozmiar: tylko przesłanie danych, bez nowej tekstury i grupy wiązań
+                if let Some((t, tw, th)) = &self.vs_raw {
+                    if *tw == w && *th == h {
+                        self.queue.write_texture(
+                            wgpu::TexelCopyTextureInfo { texture: t, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                            d,
+                            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w), rows_per_image: Some(h) },
+                            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                        );
+                        return;
+                    }
+                }
+                let t = tiles::make_texture(&self.device, &self.queue, wgpu::TextureFormat::R8Unorm, w, h, &[d.to_vec()], 1);
+                self.vs = OverlayTex { view: t.create_view(&Default::default()) };
+                self.vs_raw = Some((t, w, h));
+            }
+            None => {
+                self.vs = OverlayTex { view: self.empty_overlay.clone() };
+                self.vs_raw = None;
+            }
+        }
         self.rebind_globals();
     }
 

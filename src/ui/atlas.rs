@@ -318,6 +318,8 @@ pub struct Atlas {
     pub rel: Option<RelInfo>,
     live_vs: Option<(f64, f64)>,
     live_vs_busy: bool,
+    /// Siatka wysokości do widoczności na żywo: środek i dane.
+    live_grid: Arc<std::sync::Mutex<Option<(f64, f64, Arc<Grid>)>>>,
     live_vs_at: Instant,
     shadow_key: Option<(i64, i64, i64, i64)>,
     shadow_busy: bool,
@@ -398,6 +400,7 @@ impl Atlas {
             rel: None,
             live_vs: None,
             live_vs_busy: false,
+            live_grid: Default::default(),
             live_vs_at: Instant::now(),
             shadow_key: None,
             shadow_busy: false,
@@ -912,13 +915,24 @@ impl Atlas {
         });
     }
 
+    /// Widoczność na żywo pod kursorem: siatka wysokości budowana raz na okolicę i trzymana
+    /// w pamięci (nowa dopiero, gdy kursor odejdzie daleko); każdy ruch to tylko rzut promieni.
     fn start_live_viewshed(&mut self, lon: f64, lat: f64) {
         self.live_vs_busy = true;
         self.live_vs_at = Instant::now();
         let gen = self.gen;
-        let (heights, tx, eye) = (self.heights.clone(), self.tx.clone(), self.prefs.vs_eye);
+        let (heights, tx, eye, cache) = (self.heights.clone(), self.tx.clone(), self.prefs.vs_eye, self.live_grid.clone());
         thread::spawn(move || {
-            let g = Self::grid_around(&heights, lon, lat, 18_000.0, 900.0);
+            const R: f64 = 20_000.0;
+            let cached = cache.lock().unwrap().clone().filter(|(clon, clat, _)| haversine(*clon, *clat, lon, lat) < R * 0.35);
+            let g = match cached {
+                Some((_, _, g)) => g,
+                None => {
+                    let g = Arc::new(Self::grid_around(&heights, lon, lat, R, 1100.0));
+                    *cache.lock().unwrap() = Some((lon, lat, g.clone()));
+                    g
+                }
+            };
             let (gx, gy) = g.to_grid(lon, lat);
             let v = analysis::viewshed(&g, gx, gy, eye, 0.0);
             let rect = Self::world_rect(&g);
@@ -1604,8 +1618,8 @@ impl Atlas {
         let scene = self.scene(&view);
         let lines = self.dyn_lines(&view);
         let ppp = ctx.pixels_per_point();
+        let dim = self.current_route().is_some();
         if let Some(r) = &mut self.renderer {
-            let dim = self.current_route().is_some();
             let key = self.snap.version * 1_000_000 + self.frame_version * 4 + self.prefs.trails as u64 + dim as u64 * 2;
             if r.static_version() != key {
                 let tl = if self.prefs.trails { trail_lines(&self.snap, &self.frame, ppp, dim) } else { Vec::new() };
