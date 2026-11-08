@@ -464,7 +464,9 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
     }
     // szklany panel unoszący się nad mapą, pod górnym paskiem
     let screen = ctx.screen_rect();
-    let height = (screen.height() - TOP_BAR_H - 12.0).max(200.0);
+    // panel kończy się nad dolnym paskiem (profil trasy na całą szerokość albo pasek stanu)
+    let bottom = if a.prefs.profile_open && a.current_route().is_some() { PROFILE_H + 36.0 + 20.0 + 12.0 } else { 40.0 };
+    let height = (screen.height() - TOP_BAR_H - bottom).max(200.0);
     egui::Area::new(egui::Id::new("szczegoly"))
         .anchor(egui::Align2::RIGHT_TOP, [-12.0, TOP_BAR_H])
         .order(egui::Order::Middle)
@@ -1378,7 +1380,8 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
     };
     let screen = ctx.screen_rect();
     let left = 12.0;
-    let size = egui::vec2((screen.width() - left - 12.0 - right_inset(a)).max(320.0), PROFILE_H);
+    // na całą szerokość okna, pod panelem szczegółów
+    let size = egui::vec2((screen.width() - left - 12.0).max(320.0), PROFILE_H);
     egui::Area::new(egui::Id::new("profil"))
         .fixed_pos([left, screen.bottom() - size.y - 36.0])
         .order(egui::Order::Middle)
