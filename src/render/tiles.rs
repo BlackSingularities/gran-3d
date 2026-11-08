@@ -144,6 +144,9 @@ pub struct Tiles {
     pub loading_kinds: [usize; 4],
 }
 
+/// Priorytet zamówień z wyprzedzeniem (okolica poza kadrem) – zawsze na końcu kolejki.
+const PREFETCH_PRIO: f32 = 3000.0;
+
 /// Tyle wątków może czekać na usługi krajowe; reszta zawsze obsługuje szybkie źródła.
 const SLOW_WORKERS: usize = 6;
 
@@ -397,7 +400,11 @@ impl Tiles {
                 // doczytywanie z wyprzedzeniem: okolica poza kadrem w mniejszej szczegółowości,
                 // na końcu kolejki – po obrocie lub przesunięciu obraz jest od razu
                 let reach = s.max_dist * if s.prefetch >= 2 { 0.3 } else { 0.12 };
-                if s.prefetch > 0 && hd < reach {
+                // tylko gdy w pamięci jest zapas: kafle spoza kadru nie są rysowane, więc przy pełnej
+                // pamięci od razu by z niej wypadały i były zamawiane od nowa – bez końca
+                let room_dem = self.dem.len() < s.max_dem * 7 / 10;
+                let room_img = self.img.len() < s.max_img * 7 / 10;
+                if s.prefetch > 0 && hd < reach && (room_dem || room_img) {
                     let coarse = s.target_px as f64 * if s.prefetch >= 2 { 2.0 } else { 4.0 };
                     if t.z < MAX_RENDER_Z && (px_size > coarse || t.z < 6) {
                         let (x, y, z) = (t.x * 2, t.y * 2, t.z + 1);
@@ -406,12 +413,12 @@ impl Tiles {
                         }
                         continue;
                     }
-                    let prio = 3000.0 + d as f32 / 1000.0;
+                    let prio = PREFETCH_PRIO + d as f32 / 1000.0;
                     let own = ancestor_at(t, t.z.min(download::TERRAIN_MAX_Z));
-                    if !self.dem.contains_key(&own) && !self.missing.contains(&Key(Kind::Dem, own)) {
+                    if room_dem && !self.dem.contains_key(&own) && !self.missing.contains(&Key(Kind::Dem, own)) {
                         want.push(Request { key: Key(Kind::Dem, own), prio, sticky: false });
                     }
-                    if s.imagery {
+                    if s.imagery && room_img {
                         let own_i = ancestor_at(t, t.z.min(SAT_MAX_Z));
                         if !self.img.contains_key(&(Kind::Sat, own_i)) && !self.missing.contains(&Key(Kind::Sat, own_i)) {
                             want.push(Request { key: Key(Kind::Sat, own_i), prio: prio + 0.5, sticky: false });
@@ -530,7 +537,8 @@ impl Tiles {
             q.list.extend(want.into_iter().filter(|r| !inflight.contains(&r.key)).take(256));
             self.loading = q.list.len() + q.inflight.len();
             self.loading_kinds = [0; 4];
-            for k in q.list.iter().map(|r| r.key.0).chain(q.inflight.iter().map(|k| k.0)) {
+            // licznik dla interfejsu: tylko to, co widać (bez doczytywania okolicy w tle)
+            for k in q.list.iter().filter(|r| r.prio < PREFETCH_PRIO).map(|r| r.key.0).chain(q.inflight.iter().map(|k| k.0)) {
                 self.loading_kinds[match k {
                     Kind::Dem => 0,
                     Kind::Sat => 1,

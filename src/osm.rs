@@ -428,9 +428,6 @@ fn overpass_pois(id: SectorId) -> Result<Vec<Poi>, String> {
 pub fn fetch_trails(id: SectorId, pois: Vec<Poi>, worker: usize) -> Result<SectorData, String> {
     let b = id.bbox();
     let bb = format!("{:.6},{:.6},{:.6},{:.6}", b.s, b.w, b.n, b.e);
-    let trails_q = format!(
-        "[out:json][timeout:180];relation[\"route\"~\"^(hiking|foot)$\"]({bb})->.r;way(r.r)({bb})->.w;.r out body;.w out body;.w >;out skel qt;"
-    );
     // nazwy, których brak lub mało w kafelkach wektorowych: doliny, granie, hale, źródła, małe stawy,
     // wodospady – małe zapytanie
     // równolegle ze szlakami (niepowodzenie nie blokuje szlaków)
@@ -439,10 +436,11 @@ pub fn fetch_trails(id: SectorId, pois: Vec<Poi>, worker: usize) -> Result<Secto
     );
     let (tj, extra) = std::thread::scope(|sc| {
         let ex = sc.spawn(|| overpass(&extra_q, worker + 1));
-        let tj = overpass(&trails_q, worker);
+        let tj = trails_by_quarters(&b, worker);
         (tj, ex.join().unwrap_or_else(|_| Err("panic".into())))
     });
     let tj = tj?;
+
     let mut d = parse(id, &tj, &serde_json::Value::Null);
     d.pois = pois;
     match extra {
@@ -773,4 +771,45 @@ mod tests {
         assert_eq!(db.runs[0].nodes.len(), 2); // 3-4
         assert_eq!(da.routes[0].color, "red");
     }
+}
+
+/// Szlaki sektora w czterech mniejszych zapytaniach (ćwiartki): Overpass liczy je dużo szybciej
+/// i rzadziej przekracza limit czasu niż jedno zapytanie o cały sektor. Współrzędne przychodzą od
+/// razu w drogach (`out geom`) – bez osobnego, ciężkiego pobierania punktów. Wynik w postaci
+/// zwykłej odpowiedzi Overpass (węzły, drogi, relacje), bez powtórzeń.
+fn trails_by_quarters(b: &crate::geo::BBox, worker: usize) -> Result<serde_json::Value, String> {
+    let (mx, my) = ((b.w + b.e) / 2.0, (b.s + b.n) / 2.0);
+    let quarters = [(b.w, b.s, mx, my), (mx, b.s, b.e, my), (b.w, my, mx, b.n), (mx, my, b.e, b.n)];
+    let mut seen: std::collections::HashSet<(String, i64)> = std::collections::HashSet::new();
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    for (k, (w, s, e, n)) in quarters.into_iter().enumerate() {
+        let bb = format!("{s:.6},{w:.6},{n:.6},{e:.6}");
+        let q = format!(
+            "[out:json][timeout:90];relation[\"route\"~\"^(hiking|foot)$\"]({bb})->.r;way(r.r)({bb})->.w;.r out body;.w out body geom;"
+        );
+        let v = overpass(&q, worker + k)?;
+        for el in v["elements"].as_array().into_iter().flatten() {
+            let ty = el["type"].as_str().unwrap_or("").to_string();
+            let Some(id) = el["id"].as_i64() else { continue };
+            if !seen.insert((ty.clone(), id)) {
+                continue;
+            }
+            // węzły drogi z jej geometrii (identyfikatory z listy „nodes”)
+            if ty == "way" {
+                let ids = el["nodes"].as_array();
+                let geo = el["geometry"].as_array();
+                if let (Some(ids), Some(geo)) = (ids, geo) {
+                    for (nid, g) in ids.iter().zip(geo) {
+                        if let (Some(nid), Some(lat), Some(lon)) = (nid.as_i64(), g["lat"].as_f64(), g["lon"].as_f64()) {
+                            if seen.insert(("node".into(), nid)) {
+                                out.push(serde_json::json!({ "type": "node", "id": nid, "lat": lat, "lon": lon }));
+                            }
+                        }
+                    }
+                }
+            }
+            out.push(el.clone());
+        }
+    }
+    Ok(serde_json::json!({ "elements": out }))
 }
