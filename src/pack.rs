@@ -224,7 +224,7 @@ impl Packs {
         if &magic != MAGIC {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("uszkodzona paczka {}", path.display()),
+                tf!("uszkodzona paczka {}", path.display()),
             ));
         }
         let o = {

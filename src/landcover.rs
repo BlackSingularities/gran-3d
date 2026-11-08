@@ -145,7 +145,7 @@ pub fn fetch(id: SectorId) -> Result<Vec<u8>, String> {
         }
     }
     if ok == 0 {
-        return Err("Overpass nie odpowiada".into());
+        return Err(crate::i18n::tr("Overpass nie odpowiada").into());
     }
     Ok(img)
 }
@@ -155,7 +155,7 @@ pub fn save(root: &Path, id: SectorId, rgb: &[u8]) -> Result<(), String> {
     if let Some(d) = p.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
-    let img = image::RgbImage::from_raw(SIZE, SIZE, rgb.to_vec()).ok_or("rozmiar maski")?;
+    let img = image::RgbImage::from_raw(SIZE, SIZE, rgb.to_vec()).ok_or(crate::i18n::tr("rozmiar maski"))?;
     let tmp = p.with_extension("tmp.png");
     img.save(&tmp).map_err(|e| e.to_string())?;
     std::fs::rename(tmp, p).map_err(|e| e.to_string())

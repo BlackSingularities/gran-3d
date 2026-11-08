@@ -1,0 +1,539 @@
+# GRAŃ – English. Each line: Polish original, TAB, translation. Backslash-n = new line, {} = value.
+Ogólne	General
+Mapa	Map
+Grafika	Graphics
+Zasoby	Resources
+Dane map	Map data
+O programie	About
+Przenieść zapisane dane do nowego folderu?\n\nZ: {}\nDo: {}\n\nTak – dane trafią do nowego folderu, a stary zostanie usunięty.\nNie – nowy folder zacznie się wypełniać od początku, stare dane zostaną w poprzednim miejscu.	Move the saved data to the new folder?\n\nFrom: {}\nTo: {}\n\nYes – the data goes to the new folder and the old one is deleted.\nNo – the new folder starts empty; the old data stays where it is.
+Nie udało się zapisać ustawień: {}	Could not save settings: {}
+Ustawienia (Ctrl+,)	Settings (Ctrl+,)
+Skróty i sterowanie (?)	Shortcuts and controls (?)
+Aktualizacja {}	Update {}
+Ustawienia	Settings
+Zamknij bez zapisywania (Esc)	Close without saving (Esc)
+Program	Application
+Sprawdzaj aktualizacje	Check for updates
+Synchronizacja z monitorem	Sync with monitor (V-Sync)
+Bez synchronizacji więcej klatek na sekundę, ale możliwe rozrywanie obrazu. Zmiana działa po ponownym uruchomieniu.	Without sync you get more frames per second, but the image may tear. Takes effect after a restart.
+Pomoc	Help
+Pokaż przewodnik od początku	Show the tour again
+Limit zużycia zasobów	Resource limit
+Ile pamięci RAM, pamięci karty graficznej i wątków pobierania może zająć GRAŃ. Niższy poziom odciąża słabszy komputer kosztem wolniejszego doczytywania mapy.	How much RAM, graphics memory and download threads GRAŃ may use. A lower level eases the load on a weaker computer at the cost of slower map loading.
+Limit pamięci działa po zapisaniu; liczba wątków pobierania zmienia się po ponownym uruchomieniu.	The memory limit applies after saving; the number of download threads changes after a restart.
+Doczytywanie z wyprzedzeniem	Prefetching
+W tle, z najniższym priorytetem, program pobiera okolicę poza kadrem, żeby po obrocie lub przesunięciu obraz był od razu.	In the background, at the lowest priority, the program downloads the area outside the view so the image is ready right after you rotate or pan.
+Wyłączone	Off
+Lekkie	Light
+Mocne	Strong
+Zajęte miejsce	Space used
+z {} GB	of {} GB
+Limit danych	Data limit
+Mapy zapisują się same podczas oglądania. Po przekroczeniu limitu najdawniej używane dane są usuwane.	Maps are saved automatically as you browse. Above the limit, the least recently used data is deleted.
+Folder danych	Data folder
+Wolne miejsce: {}	Free space: {}
+Zmień folder…	Change folder…
+Folder na dane map GRANIA	Folder for GRAŃ map data
+GRAŃ {}	GRAŃ {}
+Sprawdź aktualizacje	Check for updates
+Zgłoś błąd lub sugestię…	Report a bug or suggestion…
+Pokaż dziennik programu	Show the program log
+Plik gran.log – przydaje się przy zgłaszaniu błędów	The gran.log file – useful when reporting bugs
+Autor	Author
+Postaw kawę	Buy me a coffee
+Źródła danych	Data sources
+Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), opcjonalne ortofoto: GUGiK, ČÚZK, ÚGKK SR. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim.	Terrain: Mapterhorn from the DMR 5.0 ÚGKK SR models (CC BY 4.0), NMT GUGiK and DMR 4G ČÚZK (CC BY 4.0), with Terrarium/AWS Open Data as fallback. Imagery: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), optional orthophotos: GUGiK, ČÚZK, ÚGKK SR. Names: OpenFreeMap, OpenMapTiles. Trails and points: © OpenStreetMap (ODbL). Search: Nominatim.
+Zapisz	Save
+Anuluj	Cancel
+Przenoszenie danych	Moving data
+Przenoszenie danych do {}…	Moving data to {}…
+Nie udało się przenieść danych:\n{}\n\nDane, których nie przeniesiono, zostały w dotychczasowym folderze.	Could not move the data:\n{}\n\nData that was not moved stays in the previous folder.
+GRAŃ – aktualizacja	GRAŃ – update
+Dostępna jest nowa wersja {}. Masz wersję {}.\n\nPobrać i zainstalować aktualizację{}? Dane map i ustawienia zostaną zachowane. Instalacja wymaga potwierdzenia uprawnień administratora.	A new version {} is available. You have version {}.\n\nDownload and install the update{}? Map data and settings will be kept. Installing requires administrator approval.
+Dostępna jest nowa wersja {} – przycisk „Aktualizacja” u góry.	New version {} is available – use the “Update” button at the top.
+Masz najnowszą wersję ({}).	You have the latest version ({}).
+Nie udało się sprawdzić aktualizacji: {}	Could not check for updates: {}
+Aktualizacja	Update
+Pobieranie wersji {}…	Downloading version {}…
+Nie udało się zainstalować aktualizacji: {}	Could not install the update: {}
+Witaj w GRANI	Welcome to GRAŃ
+Trójwymiarowy atlas szlaków górskich z prawdziwym modelem terenu. W kilku krokach pokażę, jak z niego korzystać.	A 3D atlas of mountain trails built on a real terrain model. A few quick steps will show you how to use it.
+Poruszanie mapą	Moving the map
+Lewy przycisk – przesuwanie (chwytasz teren). Prawy przycisk – obrót wokół chwyconego punktu. Kółko – przybliżanie do kursora, dwuklik – przybliżenie do punktu. Klawisze: strzałki, Q E, PgUp PgDn.	Left button – pan (you grab the terrain). Right button – rotate around the grabbed point. Wheel – zoom towards the cursor, double-click – zoom to a point. Keys: arrows, Q E, PgUp PgDn.
+Planowanie trasy	Route planning
+Wybierz narzędzie trasy (klawisz 2) i klikaj na mapie: start, punkty pośrednie, cel. Punkty można przeciągać, Ctrl+Z cofa zmianę, Ctrl+Y ją ponawia. Trasę zapiszesz w bibliotece (Ctrl+S) albo wyeksportujesz do GPX, KML lub GeoJSON.	Pick the route tool (key 2) and click on the map: start, via points, destination. Points can be dragged, Ctrl+Z undoes a change and Ctrl+Y redoes it. Save the route to your library (Ctrl+S) or export it to GPX, KML or GeoJSON.
+Spacer	Walk
+Przycisk z idącą postacią stawia Cię na terenie: W A S D – chodzenie, Shift – bieg, spacja – skok, prawy przycisk – rozglądanie, Esc – wyjście.	The walking-figure button puts you on the ground: W A S D – walk, Shift – run, space – jump, right button – look around, Esc – exit.
+Biblioteka i skróty	Library and shortcuts
+Biblioteka (B) trzyma zapisane trasy, ulubione miejsca i widoki. F11 – pełny ekran, ? – wszystkie skróty. Przewodnik obejrzysz ponownie z ustawień.	The library (B) keeps your saved routes, favourite places and views. F11 – full screen, ? – all shortcuts. You can replay this tour from the settings.
+Krok {} z {}	Step {} of {}
+Zaczynamy	Let's go
+Dalej	Next
+Wstecz	Back
+Pomiń	Skip
+GRAŃ wczytuje pliki GPX, KML i GeoJSON.	GRAŃ opens GPX, KML and GeoJSON files.
+odpowiedź nie jest obrazem JPEG	the response is not a JPEG image
+PNG terenu: {}	terrain PNG: {}
+brak kafla w źródle	tile missing at the source
+pusta odpowiedź	empty response
+serwer odpowiedział kodem {}	the server responded with code {}
+kafel terenu bez danych	terrain tile without data
+nieoczekiwany rozmiar kafla terenu	unexpected terrain tile size
+Za dużo zgłoszeń – spróbuj później.	Too many reports – please try later.
+Serwer odrzucił zgłoszenie (HTTP {}).	The server rejected the report (HTTP {}).
+Brak połączenia z redzikowski.com: {}	No connection to redzikowski.com: {}
+Twój e-mail (opcjonalnie – jeśli chcesz odpowiedź)	Your e-mail (optional – if you'd like a reply)
+np. jan@example.com	e.g. john@example.com
+To nie wygląda na adres e-mail.	That doesn't look like an e-mail address.
+Zgłoś błąd lub sugestię	Report a bug or suggestion
+Dziękuję! Zgłoszenie dotarło.	Thank you! Your report has arrived.
+Przeczytam je i wezmę pod uwagę przy kolejnych wersjach.	I'll read it and take it into account in future versions.
+Przeczytam je i odezwę się na podany adres, jeśli będzie trzeba.	I'll read it and reply to your address if needed.
+Zamknij	Close
+Błąd	Bug
+Sugestia funkcji	Feature suggestion
+Czego brakuje albo co można zrobić lepiej?	What is missing or could be done better?
+Co się stało? Co robiłeś(-aś) tuż przed błędem?	What happened? What were you doing just before the error?
+Dołącz wersję aplikacji i systemu	Include app and system version
+Wysyłanie…	Sending…
+Wyślij	Send
+Zgłoszenie trafi do autora przez redzikowski.com.	The report goes to the author via redzikowski.com.
+Aplikacja została nieoczekiwanie zamknięta	The application closed unexpectedly
+Dziękuję! Raport został wysłany.	Thank you! The report has been sent.
+Przy ostatnim uruchomieniu wystąpił błąd. Czy wysłać raport, żeby można go było naprawić? Raport zawiera opis błędu, wersję aplikacji i systemu oraz końcówkę dziennika programu – żadnych Twoich plików.	An error occurred during the last run. Send a report so it can be fixed? The report contains the error description, the app and system version and the end of the program log – none of your files.
+Pokaż szczegóły	Show details
+Co robiłeś(-aś) przed awarią? (opcjonalnie)	What were you doing before the crash? (optional)
+Wyślij raport	Send report
+Nie wysyłaj	Don't send
+Plik nie jest poprawnym KML.	The file is not valid KML.
+Ślad KML	KML track
+KML nie zawiera linii (LineString / gx:Track).	The KML contains no line (LineString / gx:Track).
+Plik nie jest poprawnym GeoJSON.	The file is not valid GeoJSON.
+GeoJSON nie zawiera linii (LineString).	The GeoJSON contains no line (LineString).
+Ślad GeoJSON	GeoJSON track
+Plik nie jest poprawnym GPX.	The file is not valid GPX.
+Ślad GPX	GPX track
+GPX nie zawiera śladu (trkpt/rtept).	The GPX contains no track (trkpt/rtept).
+Najszybsza	Fastest
+Najkrótsza	Shortest
+Najmniej podejść	Least climbing
+Najłatwiejsza	Easiest
+Wariant {}	Variant {}
+Overpass nie odpowiada	Overpass is not responding
+rozmiar maski	mask size
+Oszczędny	Economical
+ok. 0,6 GB RAM · mniej kafli w pamięci, wolniejsze doczytywanie	approx. 0.6 GB RAM · fewer tiles in memory, slower loading
+Zrównoważony	Balanced
+ok. 1,2 GB RAM	approx. 1.2 GB RAM
+Wysoki	High
+ok. 2 GB RAM · domyślny	approx. 2 GB RAM · default
+Maksymalny	Maximum
+ok. 4 GB RAM · najwięcej danych w pamięci, najszybsze doczytywanie	approx. 4 GB RAM · most data in memory, fastest loading
+reguła PTTK	PTTK rule
+T1 turystyczna	T1 hiking
+T2 górska	T2 mountain hiking
+T3 wymagająca	T3 demanding mountain hiking
+T4 wysokogórska	T4 alpine hiking
+T5 wymagająca wysokogórska	T5 demanding alpine hiking
+T6 trudna wysokogórska	T6 difficult alpine hiking
+łatwa	easy
+umiarkowana	moderate
+trudna	difficult
+bardzo trudna	very difficult
+czerwony	red
+niebieski	blue
+zielony	green
+żółty	yellow
+czarny	black
+inny	other
+poza szlakiem	off-trail
+pomarańczowy	orange
+fioletowy	purple
+brązowy	brown
+Szczyt	Peak
+Przełęcz	Pass
+Schronisko	Mountain hut
+Wiata / schron	Shelter
+Staw / jezioro	Lake
+Wodospad	Waterfall
+Jaskinia	Cave
+Punkt widokowy	Viewpoint
+Miejscowość	Town
+Overpass: {}	Overpass: {}
+odpowiedź Overpass: {}	Overpass response: {}
+Overpass: kod {}	Overpass: code {}
+brak adresu kafli wektorowych	no vector tile address
+Szlak {}	Trail {}
+uszkodzona paczka {}	damaged pack {}
+stycznia	January
+lutego	February
+marca	March
+kwietnia	April
+maja	May
+czerwca	June
+lipca	July
+sierpnia	August
+września	September
+października	October
+listopada	November
+grudnia	December
+Teren	Terrain
+Hipsometria	Hypsometry
+Nachylenie (lawiny)	Slope (avalanche)
+Ekspozycja	Aspect
+Satelita	Satellite
+Minimalna	Minimal
+Niska	Low
+Średnia	Medium
+Wysoka	High
+Ultra	Ultra
+Własna	Custom
+Spacer: W A S D – chodzenie, Shift – bieg, spacja – skok, prawy przycisk – rozglądanie · Esc – wyjście	Walk: W A S D – walk, Shift – run, space – jump, right button – look around · Esc – exit
+Przelot: najpierw wyznacz trasę albo wczytaj GPX.	Fly-through: plan a route or load a track first.
+Nie ma czego cofnąć.	Nothing to undo.
+Nie ma czego ponowić.	Nothing to redo.
+Start	Start
+Cel	Destination
+Trasa	Route
+Nie udało się zapisać biblioteki: {}	Could not save the library: {}
+Brak trasy do zapisania.	No route to save.
+Zapisano w bibliotece: {}	Saved to library: {}
+Otwarto trasę „{}”.	Opened route “{}”.
+Dodano do ulubionych: {}	Added to favourites: {}
+Widok: {}	View: {}
+Widok {}	View {}
+Zapisano widok: {}	View saved: {}
+Punkt jest daleko od szlaków (ponad 1,5 km) albo szlaki tej okolicy jeszcze się wczytują. Spróbuj trasy przez teren.	The point is far from any trail (over 1.5 km) or the trails of this area are still loading. Try an off-trail route.
+Nie znaleziono połączenia szlakami między punktami.	No trail connection found between the points.
+Nie da się przejść tędy z limitem nachylenia 40°.	There is no way through here within the 40° slope limit.
+Przez teren	Off-trail
+Punkt {}	Point {}
+Eksportuj trasę	Export route
+KML (Google Earth)	KML (Google Earth)
+Zapisano {}	Saved {}
+Nie udało się zapisać: {}	Could not save: {}
+Nie można odczytać pliku: {}	Cannot read the file: {}
+Wczytano ślad „{}” ({}).	Loaded track “{}” ({}).
+Zapisz zrzut ekranu	Save screenshot
+Zapisano zrzut: {}	Screenshot saved: {}
+Nie udało się zapisać zrzutu.	Could not save the screenshot.
+teren · {}	terrain · {}
+zdjęcia satelitarne · {}	satellite imagery · {}
+ortofoto · {}	orthophoto · {}
+składanie ortofoto · {}	assembling orthophoto · {}
+pobieranie: {}	downloading: {}
+Klik: północ u góry (N)\nDwuklik: północ i widok z góry\nPrzeciągnij w bok: obrót	Click: north up (N)\nDouble-click: north up and top view\nDrag sideways: rotate
+{}   {}   nachylenie {}°   ekspozycja {}	{}   {}   slope {}°   aspect {}
+Zdjęcia © Esri, Maxar, Earthstar Geographics · teren © Mapterhorn · © OpenStreetMap	Imagery © Esri, Maxar, Earthstar Geographics · terrain © Mapterhorn · © OpenStreetMap
+Teren © Mapterhorn (ÚGKK SR, GUGiK, ČÚZK), AWS Open Data · © OpenStreetMap	Terrain © Mapterhorn (ÚGKK SR, GUGiK, ČÚZK), AWS Open Data · © OpenStreetMap
+pobieranie nazw i szlaków…	downloading names and trails…
+nazwy i szlaki: {}	names and trails: {}
+pobieranie pokrycia terenu (OSM)…	downloading land cover (OSM)…
+wypiekanie pokrycia terenu i poziomów wody…	baking land cover and water levels…
+liczenie cieni…	computing shadows…
+wyznaczanie trasy…	finding a route…
+liczenie widoczności…	computing visibility…
+panorama · Esc – powrót	panorama · Esc – back
+przelot · F – stop	fly-through · F – stop
+soczewka: ta sama wysokość	lens: same elevation
+soczewka: wysokość względna	lens: relative elevation
+soczewka: widoczność	lens: visibility
+ (przypięta · Esc)	 (pinned · Esc)
+ · klik przypina	 · click to pin
+Trasa stąd	Route from here
+Trasa tutaj	Route to here
+Przez ten punkt	Via this point
+Ta sama wysokość	Same elevation
+Wysokość względna	Relative elevation
+Co widać stąd?	What can be seen from here?
+Spacer stąd	Walk from here
+Pomiar stąd	Measure from here
+Informacje o punkcie	Point information
+Kopiuj współrzędne	Copy coordinates
+Skopiowano współrzędne.	Coordinates copied.
+Zapisane trasy, ulubione miejsca i widoki. Kliknij nazwę, żeby otworzyć.	Saved routes, favourite places and views. Click a name to open it.
+Szukaj w bibliotece	Search the library
+A–Z	A–Z
+Najnowsze	Newest
+Zapisz bieżącą trasę	Save current route
+Zapisz widok	Save view
+Trasy	Routes
+Brak zapisanych tras. Zaplanuj trasę albo wczytaj ślad i wybierz „Zapisz w bibliotece” (Ctrl+S).	No saved routes. Plan a route or load a track and choose “Save to library” (Ctrl+S).
+Ulubione miejsca	Favourite places
+Brak ulubionych miejsc. Zaznacz szczyt lub punkt na mapie i wybierz „Dodaj do ulubionych”.	No favourite places. Select a peak or a point on the map and choose “Add to favourites”.
+Widoki	Views
+Brak zapisanych widoków. „Zapisz widok” (Ctrl+D) zapamiętuje kadr kamery i styl mapy.	No saved views. “Save view” (Ctrl+D) remembers the camera framing and map style.
+Nic nie pasuje do wyszukiwania.	Nothing matches the search.
+Biblioteka jest zapisana w pliku biblioteka.json w folderze ustawień programu.	The library is stored in biblioteka.json in the program settings folder.
+Usunąć „{}” z biblioteki?	Remove “{}” from the library?
+Otwórz	Open
+Usuń	Remove
+Zmień nazwę lub grupę	Rename or change group
+Eksportuj do pliku	Export to file
+Nazwa	Name
+Grupa (folder)	Group (folder)
+bez grupy	no group
+wybierz…	choose…
+Dystans	Distance
+Odcinek	Segment
+Linia prosta	Straight line
+W rzucie	Horizontal
+Odległość	Distance
+Po powierzchni	Over the surface
+Po terenie	Over terrain
+Szlaki	Trails
+Podejścia	Ascent
+Wyżej (5 km)	Higher (5 km)
+Zejścia	Descent
+Niżej (5 km)	Lower (5 km)
+Czas	Time
+Czas (tam)	Time (there)
+Czas (z powrotem)	Time (back)
+Wyjście	Departure
+Dojście	Arrival
+Najwyżej	Highest
+Wysokość	Elevation
+Model terenu	Terrain model
+Najniżej	Lowest
+Maks. nachylenie	Max slope
+Nachylenie	Slope
+Śr. nachylenie	Avg. gradient
+Azymut	Bearing
+Krętość	Sinuosity
+Punkty GOT	GOT points
+Skala SAC	SAC scale
+Śr. tempo	Avg. pace
+Wschód	Sunrise
+Wschód słońca	Sunrise
+Zachód	Sunset
+Zachód słońca	Sunset
+Słońce	Sun
+Górowanie	Solar noon
+Granica śniegu	Snow line
+Mieszkańcy	Population
+Różnica wysokości	Elevation difference
+Szerokość	Latitude
+Długość	Longitude
+Trasy PTTK i inne	Marked routes
+Punkty	Points
+Sektory	Sectors
+płasko	flat
+łagodnie	gentle
+stromo	steep
+bardzo stromo	very steep
+Plan dnia	Day plan
+Nie da się wyliczyć zapasu światła	Cannot compute the daylight margin
+{} zapasu przed zachodem	{} to spare before sunset
+Tylko {} zapasu przed zachodem	Only {} to spare before sunset
+Dojście {} po zachodzie – weź czołówkę	Arrival {} after sunset – take a headlamp
+Wyjście to pora ustawiona na zegarze u góry; zmienisz ją w menu Słońce.	Departure is the time set on the clock at the top; change it in the Sun menu.
+Po drodze ({})	Along the way ({})
+Szukaj szczytu, szlaku, miejscowości	Search for a peak, trail, town
+Zaznaczanie – zwykły tryb (1)	Select – normal mode (1)
+Szczegóły okolicy (P)	Area details (P)
+Biblioteka: zapisane trasy, miejsca i widoki (B)	Library: saved routes, places and views (B)
+Planowanie trasy (2)	Route planning (2)
+Pomiar i linia wzroku (3)	Measure and line of sight (3)
+Ta sama wysokość (H)	Same elevation (H)
+Wysokość względna (W)	Relative elevation (W)
+Co widać stąd (O)	What can be seen from here (O)
+Spacer ze środka widoku: W A S D, spacja – skok, prawy przycisk – rozglądanie, Esc – wyjście	Walk from the centre of the view: W A S D, space – jump, right button – look around, Esc – exit
+teraz	now
+Pora ustawiona ręcznie	Time set manually
+Oświetlenie jak teraz	Lighting as now
+Styl mapy	Map style
+Styl mapy (M)	Map style (M)
+Warstwy	Layers
+włączone: {}	on: {}
+Warstwy na mapie	Map layers
+Pokaż szczegóły (P)	Show details (P)
+Biblioteka	Library
+Pomiar	Measure
+Szczegóły	Details
+Ukryj panel (P)	Hide panel (P)
+Zakończ planowanie	End planning
+Usuwa trasę z mapy i wraca do zwykłego trybu	Removes the route from the map and returns to normal mode
+Przybliż	Zoom in
+Oddal	Zoom out
+Pełny ekran (F11)	Full screen (F11)
+Widok ukośny / z góry (V)	Oblique / top view (V)
+Okolica · {}	Area · {}
+Okolice: {}	Around {}
+Atlas szlaków	Trail atlas
+Pobieram szlaki i punkty tej okolicy z OpenStreetMap…	Downloading trails and points for this area from OpenStreetMap…
+Przybliż widok, żeby wczytać szlaki i punkty okolicy.	Zoom in to load trails and points for this area.
+W tej okolicy nie ma znakowanych szlaków w OpenStreetMap.	There are no marked trails in OpenStreetMap around here.
+Najbardziej wybitne szczyty	Most prominent peaks
+Wczytany ślad GPX	Loaded track
+Pokaż	Show
+Kopiuj link do widoku	Copy link to view
+Skopiowano link do widoku – wklej go do wyszukiwarki GRANI albo otwórz w systemie.	Link to the view copied – paste it into the GRAŃ search box or open it in the system.
+Zapisz ten widok	Save this view
+Zakładka w bibliotece (Ctrl+D)	Bookmark in the library (Ctrl+D)
+Wczytaj ślad (GPX, KML, GeoJSON)…	Load a track (GPX, KML, GeoJSON)…
+albo przeciągnij plik na mapę	or drag the file onto the map
+Dodaj do ulubionych	Add to favourites
+Model terenu wygładza najostrzejsze granie – wysokość szczytu pochodzi z OSM.	The terrain model smooths the sharpest ridges – the peak elevation comes from OSM.
+Wikipedia	Wikipedia
+Sąsiednie szczyty	Nearby peaks
+Punkt terenu	Terrain point
+Słońce w tym miejscu	Sun at this place
+W pobliżu: {}	Nearby: {}
+Szlak turystyczny	Hiking trail
+Odcinek szlaku	Trail segment
+Pokaż cały szlak	Show the whole trail
+Tempo	Pace
+szybkie	fast
+normalne	normal
+spokojne	relaxed
+Trasa szlakami	Route along trails
+Trasa przez teren	Off-trail route
+Szlakami	Along trails
+A* po modelu terenu z funkcją Toblera i limitem nachylenia – analiza rzeźby, nie zachęta do schodzenia ze szlaków w parkach narodowych.	A* over the terrain model with Tobler's function and a slope limit – a terrain analysis, not an encouragement to leave trails in national parks.
+Wyczyść	Clear
+Odwróć	Reverse
+Ponów (Ctrl+Y)	Redo (Ctrl+Y)
+Cofnij (Ctrl+Z)	Undo (Ctrl+Z)
+Klikaj na mapie, żeby dodać punkty trasy (start, przez, cel). Punkty można przeciągać; prawy przycisk daje więcej opcji.	Click on the map to add route points (start, via, destination). Points can be dragged; the right button gives more options.
+Czas przejścia	Walking time
+wyznaczam trasę…	finding a route…
+Warianty ({})	Variants ({})
+Stromizna trasy	Route steepness
+Szlaki na trasie	Trails on the route
+Działania	Actions
+Pokaż całą	Show all
+Profil wysokości	Elevation profile
+Kopiuj link	Copy link
+Link gran:// z widokiem i punktami trasy	gran:// link with the view and route points
+Skopiowano link z trasą.	Link with the route copied.
+Zapisz w bibliotece	Save to library
+Eksport (GPX, KML, GeoJSON)	Export (GPX, KML, GeoJSON)
+Zatrzymaj przelot	Stop fly-through
+Przelot	Fly-through
+Pomiar i linia wzroku	Measure and line of sight
+Odległość po terenie	Distance over terrain
+Klikaj na mapie, żeby dodać punkty pomiaru. Dla dwóch punktów program sprawdzi też, czy jeden widać z drugiego.	Click on the map to add measurement points. For two points the program also checks whether one can be seen from the other.
+Pomiar · {} pkt	Measure · {} pts
+Cofnij	Undo
+po powierzchni	over the surface
+Linia wzroku (oczy 1,7 m, krzywizna Ziemi)	Line of sight (eyes 1.7 m, Earth curvature)
+Widać	Visible
+Z punktu 1 widać punkt 2 – teren nie przesłania linii wzroku.	Point 2 is visible from point 1 – the terrain does not block the line of sight.
+Nie widać	Not visible
+Teren przesłania linię wzroku po {} od punktu 1.	The terrain blocks the line of sight {} from point 1.
+Analiza widoczności	Visibility analysis
+Wysokość obserwatora nad terenem	Observer height above ground
+liczę promienie widzenia…	tracing lines of sight…
+km² widocznych	km² visible
+w promieniu 32 km · uwzględnia krzywiznę Ziemi i refrakcję · oko {} m n.p.m.	within 32 km · includes Earth curvature and refraction · eye at {} m a.s.l.
+Widoczne szczyty i schroniska ({})	Visible peaks and huts ({})
+Co jest wyżej?	What is higher?
+Poziom 0: {} · {}	Level 0: {} · {}
+zakres barw (m)	colour range (m)
+Szczyty względem punktu	Peaks relative to the point
+Poziomica przez punkt	Contour through the point
+pas ± m (0 – sama poziomica)	band ± m (0 – contour only)
+Na tej samej wysokości (±{} m)	At the same elevation (±{} m)
+Odepnij soczewkę (Esc)	Unpin lens (Esc)
+Klasy nachylenia jak na mapach lawinowych: 15–25° · 25–30° · 30–35° · 35–40° · 40–45° · ponad 45°.	Slope classes as on avalanche maps: 15–25° · 25–30° · 30–35° · 35–40° · 40–45° · over 45°.
+Barwa – kierunek, w który opada stok; nasycenie – nachylenie.	Hue – the direction the slope faces; saturation – steepness.
+Barwy wysokości: niziny zielone, piętro hal brązowe, najwyżej biel.	Elevation colours: lowlands green, alpine meadows brown, white at the top.
+Zdjęcia lotnicze i satelitarne z całego świata (Esri). Ortofoto krajowe włączysz w ustawieniach.	Aerial and satellite imagery of the whole world (Esri). National orthophotos can be enabled in the settings.
+przewyższenie ×	exaggeration ×
+widać tylko w stylu Teren (zdjęcie satelitarne ma własny śnieg)	visible only in the Terrain style (satellite imagery has its own snow)
+w stylach analitycznych nie ma wody, lasów ani drzew	analytical styles have no water, forests or trees
+Nazwy i linie	Names and lines
+Szczyty (L)	Peaks (L)
+Miejscowości	Towns
+Szlaki (T)	Trails (T)
+Poziomice (C)	Contours (C)
+Siatka km	km grid
+Cienie	Shadows
+Rzeźba	Relief
+Śnieg	Snow
+Lasy i woda	Forests and water
+gęstość nazw	label density
+Zdjęcia	Imagery
+Ortofoto krajowe (PL, CZ, SK)	National orthophotos (PL, CZ, SK)
+Z bliska zamiast zdjęć Esri – ostrzejsze zdjęcia lotnicze z geoportali GUGiK, ČÚZK i ÚGKK SR. Wolniej się wczytują.	Up close instead of Esri imagery – sharper aerial photos from the GUGiK, ČÚZK and ÚGKK SR geoportals. They load more slowly.
+Kontrolki	Controls
+Autoukrywanie kontrolek na mapie	Auto-hide map controls
+Pasek narzędzi, wyszukiwarka i przyciski kamery chowają się, gdy mysz stoi; wracają przy ruchu myszy.	The toolbar, search box and camera buttons hide when the mouse is still and come back when it moves.
+Nazwy	Names
+Szczyty i punkty	Peaks and points
+pora ustawiona	time set
+Słońce {}° · {} {}	Sun {}° · {} {}
+miesiąc wcześniej	a month earlier
+dzień wcześniej	a day earlier
+dzień później	a day later
+miesiąc później	a month later
+Teraz	Now
+Południe	Noon
+Złota godz.	Golden hour
+Długość dnia	Day length
+Jakość · {}	Quality · {}
+{:.0} kl./s · {:.1} ms	{:.0} fps · {:.1} ms
+rozdzielczość renderu	render resolution
+szczegółowość terenu	terrain detail
+kafle terenu w pamięci GPU	terrain tiles in GPU memory
+kafle zdjęć w pamięci GPU	imagery tiles in GPU memory
+Rysowane kafle: {} · w pamięci: teren {}, zdjęcia {}	Tiles drawn: {} · in memory: terrain {}, imagery {}
+Zwiń profil	Collapse profile
+Rozwiń profil	Expand profile
+eksploracja · trasa · pomiar	explore · route · measure
+soczewka: ta sama wysokość · względna · widoczność	lens: same elevation · relative · visibility
+wyszukiwarka	search
+następny styl mapy	next map style
+pokaż / ukryj panel szczegółów	show / hide the details panel
+szlaki · nazwy · poziomice	trails · names · contours
+klik z soczewką / Esc	click with a lens / Esc
+przypnij / odepnij soczewkę	pin / unpin the lens
+przewyższenie terenu	terrain exaggeration
+pora dnia −/+ 30 min	time of day −/+ 30 min
+przelot nad trasą	fly over the route
+W A S D · Shift · spacja	W A S D · Shift · space
+spacer: chodzenie · bieg · skok (prawy przycisk – rozglądanie)	walk: walk · run · jump (right button – look around)
+północ u góry	north up
+widok z góry / ukośny	top / oblique view
+widok początkowy	initial view
+eksport trasy (GPX, KML, GeoJSON)	export route (GPX, KML, GeoJSON)
+cofnij / ponów zmianę punktów trasy	undo / redo route point changes
+zapisz trasę w bibliotece	save the route to the library
+zapisz widok w bibliotece	save the view to the library
+biblioteka	library
+pełny ekran	full screen
+zrzut ekranu PNG	PNG screenshot
+usuń ostatni punkt	remove the last point
+anuluj / wyjdź	cancel / exit
+strzałki · Q E · PgUp PgDn	arrows · Q E · PgUp PgDn
+przesuwanie · obrót · nachylenie	pan · rotate · tilt
+lewy przycisk	left button
+przesuwanie (chwyć teren)	pan (grab the terrain)
+prawy przycisk	right button
+obrót wokół chwyconego punktu · klik – menu analiz	rotate around the grabbed point · click – analysis menu
+kółko	wheel
+przybliżanie do kursora	zoom towards the cursor
+dwuklik	double-click
+przybliż do punktu	zoom to a point
+ustawienia	settings
+Jak korzystać z Grani	How to use GRAŃ
+Atlas łączy rzeczywisty model terenu z siecią szlaków OSM. Wszystkie obliczenia – trasy, widoczność, cienie – odbywają się lokalnie na tym komputerze.	The atlas combines a real terrain model with the OSM trail network. All calculations – routes, visibility, shadows – run locally on this computer.
+Pliki GPX, KML i GeoJSON możesz przeciągnąć bezpośrednio na mapę.	You can drag GPX, KML and GeoJSON files straight onto the map.
+Ślady (GPX, KML, GeoJSON)	Tracks (GPX, KML, GeoJSON)
+przeszkoda	obstacle
+{:+.0}% nachylenia	{:+.0}% gradient
+↑ {} od startu	↑ {} from start
+{} od startu	{} from start
+szlak {}	{} trail
+Szukaj	Search
+Szczyt, schronisko, szlak (np. „czerwony”), miejscowość…	Peak, hut, trail (e.g. “red”), town…
+szukam w OpenStreetMap…	searching OpenStreetMap…
+Wyszukiwanie miejsc niedostępne: {}	Place search unavailable: {}
+Brak wyników w okolicy. Wpisz co najmniej 3 litery, żeby szukać w całej Europie.	No results nearby. Type at least 3 letters to search all of Europe.
+Nieprawidłowy link GRANIA.	Invalid GRAŃ link.
+Wydanie nie zawiera instalatora.	The release contains no installer.
+Wydanie nie zawiera pliku latest.yml z sumą kontrolną.	The release contains no latest.yml checksum file.
+Brak sumy SHA-512 w latest.yml.	No SHA-512 checksum in latest.yml.
+Pobrany instalator ma niezgodną sumę kontrolną – spróbuj ponownie później.	The downloaded installer's checksum does not match – please try again later.
+Instalacja aktualizacji została przerwana (brak zgody administratora?).	The update installation was interrupted (no administrator approval?).
+Aktualizacje tylko w systemie Windows.	Updates are available on Windows only.

@@ -144,12 +144,12 @@ fn get_bytes(url: &str, limit: u64) -> Result<Vec<u8>, FetchError> {
                 let mut buf = Vec::new();
                 match r.into_reader().take(limit).read_to_end(&mut buf) {
                     Ok(_) if !buf.is_empty() => return Ok(buf),
-                    Ok(_) => last = "pusta odpowiedź".into(),
+                    Ok(_) => last = crate::i18n::tr("pusta odpowiedź").into(),
                     Err(e) => last = e.to_string(),
                 }
             }
             Err(ureq::Error::Status(404 | 400, _)) => return Err(FetchError::Missing),
-            Err(ureq::Error::Status(c, _)) => last = format!("serwer odpowiedział kodem {c}"),
+            Err(ureq::Error::Status(c, _)) => last = tf!("serwer odpowiedział kodem {}", c),
             Err(ureq::Error::Transport(e)) => last = e.to_string(),
         }
     }

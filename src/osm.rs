@@ -107,15 +107,15 @@ pub enum PoiKind {
 impl PoiKind {
     pub fn label(self) -> &'static str {
         match self {
-            PoiKind::Peak => "Szczyt",
-            PoiKind::Saddle => "Przełęcz",
-            PoiKind::Hut => "Schronisko",
-            PoiKind::Shelter => "Wiata / schron",
-            PoiKind::Lake => "Staw / jezioro",
-            PoiKind::Waterfall => "Wodospad",
-            PoiKind::Cave => "Jaskinia",
-            PoiKind::Viewpoint => "Punkt widokowy",
-            PoiKind::Place => "Miejscowość",
+            PoiKind::Peak => crate::i18n::tr("Szczyt"),
+            PoiKind::Saddle => crate::i18n::tr("Przełęcz"),
+            PoiKind::Hut => crate::i18n::tr("Schronisko"),
+            PoiKind::Shelter => crate::i18n::tr("Wiata / schron"),
+            PoiKind::Lake => crate::i18n::tr("Staw / jezioro"),
+            PoiKind::Waterfall => crate::i18n::tr("Wodospad"),
+            PoiKind::Cave => crate::i18n::tr("Jaskinia"),
+            PoiKind::Viewpoint => crate::i18n::tr("Punkt widokowy"),
+            PoiKind::Place => crate::i18n::tr("Miejscowość"),
         }
     }
 }
@@ -195,13 +195,13 @@ pub(crate) fn overpass(query: &str, prefer: usize) -> Result<serde_json::Value, 
                 match serde_json::from_slice::<serde_json::Value>(&buf) {
                     // przekroczony czas lub limit to kod 200 z uwagą i uciętymi danymi – nie wolno ich zapisać
                     Ok(v) if v["remark"].as_str().is_some_and(|r| r.contains("error")) => {
-                        last = format!("Overpass: {}", v["remark"].as_str().unwrap_or(""));
+                        last = tf!("Overpass: {}", v["remark"].as_str().unwrap_or(""));
                     }
                     Ok(v) => return Ok(v),
-                    Err(e) => last = format!("odpowiedź Overpass: {e}"),
+                    Err(e) => last = tf!("odpowiedź Overpass: {}", e),
                 }
             }
-            Err(ureq::Error::Status(code, _)) => last = format!("Overpass: kod {code}"),
+            Err(ureq::Error::Status(code, _)) => last = tf!("Overpass: kod {}", code),
             Err(e) => last = e.to_string(),
         }
         log::warn!("overpass {url}: {last}");
@@ -304,7 +304,7 @@ fn vector_url() -> Result<String, String> {
         .into_string()
         .map_err(|e| e.to_string())?;
     let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    let u = v["tiles"][0].as_str().ok_or("brak adresu kafli wektorowych")?.to_string();
+    let u = v["tiles"][0].as_str().ok_or(crate::i18n::tr("brak adresu kafli wektorowych"))?.to_string();
     *URL.lock().unwrap() = Some(u.clone());
     Ok(u)
 }
@@ -454,7 +454,7 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
         let name = [get("name:pl"), get("name"), get("ref")]
             .into_iter()
             .find(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("Szlak {}", r["id"]));
+            .unwrap_or_else(|| tf!("Szlak {}", r["id"]));
         routes.push(RouteInfo {
             id: r["id"].as_i64().unwrap_or(0),
             name,
@@ -592,7 +592,7 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
         pois.push(Poi {
             kind,
             name: if name.is_empty() {
-                "Schronisko".into()
+                crate::i18n::tr("Schronisko").into()
             } else {
                 name.into()
             },

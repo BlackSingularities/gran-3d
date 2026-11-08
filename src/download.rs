@@ -92,7 +92,7 @@ pub enum FetchError {
 impl std::fmt::Display for FetchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FetchError::Missing => write!(f, "brak kafla w źródle"),
+            FetchError::Missing => write!(f, "{}", crate::i18n::tr("brak kafla w źródle")),
             FetchError::Network(e) => write!(f, "{e}"),
         }
     }
@@ -114,12 +114,12 @@ fn fetch_url(url: &str) -> Result<Vec<u8>, FetchError> {
                 let mut buf = Vec::with_capacity(64 * 1024);
                 match r.into_reader().take(16 << 20).read_to_end(&mut buf) {
                     Ok(_) if !buf.is_empty() => return Ok(buf),
-                    Ok(_) => last = "pusta odpowiedź".into(),
+                    Ok(_) => last = crate::i18n::tr("pusta odpowiedź").into(),
                     Err(e) => last = e.to_string(),
                 }
             }
             Err(ureq::Error::Status(404 | 400, _)) => return Err(FetchError::Missing),
-            Err(ureq::Error::Status(code, _)) => last = format!("serwer odpowiedział kodem {code}"),
+            Err(ureq::Error::Status(code, _)) => last = tf!("serwer odpowiedział kodem {}", code),
             Err(ureq::Error::Transport(e)) => last = e.to_string(),
         }
     }
@@ -181,7 +181,7 @@ fn bake_terrain(store: &Store, t: TileId, mut elev: Vec<f32>, w: usize, h: usize
         });
         let view = parent.as_ref().map(|(d, off, k)| (d, *off, *k));
         if !bake::fill_holes(&mut elev, w, h, view) {
-            return Err(FetchError::Network("kafel terenu bez danych".into()));
+            return Err(FetchError::Network(crate::i18n::tr("kafel terenu bez danych").into()));
         }
     }
     Ok(bake::encode_dem(&elev, w, h))
@@ -195,7 +195,7 @@ fn fetch_mapterhorn(store: &Store, t: TileId) -> Result<Vec<u8>, FetchError> {
     let net = |e: bake::BakeError| FetchError::Network(e.to_string());
     let (elev, w, h) = bake::terrarium(&src).map_err(net)?;
     if (w, h) != (512, 512) {
-        return Err(FetchError::Network("nieoczekiwany rozmiar kafla terenu".into()));
+        return Err(FetchError::Network(crate::i18n::tr("nieoczekiwany rozmiar kafla terenu").into()));
     }
     let own = bake_terrain(store, t, bake::quadrant(&elev, (t.x % 2) as usize, (t.y % 2) as usize), 256, 256)?;
     for (qx, qy) in [(0u32, 0u32), (1, 0), (0, 1), (1, 1)] {

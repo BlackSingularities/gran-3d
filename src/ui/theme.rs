@@ -4,6 +4,8 @@ use eframe::egui::{self, Color32, CornerRadius, FontFamily, FontId, Sense, Strok
 
 pub use egui_phosphor::regular as icon;
 
+use crate::i18n::tr;
+
 pub const INK_0: Color32 = Color32::from_rgb(16, 18, 22);
 pub const INK_1: Color32 = Color32::from_rgb(26, 29, 35);
 pub const INK_2: Color32 = Color32::from_rgb(34, 38, 45);
@@ -24,7 +26,7 @@ const ON_ACCENT: Color32 = Color32::from_rgb(8, 20, 38);
 
 /// Ikona z podpisem na przycisku.
 pub fn ic(glyph: &str, text: &str) -> String {
-    format!("{glyph}  {text}")
+    format!("{glyph}  {}", tr(text))
 }
 
 pub fn apply(ctx: &egui::Context) {
@@ -103,12 +105,12 @@ pub fn apply(ctx: &egui::Context) {
 
 /// Mały nagłówek sekcji.
 pub fn kicker(text: &str) -> egui::RichText {
-    egui::RichText::new(text.to_string()).size(12.0).color(PAPER_3).strong()
+    egui::RichText::new(tr(text).to_string()).size(12.0).color(PAPER_3).strong()
 }
 
 /// Główny przycisk akcji.
 pub fn primary(text: &str) -> egui::Button<'static> {
-    egui::Button::new(egui::RichText::new(text.to_string()).color(ON_ACCENT).strong())
+    egui::Button::new(egui::RichText::new(tr(text).to_string()).color(ON_ACCENT).strong())
         .fill(BRASS)
         .min_size(egui::vec2(110.0, 34.0))
 }
@@ -143,6 +145,8 @@ pub fn tile(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool, w: f32) -> egu
 
 /// Kafelek, który może być nieaktywny (`disabled` – powód widoczny po najechaniu): szary, bez kliknięcia.
 pub fn tile_ex(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool, w: f32, disabled: Option<&str>) -> egui::Response {
+    let text = tr(text);
+    let disabled = disabled.map(tr);
     let sense = if disabled.is_some() { Sense::hover() } else { Sense::click() };
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 74.0), sense);
     if let Some(why) = disabled {
@@ -187,6 +191,7 @@ pub fn tile_grid(ui: &mut egui::Ui, cols: usize, body: impl FnOnce(&mut egui::Ui
 
 /// Karta wyboru: tytuł i opis, zaznaczona obwódką dookoła.
 pub fn option_card(ui: &mut egui::Ui, title: &str, desc: &str, on: bool) -> egui::Response {
+    let (title, desc) = (tr(title), tr(desc));
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 52.0), Sense::click());
     let p = ui.painter();
     let bg = if on {
@@ -222,7 +227,8 @@ pub fn bar(ui: &mut egui::Ui, frac: f32, color: Color32) {
 
 /// Akapit objaśnienia: jedyne miejsce, gdzie tekst się zawija.
 pub fn para(ui: &mut egui::Ui, text: impl Into<String>) {
-    ui.add(egui::Label::new(egui::RichText::new(text.into()).small().color(PAPER_3)).wrap());
+    let text: String = text.into();
+    ui.add(egui::Label::new(egui::RichText::new(tr(&text).to_string()).small().color(PAPER_3)).wrap());
 }
 
 /// Okrągły przycisk z samą ikoną.
@@ -238,6 +244,7 @@ pub fn icon_button(ui: &mut egui::Ui, glyph: &str, on: bool) -> egui::Response {
 
 /// Wiersz listy na całą szerokość: ikona i podpis.
 pub fn row_button(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool) -> egui::Response {
+    let text = tr(text);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 36.0), Sense::click());
     let bg = if on {
         BRASS_DIM
@@ -268,6 +275,7 @@ pub fn row_button(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool) -> egui:
 
 /// Przełącznik w wierszu: podpis po lewej, suwak po prawej.
 pub fn switch(ui: &mut egui::Ui, value: &mut bool, text: &str) -> egui::Response {
+    let text = tr(text);
     let (rect, mut resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), Sense::click());
     if resp.clicked() {
         *value = !*value;

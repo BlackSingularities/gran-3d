@@ -25,6 +25,22 @@ struct Config {
 }
 
 static CONFIG: OnceLock<Config> = OnceLock::new();
+static LOG_FILE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Plik dziennika programu: jego koniec trafia do raportu o awarii (opcjonalne).
+pub fn set_log_file(path: PathBuf) {
+    let _ = LOG_FILE.set(path);
+}
+
+/// Ostatnie wiersze dziennika (do raportu o awarii); po awarii dziennik jest w `*.1.log`.
+fn log_tail() -> String {
+    let Some(p) = LOG_FILE.get() else { return String::new() };
+    let prev = p.with_file_name(format!("{}.1.log", p.file_stem().and_then(|s| s.to_str()).unwrap_or("log")));
+    let text = std::fs::read_to_string(&prev).or_else(|_| std::fs::read_to_string(p)).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    let tail = lines[lines.len().saturating_sub(150)..].join("\n");
+    tail.chars().rev().take(20_000).collect::<Vec<_>>().into_iter().rev().collect()
+}
 
 /// Wywołaj raz na początku `main`. `dir_name` – folder w %LOCALAPPDATA% na plik awarii.
 pub fn install(slug: &'static str, name: &'static str, version: &'static str, dir_name: &str) {
@@ -62,6 +78,7 @@ fn save_crash(info: &std::panic::PanicHookInfo<'_>) -> std::io::Result<()> {
     let thread = std::thread::current().name().unwrap_or("?").to_string();
     let backtrace = std::backtrace::Backtrace::force_capture().to_string();
     let stack = format!("panic at {location}: {message}\nthread: {thread}\n\n{backtrace}");
+    log::error!("panic: {location}: {message} ({thread})");
     let json = serde_json::json!({
         "stack": stack.chars().take(60_000).collect::<String>(),
         "at": now_ms(),
@@ -141,9 +158,9 @@ fn post(body: serde_json::Map<String, serde_json::Value>) -> Result<(), String> 
     let text = serde_json::Value::Object(body).to_string();
     match agent.post(ENDPOINT).set("Content-Type", "application/json; charset=utf-8").send_string(&text) {
         Ok(_) => Ok(()),
-        Err(ureq::Error::Status(429, _)) => Err("Za dużo zgłoszeń – spróbuj później.".into()),
-        Err(ureq::Error::Status(code, _)) => Err(format!("Serwer odrzucił zgłoszenie (HTTP {code}).")),
-        Err(e) => Err(format!("Brak połączenia z redzikowski.com: {e}")),
+        Err(ureq::Error::Status(429, _)) => Err(crate::i18n::tr("Za dużo zgłoszeń – spróbuj później.").into()),
+        Err(ureq::Error::Status(code, _)) => Err(tf!("Serwer odrzucił zgłoszenie (HTTP {}).", code)),
+        Err(e) => Err(tf!("Brak połączenia z redzikowski.com: {}", e)),
     }
 }
 
@@ -159,6 +176,10 @@ pub fn send_crash(crash: &PendingCrash, comment: &str, email: &str) -> Result<()
     if let Some(serde_json::Value::Object(extra)) = b.get_mut("extra") {
         extra.insert("thread".into(), crash.thread.clone().into());
         extra.insert("crashedAt".into(), crash.at.into());
+        let log = log_tail();
+        if !log.is_empty() {
+            extra.insert("log".into(), log.into());
+        }
     }
     post(b).inspect(|_| discard_pending_crash())
 }
@@ -278,10 +299,10 @@ impl FeedbackUi {
     }
 
     fn email_field(&mut self, ui: &mut egui::Ui) {
-        ui.label("Twój e-mail (opcjonalnie – jeśli chcesz odpowiedź)");
-        ui.add(egui::TextEdit::singleline(&mut self.email).hint_text("np. jan@example.com").desired_width(f32::INFINITY));
+        ui.label(crate::i18n::tr("Twój e-mail (opcjonalnie – jeśli chcesz odpowiedź)"));
+        ui.add(egui::TextEdit::singleline(&mut self.email).hint_text(crate::i18n::tr("np. jan@example.com")).desired_width(f32::INFINITY));
         if !email_ok(&self.email) {
-            ui.colored_label(ui.visuals().error_fg_color, "To nie wygląda na adres e-mail.");
+            ui.colored_label(ui.visuals().error_fg_color, crate::i18n::tr("To nie wygląda na adres e-mail."));
         }
     }
 
@@ -289,52 +310,52 @@ impl FeedbackUi {
     fn form(&mut self, ctx: &egui::Context) -> bool {
         let mut keep = true;
         let busy = self.job.is_some();
-        Self::window("Zgłoś błąd lub sugestię").show(ctx, |ui| {
+        Self::window(crate::i18n::tr("Zgłoś błąd lub sugestię")).show(ctx, |ui| {
             ui.set_width(440.0);
             if self.sent {
-                ui.label(egui::RichText::new("Dziękuję! Zgłoszenie dotarło.").strong());
+                ui.label(egui::RichText::new(crate::i18n::tr("Dziękuję! Zgłoszenie dotarło.")).strong());
                 ui.label(if self.email.trim().is_empty() {
-                    "Przeczytam je i wezmę pod uwagę przy kolejnych wersjach."
+                    crate::i18n::tr("Przeczytam je i wezmę pod uwagę przy kolejnych wersjach.")
                 } else {
-                    "Przeczytam je i odezwę się na podany adres, jeśli będzie trzeba."
+                    crate::i18n::tr("Przeczytam je i odezwę się na podany adres, jeśli będzie trzeba.")
                 });
                 ui.add_space(8.0);
-                if ui.button("Zamknij").clicked() {
+                if ui.button(crate::i18n::tr("Zamknij")).clicked() {
                     keep = false;
                 }
                 return;
             }
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.feature, false, "Błąd");
-                ui.selectable_value(&mut self.feature, true, "Sugestia funkcji");
+                ui.selectable_value(&mut self.feature, false, crate::i18n::tr("Błąd"));
+                ui.selectable_value(&mut self.feature, true, crate::i18n::tr("Sugestia funkcji"));
             });
             ui.add_space(6.0);
             ui.label(if self.feature {
-                "Czego brakuje albo co można zrobić lepiej?"
+                crate::i18n::tr("Czego brakuje albo co można zrobić lepiej?")
             } else {
-                "Co się stało? Co robiłeś(-aś) tuż przed błędem?"
+                crate::i18n::tr("Co się stało? Co robiłeś(-aś) tuż przed błędem?")
             });
             ui.add(egui::TextEdit::multiline(&mut self.message).desired_rows(6).desired_width(f32::INFINITY));
             ui.add_space(6.0);
             self.email_field(ui);
             ui.add_space(4.0);
-            ui.checkbox(&mut self.include_device, "Dołącz wersję aplikacji i systemu");
+            ui.checkbox(&mut self.include_device, crate::i18n::tr("Dołącz wersję aplikacji i systemu"));
             if let Some(e) = &self.error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let ready = self.message.trim().chars().count() >= 3 && email_ok(&self.email) && !busy;
-                if ui.add_enabled(ready, egui::Button::new(if busy { "Wysyłanie…" } else { "Wyślij" })).clicked() {
+                if ui.add_enabled(ready, egui::Button::new(if busy { crate::i18n::tr("Wysyłanie…") } else { crate::i18n::tr("Wyślij") })).clicked() {
                     let (feature, message, email, dev) = (self.feature, self.message.clone(), self.email.clone(), self.include_device);
                     self.start(ctx, move || send(feature, &message, &email, dev));
                 }
-                if ui.add_enabled(!busy, egui::Button::new("Anuluj")).clicked() {
+                if ui.add_enabled(!busy, egui::Button::new(crate::i18n::tr("Anuluj"))).clicked() {
                     keep = false;
                 }
             });
             ui.add_space(4.0);
-            ui.label(egui::RichText::new("Zgłoszenie trafi do autora przez redzikowski.com.").small().weak());
+            ui.label(egui::RichText::new(crate::i18n::tr("Zgłoszenie trafi do autora przez redzikowski.com.")).small().weak());
         });
         keep
     }
@@ -342,25 +363,25 @@ impl FeedbackUi {
     fn crash(&mut self, ctx: &egui::Context, crash: &PendingCrash) -> bool {
         let mut keep = true;
         let busy = self.job.is_some();
-        Self::window("Aplikacja została nieoczekiwanie zamknięta").show(ctx, |ui| {
+        Self::window(crate::i18n::tr("Aplikacja została nieoczekiwanie zamknięta")).show(ctx, |ui| {
             ui.set_width(440.0);
             if self.sent {
-                ui.label(egui::RichText::new("Dziękuję! Raport został wysłany.").strong());
+                ui.label(egui::RichText::new(crate::i18n::tr("Dziękuję! Raport został wysłany.")).strong());
                 ui.add_space(8.0);
-                if ui.button("Zamknij").clicked() {
+                if ui.button(crate::i18n::tr("Zamknij")).clicked() {
                     keep = false;
                 }
                 return;
             }
-            ui.label("Przy ostatnim uruchomieniu wystąpił błąd. Czy wysłać raport, żeby można go było naprawić? Raport zawiera opis błędu, wersję aplikacji i systemu – żadnych Twoich plików.");
+            ui.label(crate::i18n::tr("Przy ostatnim uruchomieniu wystąpił błąd. Czy wysłać raport, żeby można go było naprawić? Raport zawiera opis błędu, wersję aplikacji i systemu oraz końcówkę dziennika programu – żadnych Twoich plików."));
             ui.add_space(6.0);
-            egui::CollapsingHeader::new("Pokaż szczegóły").show(ui, |ui| {
+            egui::CollapsingHeader::new(crate::i18n::tr("Pokaż szczegóły")).show(ui, |ui| {
                 egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
                     ui.label(egui::RichText::new(&crash.stack).monospace().small());
                 });
             });
             ui.add_space(6.0);
-            ui.label("Co robiłeś(-aś) przed awarią? (opcjonalnie)");
+            ui.label(crate::i18n::tr("Co robiłeś(-aś) przed awarią? (opcjonalnie)"));
             ui.add(egui::TextEdit::multiline(&mut self.message).desired_rows(3).desired_width(f32::INFINITY));
             ui.add_space(6.0);
             self.email_field(ui);
@@ -370,13 +391,13 @@ impl FeedbackUi {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(email_ok(&self.email) && !busy, egui::Button::new(if busy { "Wysyłanie…" } else { "Wyślij raport" }))
+                    .add_enabled(email_ok(&self.email) && !busy, egui::Button::new(if busy { crate::i18n::tr("Wysyłanie…") } else { crate::i18n::tr("Wyślij raport") }))
                     .clicked()
                 {
                     let (c, message, email) = (crash.clone(), self.message.clone(), self.email.clone());
                     self.start(ctx, move || send_crash(&c, &message, &email));
                 }
-                if ui.add_enabled(!busy, egui::Button::new("Nie wysyłaj")).clicked() {
+                if ui.add_enabled(!busy, egui::Button::new(crate::i18n::tr("Nie wysyłaj"))).clicked() {
                     discard_pending_crash();
                     keep = false;
                 }

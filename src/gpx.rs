@@ -80,7 +80,7 @@ pub struct GpxTrack {
 }
 
 pub fn parse(text: &str) -> Result<GpxTrack, String> {
-    let doc = roxmltree::Document::parse(text).map_err(|_| "Plik nie jest poprawnym GPX.")?;
+    let doc = roxmltree::Document::parse(text).map_err(|_| crate::i18n::tr("Plik nie jest poprawnym GPX."))?;
     let name_of = |parent: &str| {
         doc.descendants()
             .find(|n| n.has_tag_name("name") && n.parent().is_some_and(|p| p.has_tag_name(parent)))
@@ -91,7 +91,7 @@ pub fn parse(text: &str) -> Result<GpxTrack, String> {
     let name = name_of("trk")
         .or_else(|| name_of("rte"))
         .or_else(|| name_of("metadata"))
-        .unwrap_or_else(|| "Ślad GPX".into());
+        .unwrap_or_else(|| crate::i18n::tr("Ślad GPX").into());
     let collect = |tag: &str| -> Vec<(f64, f64, Option<f32>)> {
         doc.descendants()
             .filter(|n| n.has_tag_name(tag))
@@ -112,7 +112,7 @@ pub fn parse(text: &str) -> Result<GpxTrack, String> {
         points = collect("rtept");
     }
     if points.len() < 2 {
-        return Err("GPX nie zawiera śladu (trkpt/rtept).".into());
+        return Err(crate::i18n::tr("GPX nie zawiera śladu (trkpt/rtept).").into());
     }
     Ok(GpxTrack { name, points })
 }

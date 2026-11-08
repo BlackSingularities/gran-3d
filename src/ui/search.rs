@@ -126,7 +126,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         for (i, r) in a.snap.graph.routes.iter().enumerate() {
             let m = fold(&r.name).contains(&q) || fold(&r.r#ref) == q || color.is_some_and(|c| r.color == c);
             if m {
-                hits.push((Hit::Trail(i), r.name.clone(), format!("szlak {}", crate::metrics::TrailColor::parse(&r.color).name())));
+                hits.push((Hit::Trail(i), r.name.clone(), tf!("szlak {}", crate::metrics::TrailColor::parse(&r.color).name())));
             }
             if hits.len() > 24 {
                 break;
@@ -140,7 +140,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         s.sel = hits.len().saturating_sub(1);
     }
 
-    egui::Window::new("Szukaj")
+    egui::Window::new(crate::i18n::tr("Szukaj"))
         .title_bar(false)
         .collapsible(false)
         .resizable(false)
@@ -150,7 +150,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         .show(ctx, |ui| {
             let r = ui.add(
                 egui::TextEdit::singleline(&mut s.q)
-                    .hint_text("Szczyt, schronisko, szlak (np. „czerwony”), miejscowość…")
+                    .hint_text(crate::i18n::tr("Szczyt, schronisko, szlak (np. „czerwony”), miejscowość…"))
                     .desired_width(f32::INFINITY)
                     .font(egui::TextStyle::Body)
                     .margin(egui::Margin::symmetric(10, 8)),
@@ -209,14 +209,14 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
                 if s.pending.is_some() {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label(RichText::new("szukam w OpenStreetMap…").small().color(theme::PAPER_3));
+                        ui.label(RichText::new(crate::i18n::tr("szukam w OpenStreetMap…")).small().color(theme::PAPER_3));
                     });
                 }
                 if let Some(e) = &s.error {
-                    ui.label(RichText::new(format!("Wyszukiwanie miejsc niedostępne: {e}")).small().color(theme::WARN));
+                    ui.label(RichText::new(tf!("Wyszukiwanie miejsc niedostępne: {}", e)).small().color(theme::WARN));
                 }
                 if hits.is_empty() && q.len() >= 2 && s.pending.is_none() {
-                    theme::para(ui, "Brak wyników w okolicy. Wpisz co najmniej 3 litery, żeby szukać w całej Europie.");
+                    theme::para(ui, crate::i18n::tr("Brak wyników w okolicy. Wpisz co najmniej 3 litery, żeby szukać w całej Europie."));
                 }
             });
         });
@@ -225,7 +225,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         if a.apply_link(&l) {
             open = false;
         } else {
-            a.notify("Nieprawidłowy link GRANIA.");
+            a.notify(crate::i18n::tr("Nieprawidłowy link GRANIA."));
         }
     }
     match choose {

@@ -78,6 +78,8 @@ pub struct App {
     atlas: Atlas,
     update: Update,
     feedback: crate::feedback::FeedbackUi,
+    /// Przewodnik pierwszego uruchomienia: bieżący krok.
+    tour: Option<usize>,
 }
 
 /// Klucz ustawień widoku; nowy układ zaczyna od nowych domyślnych.
@@ -100,6 +102,7 @@ impl App {
             atlas,
             update: Update::Idle,
             feedback: Default::default(),
+            tour: None,
             settings,
             store,
             usage: Arc::new(Usage {
@@ -127,6 +130,11 @@ impl App {
         if let Some(l) = std::env::args().find(|a| a.starts_with("gran://")) {
             app.atlas.apply_link(&l);
         }
+        // plik śladu otwarty z Eksploratora („Otwórz za pomocą”, dwuklik na .gpx)
+        if let Some(f) = std::env::args().skip(1).map(PathBuf::from).find(|p| crate::formats::is_track_file(p) && p.is_file()) {
+            app.atlas.import_track(&f);
+        }
+        app.tour = if app.settings.tour_done || std::env::var_os("GRAN_CAPTURE").is_some() { None } else { Some(0) };
         if app.settings.auto_update && std::env::var_os("GRAN_CAPTURE").is_none() {
             app.check_updates(false);
         }
@@ -166,12 +174,8 @@ impl App {
             && self.usage.bytes.load(Ordering::Relaxed) > 0
         {
             let r = rfd::MessageDialog::new()
-                .set_title("GRAŃ")
-                .set_description(format!(
-                    "Przenieść zapisane dane do nowego folderu?\n\nZ: {}\nDo: {}\n\nTak – dane trafią do nowego folderu, a stary zostanie usunięty.\nNie – nowy folder zacznie się wypełniać od początku, stare dane zostaną w poprzednim miejscu.",
-                    self.settings.data_dir.display(),
-                    next.data_dir.display()
-                ))
+                .set_title(crate::i18n::tr("GRAŃ"))
+                .set_description(tf!("Przenieść zapisane dane do nowego folderu?\n\nZ: {}\nDo: {}\n\nTak – dane trafią do nowego folderu, a stary zostanie usunięty.\nNie – nowy folder zacznie się wypełniać od początku, stare dane zostaną w poprzednim miejscu.", self.settings.data_dir.display(), next.data_dir.display()))
                 .set_buttons(rfd::MessageButtons::YesNoCancel)
                 .show();
             match r {
@@ -185,10 +189,13 @@ impl App {
 
     fn commit_settings(&mut self, next: Settings) {
         let moved = next.data_dir != self.settings.data_dir;
+        if next.lang != self.settings.lang {
+            crate::i18n::set(if next.lang.is_empty() { crate::i18n::system() } else { &next.lang });
+        }
         crate::limits::apply(next.resources);
         self.settings = next;
         if let Err(e) = self.settings.save() {
-            self.atlas.notify(format!("Nie udało się zapisać ustawień: {e}"));
+            self.atlas.notify(tf!("Nie udało się zapisać ustawień: {}", e));
         }
         if moved {
             self.store = Store::new(&self.settings.data_dir);
@@ -223,14 +230,14 @@ impl App {
         let mut settings = false;
         let update = &self.update;
         crate::ui::panels::top_bar(&mut self.atlas, ctx, |atlas, ui| {
-            if theme::icon_button(ui, theme::icon::GEAR, false).on_hover_text("Ustawienia (Ctrl+,)").clicked() {
+            if theme::icon_button(ui, theme::icon::GEAR, false).on_hover_text(crate::i18n::tr("Ustawienia (Ctrl+,)")).clicked() {
                 settings = true;
             }
-            if theme::icon_button(ui, theme::icon::QUESTION, atlas.help).on_hover_text("Skróty i sterowanie (?)").clicked() {
+            if theme::icon_button(ui, theme::icon::QUESTION, atlas.help).on_hover_text(crate::i18n::tr("Skróty i sterowanie (?)")).clicked() {
                 atlas.help = !atlas.help;
             }
             if let Update::Available(rel) = update {
-                if ui.add(theme::primary(&format!("Aktualizacja {}", rel.version))).clicked() {
+                if ui.add(theme::primary(&tf!("Aktualizacja {}", rel.version))).clicked() {
                     offer = Some(rel.clone());
                 }
             }
@@ -251,6 +258,7 @@ impl App {
         let mut save = false;
         let mut check = false;
         let mut report = false;
+        let mut tour = false;
         let used = self.usage.bytes.load(Ordering::Relaxed);
         let known = self.usage.known.load(Ordering::Relaxed);
         let current_limit = self.settings.limit_gb;
@@ -258,9 +266,9 @@ impl App {
         let modal = egui::Modal::new(egui::Id::new("ustawienia")).frame(theme::glass().inner_margin(egui::Margin::same(18))).show(ctx, |ui| {
             ui.set_width(760.0);
             ui.horizontal(|ui| {
-                ui.heading("Ustawienia");
+                ui.heading(crate::i18n::tr("Ustawienia"));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button(theme::icon::X).on_hover_text("Zamknij bez zapisywania (Esc)").clicked() {
+                    if ui.small_button(theme::icon::X).on_hover_text(crate::i18n::tr("Zamknij bez zapisywania (Esc)")).clicked() {
                         close = true;
                     }
                 });
@@ -270,7 +278,7 @@ impl App {
                 ui.allocate_ui_with_layout(egui::vec2(180.0, 440.0), egui::Layout::top_down(egui::Align::Min), |ui| {
                     ui.set_width(180.0);
                     for (page, glyph, name) in PAGES {
-                        if theme::row_button(ui, glyph, name, view.page == page).clicked() {
+                        if theme::row_button(ui, glyph, crate::i18n::tr(name), view.page == page).clicked() {
                             view.page = page;
                         }
                     }
@@ -280,16 +288,35 @@ impl App {
                     ui.set_height(440.0);
                     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match view.page {
                         Page::General => {
-                            ui.label(theme::kicker("Program"));
-                            theme::switch(ui, &mut view.draft.auto_update, "Sprawdzaj aktualizacje");
-                            theme::switch(ui, &mut view.draft.vsync, "Synchronizacja z monitorem");
-                            theme::para(ui, "Bez synchronizacji więcej klatek na sekundę, ale możliwe rozrywanie obrazu. Zmiana działa po ponownym uruchomieniu.");
+                            ui.label(theme::kicker(crate::i18n::tr("Język / Language")));
+                            ui.horizontal(|ui| {
+                                let cur = if view.draft.lang.is_empty() { crate::i18n::system() } else { view.draft.lang.as_str() };
+                                let mut pick = None;
+                                for l in crate::i18n::LANGS {
+                                    if ui.selectable_label(cur == l.code, l.name).clicked() {
+                                        pick = Some(l.code);
+                                    }
+                                }
+                                if let Some(c) = pick {
+                                    view.draft.lang = c.to_string();
+                                }
+                            });
+                            ui.add_space(12.0);
+                            ui.label(theme::kicker(crate::i18n::tr("Program")));
+                            theme::switch(ui, &mut view.draft.auto_update, crate::i18n::tr("Sprawdzaj aktualizacje"));
+                            theme::switch(ui, &mut view.draft.vsync, crate::i18n::tr("Synchronizacja z monitorem"));
+                            theme::para(ui, crate::i18n::tr("Bez synchronizacji więcej klatek na sekundę, ale możliwe rozrywanie obrazu. Zmiana działa po ponownym uruchomieniu."));
+                            ui.add_space(12.0);
+                            ui.label(theme::kicker(crate::i18n::tr("Pomoc")));
+                            if ui.button(theme::ic(theme::icon::SIGNPOST, "Pokaż przewodnik od początku")).clicked() {
+                                tour = true;
+                            }
                         }
                         Page::Map => crate::ui::panels::map_settings(atlas, ui),
                         Page::Graphics => crate::ui::panels::graphics(atlas, ui),
                         Page::Performance => {
-                            ui.label(theme::kicker("Limit zużycia zasobów"));
-                            theme::para(ui, "Ile pamięci RAM, pamięci karty graficznej i wątków pobierania może zająć GRAŃ. Niższy poziom odciąża słabszy komputer kosztem wolniejszego doczytywania mapy.");
+                            ui.label(theme::kicker(crate::i18n::tr("Limit zużycia zasobów")));
+                            theme::para(ui, crate::i18n::tr("Ile pamięci RAM, pamięci karty graficznej i wątków pobierania może zająć GRAŃ. Niższy poziom odciąża słabszy komputer kosztem wolniejszego doczytywania mapy."));
                             ui.add_space(6.0);
                             for (i, (name, desc)) in crate::limits::LEVELS.iter().enumerate() {
                                 let on = view.draft.resources == i as u8;
@@ -297,12 +324,12 @@ impl App {
                                     view.draft.resources = i as u8;
                                 }
                             }
-                            theme::para(ui, "Limit pamięci działa po zapisaniu; liczba wątków pobierania zmienia się po ponownym uruchomieniu.");
+                            theme::para(ui, crate::i18n::tr("Limit pamięci działa po zapisaniu; liczba wątków pobierania zmienia się po ponownym uruchomieniu."));
                             ui.add_space(12.0);
-                            ui.label(theme::kicker("Doczytywanie z wyprzedzeniem"));
-                            theme::para(ui, "W tle, z najniższym priorytetem, program pobiera okolicę poza kadrem, żeby po obrocie lub przesunięciu obraz był od razu.");
+                            ui.label(theme::kicker(crate::i18n::tr("Doczytywanie z wyprzedzeniem")));
+                            theme::para(ui, crate::i18n::tr("W tle, z najniższym priorytetem, program pobiera okolicę poza kadrem, żeby po obrocie lub przesunięciu obraz był od razu."));
                             ui.horizontal(|ui| {
-                                for (v, name) in [(0u8, "Wyłączone"), (1, "Lekkie"), (2, "Mocne")] {
+                                for (v, name) in [(0u8, crate::i18n::tr("Wyłączone")), (1, crate::i18n::tr("Lekkie")), (2, crate::i18n::tr("Mocne"))] {
                                     if ui.selectable_label(atlas.prefs.prefetch == v, name).clicked() {
                                         atlas.prefs.prefetch = v;
                                     }
@@ -310,15 +337,15 @@ impl App {
                             });
                         }
                         Page::Data => {
-                            ui.label(theme::kicker("Zajęte miejsce"));
+                            ui.label(theme::kicker(crate::i18n::tr("Zajęte miejsce")));
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(if known { fmt_bytes(used) } else { "…".into() }).size(22.0).strong());
-                                ui.label(RichText::new(format!("z {current_limit} GB")).color(theme::PAPER_3));
+                                ui.label(RichText::new(tf!("z {} GB", current_limit)).color(theme::PAPER_3));
                             });
                             let limit = current_limit as u64 * (1 << 30);
                             theme::bar(ui, used as f32 / limit as f32, theme::BRASS);
                             ui.add_space(12.0);
-                            ui.label(theme::kicker("Limit danych"));
+                            ui.label(theme::kicker(crate::i18n::tr("Limit danych")));
                             let mut idx = LIMIT_STEPS_GB.iter().position(|&g| g >= view.draft.limit_gb).unwrap_or(LIMIT_STEPS_GB.len() - 1);
                             ui.horizontal(|ui| {
                                 if ui.add(egui::Slider::new(&mut idx, 0..=LIMIT_STEPS_GB.len() - 1).show_value(false)).changed() {
@@ -326,29 +353,32 @@ impl App {
                                 }
                                 ui.label(RichText::new(format!("{} GB", view.draft.limit_gb)).strong());
                             });
-                            theme::para(ui, "Mapy zapisują się same podczas oglądania. Po przekroczeniu limitu najdawniej używane dane są usuwane.");
+                            theme::para(ui, crate::i18n::tr("Mapy zapisują się same podczas oglądania. Po przekroczeniu limitu najdawniej używane dane są usuwane."));
                             ui.add_space(12.0);
-                            ui.label(theme::kicker("Folder danych"));
+                            ui.label(theme::kicker(crate::i18n::tr("Folder danych")));
                             ui.label(RichText::new(view.draft.data_dir.display().to_string()).monospace());
                             if let Some(f) = free_space(&view.draft.data_dir) {
-                                ui.label(RichText::new(format!("Wolne miejsce: {}", fmt_bytes(f))).small().color(theme::PAPER_3));
+                                ui.label(RichText::new(tf!("Wolne miejsce: {}", fmt_bytes(f))).small().color(theme::PAPER_3));
                             }
                             if ui.button(theme::ic(theme::icon::FOLDER_OPEN, "Zmień folder…")).clicked() {
-                                if let Some(p) = rfd::FileDialog::new().set_title("Folder na dane map GRANIA").pick_folder() {
+                                if let Some(p) = rfd::FileDialog::new().set_title(crate::i18n::tr("Folder na dane map GRANIA")).pick_folder() {
                                     view.draft.data_dir = data_dir_in(&p);
                                 }
                             }
                         }
                         Page::About => {
-                            ui.label(RichText::new(format!("GRAŃ {}", env!("CARGO_PKG_VERSION"))).size(22.0).strong());
+                            ui.label(RichText::new(tf!("GRAŃ {}", env!("CARGO_PKG_VERSION"))).size(22.0).strong());
                             if ui.button(theme::ic(theme::icon::ARROWS_CLOCKWISE, "Sprawdź aktualizacje")).clicked() {
                                 check = true;
                             }
                             if ui.button(theme::ic(theme::icon::BUG, "Zgłoś błąd lub sugestię…")).clicked() {
                                 report = true;
                             }
+                            if ui.button(theme::ic(theme::icon::FILE_TEXT, "Pokaż dziennik programu")).on_hover_text(crate::i18n::tr("Plik gran.log – przydaje się przy zgłaszaniu błędów")).clicked() {
+                                let _ = open::that(crate::log_path().parent().unwrap_or(std::path::Path::new(".")));
+                            }
                             ui.add_space(12.0);
-                            ui.label(theme::kicker("Autor"));
+                            ui.label(theme::kicker(crate::i18n::tr("Autor")));
                             if ui.link("redzikowski.com").clicked() {
                                 let _ = open::that("https://redzikowski.com");
                             }
@@ -357,16 +387,16 @@ impl App {
                                 let _ = open::that("https://buycoffee.to/adamredzikowski");
                             }
                             ui.add_space(12.0);
-                            ui.label(theme::kicker("Źródła danych"));
-                            theme::para(ui, "Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), opcjonalne ortofoto: GUGiK, ČÚZK, ÚGKK SR. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim.");
+                            ui.label(theme::kicker(crate::i18n::tr("Źródła danych")));
+                            theme::para(ui, crate::i18n::tr("Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), opcjonalne ortofoto: GUGiK, ČÚZK, ÚGKK SR. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim."));
                         }
                     });
                 });
             });
             ui.add_space(10.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                save = ui.add(theme::primary("Zapisz")).clicked();
-                if ui.button("Anuluj").clicked() {
+                save = ui.add(theme::primary(crate::i18n::tr("Zapisz"))).clicked();
+                if ui.button(crate::i18n::tr("Anuluj")).clicked() {
                     close = true;
                 }
             });
@@ -383,12 +413,16 @@ impl App {
         if report {
             self.feedback.open();
         }
+        if tour {
+            self.settings_open = None;
+            self.tour = Some(0);
+        }
     }
 
     fn moving_overlay(&mut self, ctx: &egui::Context) {
         let Some(m) = &self.moving else { return };
         let done = m.result.lock().unwrap().take();
-        egui::Window::new("Przenoszenie danych")
+        egui::Window::new(crate::i18n::tr("Przenoszenie danych"))
             .collapsible(false)
             .resizable(false)
             .title_bar(false)
@@ -397,7 +431,7 @@ impl App {
                 ui.set_width(460.0);
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(format!("Przenoszenie danych do {}…", m.to.display()));
+                    ui.label(tf!("Przenoszenie danych do {}…", m.to.display()));
                 });
             });
         ctx.request_repaint_after(Duration::from_millis(200));
@@ -406,7 +440,7 @@ impl App {
             match r {
                 Ok(()) => self.commit_settings(m.settings),
                 Err(e) => {
-                    rfd::MessageDialog::new().set_title("GRAŃ").set_level(rfd::MessageLevel::Error).set_description(format!("Nie udało się przenieść danych:\n{e}\n\nDane, których nie przeniesiono, zostały w dotychczasowym folderze.")).show();
+                    rfd::MessageDialog::new().set_title(crate::i18n::tr("GRAŃ")).set_level(rfd::MessageLevel::Error).set_description(tf!("Nie udało się przenieść danych:\n{}\n\nDane, których nie przeniesiono, zostały w dotychczasowym folderze.", e)).show();
                 }
             }
         }
@@ -428,12 +462,8 @@ impl App {
     fn offer_update(&mut self, rel: updater::Release) {
         let size = if rel.size > 0 { format!(" ({} MB)", rel.size / (1 << 20)) } else { String::new() };
         let ok = rfd::MessageDialog::new()
-            .set_title("GRAŃ – aktualizacja")
-            .set_description(format!(
-                "Dostępna jest nowa wersja {}. Masz wersję {}.\n\nPobrać i zainstalować aktualizację{size}? Dane map i ustawienia zostaną zachowane. Instalacja wymaga potwierdzenia uprawnień administratora.",
-                rel.version,
-                updater::current()
-            ))
+            .set_title(crate::i18n::tr("GRAŃ – aktualizacja"))
+            .set_description(tf!("Dostępna jest nowa wersja {}. Masz wersję {}.\n\nPobrać i zainstalować aktualizację{}? Dane map i ustawienia zostaną zachowane. Instalacja wymaga potwierdzenia uprawnień administratora.", rel.version, updater::current(), size))
             .set_buttons(rfd::MessageButtons::YesNo)
             .show();
         if ok != rfd::MessageDialogResult::Yes {
@@ -460,19 +490,19 @@ impl App {
                         next = Some(if manual {
                             Err(rel)
                         } else {
-                            self.atlas.notify(format!("Dostępna jest nowa wersja {} – przycisk „Aktualizacja” u góry.", rel.version));
+                            self.atlas.notify(tf!("Dostępna jest nowa wersja {} – przycisk „Aktualizacja” u góry.", rel.version));
                             Ok(Update::Available(rel))
                         });
                     }
                     Some(Ok(_)) => {
                         if manual {
-                            self.atlas.notify(format!("Masz najnowszą wersję ({}).", updater::current()));
+                            self.atlas.notify(tf!("Masz najnowszą wersję ({}).", updater::current()));
                         }
                         next = Some(Ok(Update::Idle));
                     }
                     Some(Err(e)) => {
                         if manual {
-                            self.atlas.notify(format!("Nie udało się sprawdzić aktualizacji: {e}"));
+                            self.atlas.notify(tf!("Nie udało się sprawdzić aktualizacji: {}", e));
                         } else {
                             log::warn!("aktualizacje: {e}");
                         }
@@ -485,13 +515,13 @@ impl App {
                 let got = progress.load(Ordering::Relaxed);
                 let total = rel.size.max(1);
                 let version = rel.version.clone();
-                egui::Window::new("Aktualizacja")
+                egui::Window::new(crate::i18n::tr("Aktualizacja"))
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                     .show(ctx, |ui| {
                         ui.set_width(380.0);
-                        ui.label(format!("Pobieranie wersji {version}…"));
+                        ui.label(tf!("Pobieranie wersji {}…", version));
                         theme::bar(ui, got as f32 / total as f32, theme::BRASS);
                         ui.label(RichText::new(format!("{} z {}", fmt_bytes(got), fmt_bytes(total))).small().color(theme::PAPER_3));
                     });
@@ -503,9 +533,9 @@ impl App {
                         Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
                         Err(e) => {
                             rfd::MessageDialog::new()
-                                .set_title("GRAŃ")
+                                .set_title(crate::i18n::tr("GRAŃ"))
                                 .set_level(rfd::MessageLevel::Error)
-                                .set_description(format!("Nie udało się zainstalować aktualizacji: {e}"))
+                                .set_description(tf!("Nie udało się zainstalować aktualizacji: {}", e))
                                 .show();
                         }
                     }
@@ -520,6 +550,62 @@ impl App {
                 self.offer_update(rel);
             }
             None => {}
+        }
+    }
+
+    /// Przewodnik pierwszego uruchomienia: kilka kart z podstawami.
+    fn tour_ui(&mut self, ctx: &egui::Context) {
+        use crate::i18n::tr;
+        let Some(step) = self.tour else { return };
+        if self.settings_open.is_some() || self.moving.is_some() {
+            return;
+        }
+        let steps: [(&str, &str, &str); 5] = [
+            (theme::icon::MOUNTAINS, crate::i18n::tr("Witaj w GRANI"), crate::i18n::tr("Trójwymiarowy atlas szlaków górskich z prawdziwym modelem terenu. W kilku krokach pokażę, jak z niego korzystać.")),
+            (theme::icon::HAND_GRABBING, crate::i18n::tr("Poruszanie mapą"), crate::i18n::tr("Lewy przycisk – przesuwanie (chwytasz teren). Prawy przycisk – obrót wokół chwyconego punktu. Kółko – przybliżanie do kursora, dwuklik – przybliżenie do punktu. Klawisze: strzałki, Q E, PgUp PgDn.")),
+            (theme::icon::PATH, crate::i18n::tr("Planowanie trasy"), crate::i18n::tr("Wybierz narzędzie trasy (klawisz 2) i klikaj na mapie: start, punkty pośrednie, cel. Punkty można przeciągać, Ctrl+Z cofa zmianę, Ctrl+Y ją ponawia. Trasę zapiszesz w bibliotece (Ctrl+S) albo wyeksportujesz do GPX, KML lub GeoJSON.")),
+            (theme::icon::PERSON_SIMPLE_WALK, crate::i18n::tr("Spacer"), crate::i18n::tr("Przycisk z idącą postacią stawia Cię na terenie: W A S D – chodzenie, Shift – bieg, spacja – skok, prawy przycisk – rozglądanie, Esc – wyjście.")),
+            (theme::icon::BOOKMARKS, crate::i18n::tr("Biblioteka i skróty"), crate::i18n::tr("Biblioteka (B) trzyma zapisane trasy, ulubione miejsca i widoki. F11 – pełny ekran, ? – wszystkie skróty. Przewodnik obejrzysz ponownie z ustawień.")),
+        ];
+        let step = step.min(steps.len() - 1);
+        let (glyph, title, body) = steps[step];
+        let mut next = Some(step);
+        egui::Modal::new(egui::Id::new("przewodnik")).frame(theme::glass().inner_margin(egui::Margin::same(22))).show(ctx, |ui| {
+            ui.set_width(460.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(glyph).size(30.0).color(theme::BRASS));
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(tf!("Krok {} z {}", step + 1, steps.len())).small().color(theme::PAPER_3));
+                    ui.label(RichText::new(tr(title)).size(20.0).strong());
+                });
+            });
+            ui.add_space(10.0);
+            ui.add(egui::Label::new(RichText::new(tr(body)).size(15.0).color(theme::PAPER_2)).wrap());
+            ui.add_space(16.0);
+            ui.horizontal(|ui| {
+                // postęp: kropki
+                for i in 0..steps.len() {
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                    ui.painter().circle_filled(r.center(), 4.0, if i == step { theme::BRASS } else { theme::INK_4 });
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let last = step + 1 == steps.len();
+                    if ui.add(theme::primary(if last { crate::i18n::tr("Zaczynamy") } else { crate::i18n::tr("Dalej") })).clicked() {
+                        next = if last { None } else { Some(step + 1) };
+                    }
+                    if step > 0 && ui.button(tr("Wstecz")).clicked() {
+                        next = Some(step - 1);
+                    }
+                    if !last && ui.button(tr("Pomiń")).clicked() {
+                        next = None;
+                    }
+                });
+            });
+        });
+        self.tour = next;
+        if next.is_none() && !self.settings.tour_done {
+            self.settings.tour_done = true;
+            let _ = self.settings.save();
         }
     }
 
@@ -570,8 +656,10 @@ impl eframe::App for App {
         // ślad GPX upuszczony na okno
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
         for p in dropped {
-            if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("gpx")) {
-                self.atlas.import_gpx(&p);
+            if crate::formats::is_track_file(&p) {
+                self.atlas.import_track(&p);
+            } else {
+                self.atlas.notify(crate::i18n::tr("GRAŃ wczytuje pliki GPX, KML i GeoJSON."));
             }
         }
         let r = std::mem::take(&mut self.atlas.requests);
@@ -597,6 +685,7 @@ impl eframe::App for App {
         self.settings_window(ctx);
         self.moving_overlay(ctx);
         self.feedback.show(ctx);
+        self.tour_ui(ctx);
     }
 }
 

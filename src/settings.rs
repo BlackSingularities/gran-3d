@@ -28,6 +28,12 @@ pub struct Settings {
     /// Limit zużycia zasobów: 0 oszczędny … 3 maksymalny.
     #[serde(default = "res_level")]
     pub resources: u8,
+    /// Język interfejsu (kod z `i18n::LANGS`); pusty – według systemu.
+    #[serde(default)]
+    pub lang: String,
+    /// Przewodnik pierwszego uruchomienia obejrzany.
+    #[serde(default)]
+    pub tour_done: bool,
 }
 
 fn res_level() -> u8 {
@@ -75,6 +81,8 @@ impl Default for Settings {
             setup_done: false,
             vsync: true,
             resources: res_level(),
+            lang: String::new(),
+            tour_done: false,
         }
     }
 }
