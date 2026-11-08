@@ -500,7 +500,7 @@ fn style_button(a: &mut Atlas, ui: &mut egui::Ui) {
 /// Warstwy: osobny przycisk z liczbą włączonych.
 fn layers_button(a: &mut Atlas, ui: &mut egui::Ui) {
     let p = &a.prefs;
-    let n = [p.labels, p.places, p.trails, p.contours, p.km_grid, p.shadows, p.detail, p.snow, p.landcover].iter().filter(|v| **v).count();
+    let n = [p.labels, p.trails, p.contours, p.km_grid, p.shadows, p.detail, p.snow, p.landcover].iter().filter(|v| **v).count();
     let shown = bar_menu(ui, theme::icon::STACK, theme::BRASS, crate::i18n::tr("Warstwy"), &tf!("włączone: {}", n), 118.0, crate::i18n::tr("Warstwy na mapie"), 380.0, |ui| layers_tab(a, ui));
     if let Some(r) = shown {
         a.glass.push((r, 1.0));
@@ -1333,11 +1333,11 @@ fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
             }
         });
     }
+    names_section(a, ui, 4);
+    ui.add_space(10.0);
     let p = &mut a.prefs;
-    ui.label(theme::kicker(crate::i18n::tr("Nazwy i linie")));
+    ui.label(theme::kicker(crate::i18n::tr("Linie")));
     grid(ui, vec![
-        (theme::icon::MOUNTAINS, crate::i18n::tr("Szczyty (L)"), &mut p.labels, None),
-        (theme::icon::BUILDINGS, crate::i18n::tr("Miejscowości"), &mut p.places, None),
         (theme::icon::PATH, crate::i18n::tr("Szlaki (T)"), &mut p.trails, None),
         (theme::icon::WAVE_SINE, crate::i18n::tr("Poziomice (C)"), &mut p.contours, None),
         (theme::icon::GRID_FOUR, crate::i18n::tr("Siatka km"), &mut p.km_grid, None),
@@ -1350,8 +1350,25 @@ fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
         (theme::icon::SNOWFLAKE, crate::i18n::tr("Śnieg"), &mut p.snow, snow_off),
         (theme::icon::TREE_EVERGREEN, crate::i18n::tr("Lasy i woda"), &mut p.landcover, land_off),
     ]);
-    ui.add_space(10.0);
-    ui.add(egui::Slider::new(&mut a.prefs.label_density, 0.3..=2.0).text(crate::i18n::tr("gęstość nazw")));
+}
+
+/// Nazwy na mapie: główny przełącznik, rodzaje (kafelki), wysokości i gęstość.
+pub fn names_section(a: &mut Atlas, ui: &mut egui::Ui, cols: usize) {
+    let p = &mut a.prefs;
+    ui.label(theme::kicker("Nazwy na mapie"));
+    theme::switch(ui, &mut p.labels, "Pokaż nazwy (L)");
+    let off = (!p.labels).then_some("nazwy są wyłączone (L)");
+    theme::tile_grid(ui, cols, |ui, w| {
+        for (g, t, v) in p.names.kinds() {
+            let on = *v && off.is_none();
+            if theme::tile_ex(ui, g, t, on, w, off).clicked() {
+                *v = !*v;
+            }
+        }
+    });
+    theme::switch(ui, &mut p.names.elevation, "Wysokość przy szczytach i przełęczach");
+    ui.add(egui::Slider::new(&mut p.label_density, 0.3..=2.0).text(crate::i18n::tr("gęstość nazw")));
+    theme::para(ui, "Nazwy pokazują się tylko dla miejsc, które widać – te za graniami są ukryte. Granie, doliny, hale i źródła doczytują się razem ze szlakami okolicy.");
 }
 
 /// Strona „Mapa” w ustawieniach.
@@ -1364,10 +1381,7 @@ pub fn map_settings(a: &mut Atlas, ui: &mut egui::Ui) {
     theme::switch(ui, &mut a.prefs.autohide, crate::i18n::tr("Autoukrywanie kontrolek na mapie"));
     theme::para(ui, crate::i18n::tr("Pasek narzędzi, wyszukiwarka i przyciski kamery chowają się, gdy mysz stoi; wracają przy ruchu myszy."));
     ui.add_space(12.0);
-    ui.label(theme::kicker(crate::i18n::tr("Nazwy")));
-    theme::switch(ui, &mut a.prefs.labels, crate::i18n::tr("Szczyty i punkty"));
-    theme::switch(ui, &mut a.prefs.places, crate::i18n::tr("Miejscowości"));
-    ui.add(egui::Slider::new(&mut a.prefs.label_density, 0.3..=2.0).text(crate::i18n::tr("gęstość nazw")));
+    names_section(a, ui, 4);
 }
 
 fn light_tab(a: &mut Atlas, ui: &mut egui::Ui) {

@@ -401,6 +401,8 @@ fn prominence(pois: &mut [PoiView], height: &(dyn Fn(f64, f64) -> f32 + Sync)) {
             PoiKind::Hut => 6.0,
             PoiKind::Lake => 3.0,
             PoiKind::Saddle => 1.2,
+            PoiKind::Valley | PoiKind::Ridge => 2.0,
+            PoiKind::Locality => 1.5,
             PoiKind::Place => {
                 let base = match p.poi.place.as_str() {
                     "city" => 16.0,

@@ -159,8 +159,99 @@ pub struct Prefs {
     pub prefetch: u8,
     /// Kontrolki na mapie chowają się, gdy mysz stoi.
     pub autohide: bool,
-    /// Nazwy miejscowości.
-    pub places: bool,
+    /// Rodzaje nazw na mapie.
+    pub names: Names,
+}
+
+/// Które nazwy pokazywać na mapie (główny przełącznik – `Prefs::labels`, klawisz L).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Names {
+    pub peaks: bool,
+    pub passes: bool,
+    pub ridges: bool,
+    pub valleys: bool,
+    pub huts: bool,
+    pub shelters: bool,
+    pub lakes: bool,
+    pub waterfalls: bool,
+    pub springs: bool,
+    pub caves: bool,
+    pub viewpoints: bool,
+    pub localities: bool,
+    pub towns: bool,
+    pub villages: bool,
+    /// Wysokość przy nazwach szczytów i przełęczy.
+    pub elevation: bool,
+}
+
+impl Default for Names {
+    fn default() -> Self {
+        Names {
+            peaks: true,
+            passes: true,
+            ridges: false,
+            valleys: true,
+            huts: true,
+            shelters: false,
+            lakes: true,
+            waterfalls: true,
+            springs: false,
+            caves: false,
+            viewpoints: false,
+            localities: true,
+            towns: true,
+            villages: true,
+            elevation: true,
+        }
+    }
+}
+
+impl Names {
+    pub fn shows(&self, p: &crate::osm::Poi) -> bool {
+        match p.kind {
+            PoiKind::Peak => self.peaks,
+            PoiKind::Saddle => self.passes,
+            PoiKind::Ridge => self.ridges,
+            PoiKind::Valley => self.valleys,
+            PoiKind::Hut => self.huts,
+            PoiKind::Shelter => self.shelters,
+            PoiKind::Lake => self.lakes,
+            PoiKind::Waterfall => self.waterfalls,
+            PoiKind::Spring => self.springs,
+            PoiKind::Cave => self.caves,
+            PoiKind::Viewpoint => self.viewpoints,
+            PoiKind::Locality => self.localities,
+            PoiKind::Place => {
+                if matches!(p.place.as_str(), "city" | "town") {
+                    self.towns
+                } else {
+                    self.villages
+                }
+            }
+        }
+    }
+
+    /// Rodzaje nazw: ikona, podpis, przełącznik.
+    pub fn kinds(&mut self) -> Vec<(&'static str, &'static str, &mut bool)> {
+        use theme::icon as i;
+        vec![
+            (i::MOUNTAINS, "Szczyty", &mut self.peaks),
+            (i::ARROWS_VERTICAL, "Przełęcze", &mut self.passes),
+            (i::TREND_UP, "Granie", &mut self.ridges),
+            (i::TREND_DOWN, "Doliny", &mut self.valleys),
+            (i::HOUSE_LINE, "Schroniska", &mut self.huts),
+            (i::TENT, "Wiaty", &mut self.shelters),
+            (i::DROP, "Stawy i jeziora", &mut self.lakes),
+            (i::WAVES, "Wodospady", &mut self.waterfalls),
+            (i::DROP_HALF, "Źródła", &mut self.springs),
+            (i::CIRCLE_HALF, "Jaskinie", &mut self.caves),
+            (i::BINOCULARS, "Punkty widokowe", &mut self.viewpoints),
+            (i::PLANT, "Hale i polany", &mut self.localities),
+            (i::BUILDINGS, "Miasta", &mut self.towns),
+            (i::HOUSE, "Wsie", &mut self.villages),
+        ]
+    }
 }
 
 impl Default for Prefs {
@@ -196,7 +287,7 @@ impl Default for Prefs {
             profile_open: true,
             prefetch: 1,
             autohide: false,
-            places: true,
+            names: Names::default(),
         }
     }
 }
@@ -2546,7 +2637,7 @@ impl Atlas {
         let p = ui.painter_at(rect);
         let at = |s: [f32; 2]| Pos2::new(s[0] + rect.left(), s[1] + rect.top());
         // etykiety punktów z rozrzedzaniem i zasłanianiem przez teren
-        if self.prefs.labels || self.prefs.places {
+        if self.prefs.labels {
             let mut taken: Vec<Rect> = Vec::new();
             let max = (70.0 * self.prefs.label_density) as usize;
             let max_places = (28.0 * self.prefs.label_density) as usize;
@@ -2554,8 +2645,9 @@ impl Atlas {
             let mut shown_places = 0;
             // miejscowości najpierw (własny przydział), żeby szczyty ich nie wypierały
             let snap = self.snap.clone();
-            let places = snap.pois.iter().filter(|p| p.poi.kind == PoiKind::Place && self.prefs.places).take(1500);
-            let rest = snap.pois.iter().filter(|p| p.poi.kind != PoiKind::Place && self.prefs.labels).take(2500);
+            let names = &self.prefs.names;
+            let places = snap.pois.iter().filter(|p| p.poi.kind == PoiKind::Place && names.shows(&p.poi)).take(1500);
+            let rest = snap.pois.iter().filter(|p| p.poi.kind != PoiKind::Place && names.shows(&p.poi)).take(2500);
             for poi in places.chain(rest) {
                 let is_place = poi.poi.kind == PoiKind::Place;
                 if shown >= max || (is_place && shown_places >= max_places) {
@@ -2580,7 +2672,12 @@ impl Atlas {
                     continue;
                 }
                 let (label, color, size) = match poi.poi.kind {
-                    PoiKind::Peak => (format!("{}  {}", poi.poi.name, fmt::int(poi.ele as f64)), theme::PAPER, 12.5),
+                    PoiKind::Peak if self.prefs.names.elevation => (format!("{}  {}", poi.poi.name, fmt::int(poi.ele as f64)), theme::PAPER, 12.5),
+                    PoiKind::Peak => (poi.poi.name.clone(), theme::PAPER, 12.5),
+                    PoiKind::Saddle if self.prefs.names.elevation && poi.ele > 0.0 => (format!("{}  {}", poi.poi.name, fmt::int(poi.ele as f64)), Color32::from_rgb(215, 222, 235), 11.0),
+                    PoiKind::Waterfall | PoiKind::Spring => (poi.poi.name.clone(), Color32::from_rgb(150, 205, 240), 11.0),
+                    PoiKind::Valley | PoiKind::Ridge => (poi.poi.name.clone(), Color32::from_rgb(205, 214, 190), 11.0),
+                    PoiKind::Locality => (poi.poi.name.clone(), Color32::from_rgb(190, 225, 160), 11.0),
                     PoiKind::Place => (poi.poi.name.clone(), Color32::from_rgb(230, 222, 200), if poi.poi.place == "city" || poi.poi.place == "town" { 13.5 } else { 11.5 }),
                     PoiKind::Hut | PoiKind::Shelter => (poi.poi.name.clone(), Color32::from_rgb(255, 214, 150), 11.5),
                     PoiKind::Lake => (poi.poi.name.clone(), Color32::from_rgb(150, 205, 240), 11.0),
@@ -2600,7 +2697,9 @@ impl Atlas {
                 let dot = match poi.poi.kind {
                     PoiKind::Peak => theme::PAPER,
                     PoiKind::Hut | PoiKind::Shelter => Color32::from_rgb(255, 170, 70),
-                    PoiKind::Lake => Color32::from_rgb(110, 180, 230),
+                    PoiKind::Lake | PoiKind::Waterfall | PoiKind::Spring => Color32::from_rgb(110, 180, 230),
+                    PoiKind::Locality => Color32::from_rgb(150, 205, 110),
+                    PoiKind::Valley | PoiKind::Ridge => Color32::from_rgb(170, 180, 150),
                     PoiKind::Place => Color32::from_rgb(200, 190, 170),
                     _ => theme::PAPER_2,
                 };
@@ -2974,13 +3073,16 @@ impl Atlas {
 
     fn occluded_now(&self, view: &View, p: DVec3) -> bool {
         let e = view.eye;
-        let n = 14;
+        // krok ~ co 70 m (najwyżej 200 próbek): cienkie granie między okiem a punktem też zasłaniają
+        let len = (p.x - e.x).hypot(p.z - e.z);
+        let n = ((len / 70.0) as usize).clamp(16, 200);
         for k in 1..n {
             let f = k as f64 / n as f64;
             let q = e + (p - e) * f;
             let (lon, lat) = self.frame.to_lonlat(q.x, q.z);
-            if let Some(h) = self.heights.sample_at(lon, lat, 12, false) {
-                let hd = (q - e).truncate().length();
+            let h = self.heights.sample_at(lon, lat, 12, false).or_else(|| self.heights.sample_cached(lon, lat));
+            if let Some(h) = h {
+                let hd = (q.x - e.x).hypot(q.z - e.z);
                 let drop = hd * hd / (2.0 * crate::geo::EARTH_R) * 0.87;
                 if h as f64 * self.prefs.exag - drop > q.y + 15.0 {
                     return true;

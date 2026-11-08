@@ -435,6 +435,11 @@ impl Tiles {
             let dem_z = t.z.min(download::TERRAIN_MAX_Z);
             let own = ancestor_at(t, dem_z);
             let prio = d as f32 / 1000.0;
+            // potrzebny kafel, który już jest, nie może wypaść przy sprzątaniu pamięci – inaczej
+            // zostaje usunięty, zamówiony ponownie i tak w kółko (licznik pobierania nie spada)
+            if let Some(g) = self.dem.get_mut(&own) {
+                g.used = self.frame;
+            }
             if !self.dem.contains_key(&own) && !self.missing.contains(&Key(Kind::Dem, own)) {
                 want.push(Request { key: Key(Kind::Dem, own), prio, sticky: false });
                 // przodkowie też (szybko wypełniają obraz)
@@ -454,6 +459,9 @@ impl Tiles {
             if s.imagery {
                 let iz = t.z.min(SAT_MAX_Z);
                 let own_i = ancestor_at(t, iz);
+                if let Some(g) = self.img.get_mut(&(Kind::Sat, own_i)) {
+                    g.used = self.frame;
+                }
                 if !self.img.contains_key(&(Kind::Sat, own_i)) && !self.missing.contains(&Key(Kind::Sat, own_i)) {
                     want.push(Request { key: Key(Kind::Sat, own_i), prio: prio + 0.5, sticky: false });
                     if own_i.z > 8 {
@@ -468,6 +476,9 @@ impl Tiles {
                 if s.ortho && t.z >= ORTHO_LOCAL_MIN_Z {
                     let own_o = ancestor_at(t, t.z.min(national::ORTHO_MAX_Z));
                     let covered = *self.ortho_memo.entry(own_o).or_insert_with(|| national::has_ortho(own_o));
+                    if let Some(g) = self.img.get_mut(&(Kind::Ortho, own_o)) {
+                        g.used = self.frame;
+                    }
                     // promień pobierania: kilka kafli danego poziomu od kamery, najwyżej 12 km
                     // (dalej szczegóły ortofoto i tak nie są widoczne; już wczytane kafle zostają w użyciu)
                     let o_size = frame.m / (1u64 << own_o.z) as f64;
