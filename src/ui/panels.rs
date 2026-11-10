@@ -670,7 +670,7 @@ fn info(a: &mut Atlas, ui: &mut egui::Ui) {
 }
 
 fn region_info(a: &mut Atlas, ui: &mut egui::Ui) {
-    ui.label(theme::kicker(&tf!("Okolica · {}", fmt::decimal(a.cam.lon, a.cam.lat))));
+    ui.label(theme::kicker(&tf!("Okolica · {}", fmt::coords(a.cam.lon, a.cam.lat))));
     let name = a
         .snap
         .pois
@@ -804,7 +804,7 @@ fn point_buttons(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f64) {
         Some(2) => a.enter_panorama(lon, lat),
         Some(3) => {
             let ele = a.heights.sample_cached(lon, lat).unwrap_or(0.0);
-            let name = a.selection_name().or_else(|| a.name_near(lon, lat, 400.0)).unwrap_or_else(|| fmt::decimal(lon, lat));
+            let name = a.selection_name().or_else(|| a.name_near(lon, lat, 400.0)).unwrap_or_else(|| fmt::coords(lon, lat));
             a.cond_at = Some(crate::ui::conditions::Place { lon, lat, ele, name });
             a.tab = Tab::Conditions;
             a.prefs.panel_open = true;
@@ -817,7 +817,7 @@ fn point_buttons(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f64) {
             a.save_place(lon, lat, name);
         }
         Some(8) => {
-            ui.ctx().copy_text(fmt::decimal(lon, lat));
+            ui.ctx().copy_text(fmt::coords(lon, lat));
             a.notify(crate::i18n::tr("Skopiowano współrzędne."));
         }
         _ => {}
@@ -910,7 +910,7 @@ fn poi_info(a: &mut Atlas, ui: &mut egui::Ui, i: usize) {
     };
     let (glyph, color) = kind_style(p.poi.kind);
     let dist = haversine(a.cam.lon, a.cam.lat, p.poi.lon, p.poi.lat);
-    let sub = format!("{} · {}", fmt::ele(p.ele as f64), fmt::decimal(p.poi.lon, p.poi.lat));
+    let sub = format!("{} · {}", fmt::ele(p.ele as f64), fmt::coords(p.poi.lon, p.poi.lat));
     header(a, ui, glyph, color, p.poi.kind.label(), &p.poi.name, &sub);
     let _ = dist;
     let mut items = vec![(crate::i18n::tr("Wysokość"), fmt::ele(p.ele as f64))];
@@ -966,7 +966,7 @@ fn poi_info(a: &mut Atlas, ui: &mut egui::Ui, i: usize) {
 
 fn point_info(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f64) {
     let e = a.heights.sample_cached(lon, lat).unwrap_or(0.0) as f64;
-    let near = a.name_near(lon, lat, 400.0).map(|n| tf!("w pobliżu: {}", n)).unwrap_or_else(|| fmt::decimal(lon, lat));
+    let near = a.name_near(lon, lat, 400.0).map(|n| tf!("w pobliżu: {}", n)).unwrap_or_else(|| fmt::coords(lon, lat));
     header(a, ui, theme::icon::MAP_PIN, theme::TEAL, crate::i18n::tr("Punkt terenu"), &fmt::ele(e), &near);
     let g = |dx: f64, dy: f64| a.heights.sample_cached(lon + dx, lat + dy).map(|v| v as f64).unwrap_or(e);
     let kx = 111_320.0 * lat.to_radians().cos();
@@ -985,9 +985,37 @@ fn point_info(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f64) {
     let t = sun::times(day, lat, lon);
     section(ui, theme::icon::SUN, crate::i18n::tr("Słońce w tym miejscu"));
     grid2(ui, vec![(crate::i18n::tr("Wschód"), fmt::hour(t.rise)), (crate::i18n::tr("Zachód"), fmt::hour(t.set)), (crate::i18n::tr("Górowanie"), format!("{} · {}°", fmt::hour(t.noon), t.max_alt.round())), (crate::i18n::tr("Granica śniegu"), fmt::ele(sun::snowline(day)))]);
-    ui.label(RichText::new(fmt::coords(lon, lat)).monospace().small().color(theme::PAPER_3));
+    coords_section(a, ui, lon, lat);
     ui.add_space(6.0);
     point_buttons(a, ui, lon, lat);
+}
+
+/// Współrzędne punktu we wszystkich zapisach, każdy z przyciskiem kopiowania.
+fn coords_section(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f64) {
+    use crate::coords::CoordFormat;
+    section(ui, theme::icon::MAP_PIN, crate::i18n::tr("Współrzędne"));
+    let mut copied = false;
+    egui::Grid::new(("wspolrzedne", (lon * 1e6) as i64, (lat * 1e6) as i64)).num_columns(3).spacing([10.0, 4.0]).show(ui, |ui| {
+        for (f, label) in [(CoordFormat::Dms, "°′″"), (CoordFormat::Decimal, "°"), (CoordFormat::Utm, "UTM"), (CoordFormat::Mgrs, "MGRS")] {
+            let txt = crate::coords::format_as(f, lon, lat);
+            let mut rt = RichText::new(&txt).monospace();
+            if f == crate::coords::format() {
+                rt = rt.color(theme::PAPER);
+            } else {
+                rt = rt.color(theme::PAPER_2);
+            }
+            ui.label(RichText::new(label).small().color(theme::PAPER_3));
+            ui.label(rt);
+            if ui.small_button(theme::icon::COPY).on_hover_text(crate::i18n::tr("Kopiuj")).clicked() {
+                ui.ctx().copy_text(txt);
+                copied = true;
+            }
+            ui.end_row();
+        }
+    });
+    if copied {
+        a.notify(crate::i18n::tr("Skopiowano współrzędne."));
+    }
 }
 
 fn trail_info(a: &mut Atlas, ui: &mut egui::Ui, e: u32) {
@@ -1109,7 +1137,7 @@ fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
             let (badge, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
             ui.painter().circle_filled(badge.center(), 11.0, theme::BRASS_DIM);
             ui.painter().text(badge.center(), egui::Align2::CENTER_CENTER, tag, egui::FontId::proportional(12.0), theme::BRASS);
-            ui.label(w.name.clone().unwrap_or_else(|| fmt::decimal(w.lon, w.lat)));
+            ui.label(w.name.clone().unwrap_or_else(|| fmt::coords(w.lon, w.lat)));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button(theme::icon::X).clicked() {
                     remove = Some(i);
@@ -1300,7 +1328,7 @@ fn lens_info(a: &mut Atlas, ui: &mut egui::Ui) {
         Lens::Vis => {
             ui.label(theme::kicker(crate::i18n::tr("Analiza widoczności")));
             ui.heading(crate::i18n::tr("Co widać stąd?"));
-            ui.label(RichText::new(format!("{} · {}", fmt::decimal(lon, lat), fmt::ele(e as f64))).monospace().small().color(theme::PAPER_3));
+            ui.label(RichText::new(format!("{} · {}", fmt::coords(lon, lat), fmt::ele(e as f64))).monospace().small().color(theme::PAPER_3));
             ui.label(theme::kicker(crate::i18n::tr("Wysokość obserwatora nad terenem")));
             let before = a.prefs.vs_eye;
             ui.horizontal(|ui| {
@@ -1334,7 +1362,7 @@ fn lens_info(a: &mut Atlas, ui: &mut egui::Ui) {
         Lens::Rel => {
             ui.label(theme::kicker(crate::i18n::tr("Wysokość względna")));
             ui.heading(crate::i18n::tr("Co jest wyżej?"));
-            theme::para(ui, tf!("Poziom 0: {} · {}", fmt::ele(e as f64), fmt::decimal(lon, lat)));
+            theme::para(ui, tf!("Poziom 0: {} · {}", fmt::ele(e as f64), fmt::coords(lon, lat)));
             ui.add(egui::Slider::new(&mut a.prefs.rel_range, 50.0..=1500.0).text(crate::i18n::tr("zakres barw (m)")).logarithmic(true));
             if let Some(r) = &a.rel {
                 grid2(ui, vec![(crate::i18n::tr("Wyżej (5 km)"), format!("{}%", fmt::dec(r.above * 100.0, 0))), (crate::i18n::tr("Niżej (5 km)"), format!("{}%", fmt::dec(r.below * 100.0, 0)))]);
@@ -1449,7 +1477,7 @@ fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     grid(ui, vec![
         (theme::icon::PATH, crate::i18n::tr("Szlaki (T)"), &mut p.trails, None),
         (theme::icon::WAVE_SINE, crate::i18n::tr("Poziomice (C)"), &mut p.contours, None),
-        (theme::icon::GRID_FOUR, crate::i18n::tr("Siatka km"), &mut p.km_grid, None),
+        (theme::icon::GRID_FOUR, crate::i18n::tr("Siatka UTM"), &mut p.km_grid, None),
         (theme::icon::LINK, crate::i18n::tr("Łańcuchy i klamry"), &mut p.chains, None),
         (theme::icon::FLAG, crate::i18n::tr("Granice parków"), &mut p.boundaries, None),
     ]);
@@ -1484,6 +1512,15 @@ pub fn names_section(a: &mut Atlas, ui: &mut egui::Ui, cols: usize) {
 
 /// Strona „Mapa” w ustawieniach.
 pub fn map_settings(a: &mut Atlas, ui: &mut egui::Ui) {
+    ui.label(theme::kicker(crate::i18n::tr("Zapis współrzędnych")));
+    for f in crate::coords::CoordFormat::ALL {
+        if theme::option_card(ui, f.name(), &f.example(), a.prefs.coord_format == f).clicked() {
+            a.prefs.coord_format = f;
+            crate::coords::set_format(f);
+        }
+    }
+    theme::para(ui, crate::i18n::tr("Tak współrzędne pokazują się przy kursorze, w szczegółach punktu i przy kopiowaniu. UTM i MGRS to siatka w metrach z map topograficznych; MGRS podają ratownicy (TOPR, GOPR) i służby. W wyszukiwarkę można wpisać współrzędne w każdym z tych zapisów."));
+    ui.add_space(12.0);
     ui.label(theme::kicker(crate::i18n::tr("Zdjęcia")));
     theme::switch(ui, &mut a.prefs.national_ortho, crate::i18n::tr("Ortofoto krajowe (PL, CZ, SK)"));
     theme::para(ui, crate::i18n::tr("Z bliska zamiast zdjęć Esri – ostrzejsze zdjęcia lotnicze z geoportali GUGiK, ČÚZK i ÚGKK SR. Wolniej się wczytują."));

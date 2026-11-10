@@ -33,7 +33,7 @@ fn place(a: &Atlas) -> Place {
         }
         Selection::Point { lon, lat } => {
             let ele = a.heights.sample_cached(*lon, *lat).unwrap_or(0.0);
-            let name = a.name_near(*lon, *lat, 400.0).unwrap_or_else(|| fmt::decimal(*lon, *lat));
+            let name = a.name_near(*lon, *lat, 400.0).unwrap_or_else(|| fmt::coords(*lon, *lat));
             return Place { lon: *lon, lat: *lat, ele, name };
         }
         _ => {}
@@ -110,7 +110,7 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
     let pl = place(a);
     let ctx = ui.ctx().clone();
     ui.horizontal(|ui| {
-        ui.label(theme::kicker(&tf!("{} · {} m n.p.m.", fmt::decimal(pl.lon, pl.lat), fmt::int(pl.ele as f64))));
+        ui.label(theme::kicker(&tf!("{} · {} m n.p.m.", fmt::coords(pl.lon, pl.lat), fmt::int(pl.ele as f64))));
         if a.cond_at.is_some() {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button(theme::icon::X).on_hover_text(tr("Wróć do środka widoku")).clicked() {

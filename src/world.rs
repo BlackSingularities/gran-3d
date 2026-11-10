@@ -602,11 +602,14 @@ fn prominence(pois: &mut [PoiView], height: &(dyn Fn(f64, f64) -> f32 + Sync)) {
                 }
                 (iso / 1000.0) as f32 + (p.ele - low) / 120.0
             }
+            // stałe: zasięg nazwy ok. prom × 15 km od oka (przełęcze i jeziora widać z typowego oddalenia)
             PoiKind::Hut => 6.0,
-            PoiKind::Lake => 3.0,
-            PoiKind::Saddle => 1.2,
+            PoiKind::Lake => 3.5,
+            PoiKind::Saddle => 2.5,
             PoiKind::Valley | PoiKind::Ridge => 2.0,
-            PoiKind::Locality => 1.5,
+            PoiKind::Waterfall | PoiKind::Cableway => 2.0,
+            PoiKind::Locality | PoiKind::Viewpoint => 1.5,
+            PoiKind::Cave | PoiKind::Shelter | PoiKind::Webcam => 1.2,
             PoiKind::Place => {
                 let base = match p.poi.place.as_str() {
                     "city" => 16.0,

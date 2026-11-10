@@ -25,6 +25,8 @@ pub struct Search {
 }
 
 enum Hit {
+    /// Wpisane współrzędne (długość, szerokość).
+    Coord(f64, f64),
     Poi(usize),
     Trail(usize),
     Place(usize),
@@ -95,7 +97,9 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         }
     }
     let q = fold(s.q.trim());
-    if q.chars().count() >= 3 && s.asked != q && s.typed.is_some_and(|t| t.elapsed() > Duration::from_millis(450)) && s.pending.is_none() {
+    // współrzędne (stopnie, UTM, MGRS) – bez pytania Nominatim
+    let coord = crate::coords::parse(s.q.trim());
+    if coord.is_none() && q.chars().count() >= 3 && s.asked != q && s.typed.is_some_and(|t| t.elapsed() > Duration::from_millis(450)) && s.pending.is_none() {
         s.asked = q.clone();
         let (tx, rx) = channel();
         let query = s.q.trim().to_string();
@@ -109,7 +113,15 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
 
     // wyniki lokalne
     let mut hits: Vec<(Hit, String, String)> = Vec::new();
-    if !q.is_empty() {
+    if let Some((lon, lat)) = coord {
+        let sub = match a.name_near(lon, lat, 1500.0) {
+            Some(n) => tf!("współrzędne · w pobliżu: {}", n),
+            None => crate::i18n::tr("współrzędne").to_string(),
+        };
+        let other = if crate::coords::format() == crate::coords::CoordFormat::Mgrs { crate::coords::CoordFormat::Dms } else { crate::coords::CoordFormat::Mgrs };
+        hits.push((Hit::Coord(lon, lat), fmt::coords(lon, lat), format!("{sub} · {}", crate::coords::format_as(other, lon, lat))));
+    }
+    if !q.is_empty() && coord.is_none() {
         let color = COLOR_WORDS.iter().find(|(pl, _)| q.starts_with(pl) || pl.starts_with(&q) && q.len() >= 4).map(|c| c.1);
         for (i, p) in a.snap.pois.iter().enumerate() {
             if fold(&p.poi.name).contains(&q) {
@@ -151,7 +163,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         .show(ctx, |ui| {
             let r = ui.add(
                 egui::TextEdit::singleline(&mut s.q)
-                    .hint_text(crate::i18n::tr("Szczyt, schronisko, szlak (np. „czerwony”), miejscowość…"))
+                    .hint_text(crate::i18n::tr("Szczyt, schronisko, szlak (np. „czerwony”), miejscowość, współrzędne…"))
                     .desired_width(f32::INFINITY)
                     .font(egui::TextStyle::Body)
                     .margin(egui::Margin::symmetric(10, 8)),
@@ -186,6 +198,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
                 link = Some(s.q.trim().to_string());
             } else if enter && !hits.is_empty() {
                 choose = Some(match hits[s.sel].0 {
+                    Hit::Coord(lon, lat) => Hit::Coord(lon, lat),
                     Hit::Poi(i) => Hit::Poi(i),
                     Hit::Trail(i) => Hit::Trail(i),
                     Hit::Place(i) => Hit::Place(i),
@@ -201,6 +214,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
                     });
                     if resp.response.interact(egui::Sense::click()).clicked() {
                         choose = Some(match h {
+                            Hit::Coord(lon, lat) => Hit::Coord(*lon, *lat),
                             Hit::Poi(i) => Hit::Poi(*i),
                             Hit::Trail(i) => Hit::Trail(*i),
                             Hit::Place(i) => Hit::Place(*i),
@@ -216,7 +230,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
                 if let Some(e) = &s.error {
                     ui.label(RichText::new(tf!("Wyszukiwanie miejsc niedostępne: {}", e)).small().color(theme::WARN));
                 }
-                if hits.is_empty() && q.len() >= 2 && s.pending.is_none() {
+                if coord.is_none() && hits.is_empty() && q.len() >= 2 && s.pending.is_none() {
                     theme::para(ui, crate::i18n::tr("Brak wyników w okolicy. Wpisz co najmniej 3 litery, żeby szukać w całej Europie."));
                 }
             });
@@ -230,6 +244,13 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         }
     }
     match choose {
+        Some(Hit::Coord(lon, lat)) => {
+            a.fly_to(lon, lat, Some(a.cam.distance.min(6000.0).max(2500.0)));
+            a.selection = Selection::Point { lon, lat };
+            a.tab = crate::ui::panels::Tab::Info;
+            a.prefs.panel_open = true;
+            open = false;
+        }
         Some(Hit::Poi(i)) => {
             let p = a.snap.pois[i].poi.clone();
             a.fly_to(p.lon, p.lat, Some(a.cam.distance.min(7000.0).max(2500.0)));

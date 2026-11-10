@@ -447,7 +447,7 @@ Szczyty (L)	Peaks (L)
 Miejscowości	Towns
 Szlaki (T)	Trails (T)
 Poziomice (C)	Contours (C)
-Siatka km	km grid
+Siatka UTM	UTM grid
 Cienie	Shadows
 Rzeźba	Relief
 Śnieg	Snow
@@ -526,7 +526,7 @@ przeszkoda	obstacle
 {} od startu	{} from start
 szlak {}	{} trail
 Szukaj	Search
-Szczyt, schronisko, szlak (np. „czerwony”), miejscowość…	Peak, hut, trail (e.g. “red”), town…
+Szczyt, schronisko, szlak (np. „czerwony”), miejscowość, współrzędne…	Peak, hut, trail (e.g. “red”), town, coordinates…
 szukam w OpenStreetMap…	searching OpenStreetMap…
 Wyszukiwanie miejsc niedostępne: {}	Place search unavailable: {}
 Brak wyników w okolicy. Wpisz co najmniej 3 litery, żeby szukać w całej Europie.	No results nearby. Type at least 3 letters to search all of Europe.
@@ -741,3 +741,11 @@ Teren i zdjęcia w kadrze	Terrain and imagery in view
 Lasy, woda, skały	Forests, water, rocks
 pobieranie…	loading…
 Pobrane dane zapisują się na dysku – przy następnym uruchomieniu wczytują się od razu.	Downloaded data is saved to disk – next time it loads instantly.
+Zapis współrzędnych	Coordinate format
+Stopnie, minuty, sekundy	Degrees, minutes, seconds
+Stopnie dziesiętne	Decimal degrees
+Tak współrzędne pokazują się przy kursorze, w szczegółach punktu i przy kopiowaniu. UTM i MGRS to siatka w metrach z map topograficznych; MGRS podają ratownicy (TOPR, GOPR) i służby. W wyszukiwarkę można wpisać współrzędne w każdym z tych zapisów.	Coordinates are shown this way next to the cursor, in point details and when copying. UTM and MGRS are the metre grid of topographic maps; MGRS is used by mountain rescue and emergency services. You can type coordinates in any of these formats into the search box.
+jako	as
+współrzędne	coordinates
+współrzędne · w pobliżu: {}	coordinates · near: {}
+Kopiuj	Copy

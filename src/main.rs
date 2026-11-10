@@ -11,6 +11,7 @@ mod analysis;
 mod avalanche;
 mod app;
 mod bake;
+mod coords;
 mod download;
 mod feedback;
 mod fmt;

@@ -165,6 +165,8 @@ pub struct Prefs {
     pub chains: bool,
     /// Granice parków narodowych, rezerwatów i państw.
     pub boundaries: bool,
+    /// Zapis współrzędnych w interfejsie (stopnie, UTM, MGRS).
+    pub coord_format: crate::coords::CoordFormat,
 }
 
 /// Które nazwy pokazywać na mapie (główny przełącznik – `Prefs::labels`, klawisz L).
@@ -318,6 +320,7 @@ impl Default for Prefs {
             names: Names::default(),
             chains: true,
             boundaries: true,
+            coord_format: crate::coords::CoordFormat::default(),
         }
     }
 }
@@ -579,6 +582,7 @@ fn lin(c: [u8; 3], a: f32) -> [f32; 4] {
 impl Atlas {
     pub fn new(heights: Heights, world: World, prefs: Option<Prefs>) -> Self {
         let prefs = prefs.unwrap_or_default();
+        crate::coords::set_format(prefs.coord_format);
         let (lon, lat, height, heading, pitch, distance) = prefs.camera;
         let cam = Camera { lon, lat, height, heading, pitch, distance, ..Camera::default() };
         metrics::set_model(if prefs.din { TimeModel::Din } else { TimeModel::Pttk }, prefs.pace);
@@ -2710,11 +2714,21 @@ impl Atlas {
         let d = self.cam.distance;
         let contour = if d < 2500.0 { 10.0 } else if d < 9000.0 { 20.0 } else if d < 30_000.0 { 50.0 } else { 100.0 };
         let _ = view;
+        // siatka UTM dopasowana do ramki wokół środka widoku
+        let gc = self.panorama.unwrap_or(self.cam);
+        let utm_fit = if self.prefs.km_grid {
+            let (x0, z0) = self.frame.to_local(gc.lon, gc.lat);
+            let frame = self.frame;
+            crate::coords::local_utm_fit(gc.lon, gc.lat, x0, z0, |x, z| frame.to_lonlat(x, z))
+        } else {
+            None
+        };
         Scene {
             style: self.prefs.style.code(),
             contours: self.prefs.contours,
             contour_interval: contour,
-            km_grid: self.prefs.km_grid,
+            km_grid: utm_fit.is_some(),
+            utm_grid: utm_fit.map(|f| f.1).unwrap_or([[0.0; 4]; 4]),
             sun_dir: sv,
             sun_power: if alt > -2.0 { 1.0 } else { 0.0 },
             sun_color,
@@ -2912,10 +2926,57 @@ impl Atlas {
                 _ => None,
             };
             let first = sel.map(|i| (i, &snap.pois[i]));
-            let places = snap.pois.iter().enumerate().filter(|(i, p)| Some(*i) != sel && p.poi.kind == PoiKind::Place && names.shows(&p.poi)).take(1500);
-            let rest = snap.pois.iter().enumerate().filter(|(i, p)| Some(*i) != sel && p.poi.kind != PoiKind::Place && names.shows(&p.poi)).take(2500);
+            // kandydaci w kadrze, osobno dla każdego rodzaju (w kolejności ważności z migawki);
+            // bez tego szczyty zajmowały cały przydział, a jeziora i przełęcze nie dochodziły do głosu
+            let class = |k: PoiKind| -> usize {
+                match k {
+                    PoiKind::Place => 0,
+                    PoiKind::Peak => 1,
+                    PoiKind::Saddle => 2,
+                    PoiKind::Lake | PoiKind::Waterfall | PoiKind::Spring | PoiKind::DrinkingWater => 3,
+                    PoiKind::Hut | PoiKind::Shelter => 4,
+                    PoiKind::Valley | PoiKind::Ridge | PoiKind::Locality => 5,
+                    _ => 6,
+                }
+            };
+            let mut lists: Vec<Vec<usize>> = vec![Vec::new(); 7];
+            for (i, poi) in snap.pois.iter().enumerate() {
+                if Some(i) == sel || !names.shows(&poi.poi) {
+                    continue;
+                }
+                let pos = self.local(poi.poi.lon, poi.poi.lat, poi.dem);
+                let Some(s) = view.project(pos) else { continue };
+                if !rect.shrink(4.0).contains(at(s)) {
+                    continue;
+                }
+                let is_place = poi.poi.kind == PoiKind::Place;
+                let min_prom = (pos.distance(view.eye) / 9000.0) as f32 * if is_place { 0.35 } else { 1.0 };
+                if poi.prom < min_prom.min(30.0) * 0.6 {
+                    continue;
+                }
+                lists[class(poi.poi.kind)].push(i);
+            }
+            // przeplatanie: w każdej kolejce miejscowość, dwa szczyty i po jednym punkcie innych rodzajów
+            let mut order: Vec<usize> = Vec::with_capacity(lists.iter().map(Vec::len).sum());
+            let mut next = [0usize; 7];
+            loop {
+                let mut any = false;
+                for (c, list) in lists.iter().enumerate() {
+                    let take = if c == 1 { 2 } else { 1 };
+                    for _ in 0..take {
+                        if let Some(&i) = list.get(next[c]) {
+                            order.push(i);
+                            next[c] += 1;
+                            any = true;
+                        }
+                    }
+                }
+                if !any {
+                    break;
+                }
+            }
             let mut hits: Vec<(Rect, usize)> = Vec::new();
-            for (idx, poi) in first.into_iter().chain(places).chain(rest) {
+            for (idx, poi) in first.into_iter().chain(order.into_iter().map(|i| (i, &snap.pois[i]))) {
                 let is_sel = Some(idx) == sel;
                 let is_place = poi.poi.kind == PoiKind::Place;
                 if !is_sel && (shown >= max || (is_place && shown_places >= max_places)) {
@@ -3264,7 +3325,7 @@ impl Atlas {
             egui::Area::new(egui::Id::new("menu-3d")).fixed_pos(pos).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
                 theme::card(false).show(ui, |ui| {
                     ui.set_width(230.0);
-                    ui.label(egui::RichText::new(format!("{}  ·  {}", fmt::decimal(lon, lat), fmt::ele(e as f64))).small().monospace().color(theme::PAPER_3));
+                    ui.label(egui::RichText::new(format!("{}  ·  {}", fmt::coords(lon, lat), fmt::ele(e as f64))).small().monospace().color(theme::PAPER_3));
                     let mut item = |ui: &mut egui::Ui, t: &str| ui.add(egui::Button::new(t).frame(false)).clicked();
                     if item(ui, crate::i18n::tr("Trasa stąd")) {
                         self.tool = Tool::Route;
@@ -3312,7 +3373,28 @@ impl Atlas {
                         close = true;
                     }
                     if item(ui, crate::i18n::tr("Kopiuj współrzędne")) {
-                        ui.ctx().copy_text(fmt::decimal(lon, lat));
+                        ui.ctx().copy_text(fmt::coords(lon, lat));
+                        self.notify(crate::i18n::tr("Skopiowano współrzędne."));
+                        close = true;
+                    }
+                    // kopiowanie w innym zapisie
+                    let mut copy_as = None;
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        ui.label(egui::RichText::new(crate::i18n::tr("jako")).small().color(theme::PAPER_3));
+                        for (f, short) in [
+                            (crate::coords::CoordFormat::Dms, "°′″"),
+                            (crate::coords::CoordFormat::Decimal, "0.00°"),
+                            (crate::coords::CoordFormat::Utm, "UTM"),
+                            (crate::coords::CoordFormat::Mgrs, "MGRS"),
+                        ] {
+                            if ui.small_button(short).on_hover_text(crate::coords::format_as(f, lon, lat)).clicked() {
+                                copy_as = Some(f);
+                            }
+                        }
+                    });
+                    if let Some(f) = copy_as {
+                        ui.ctx().copy_text(crate::coords::format_as(f, lon, lat));
                         self.notify(crate::i18n::tr("Skopiowano współrzędne."));
                         close = true;
                     }
