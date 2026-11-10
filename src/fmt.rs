@@ -74,25 +74,12 @@ pub fn signed(m: f64, unit: &str) -> String {
     tf!("{}{} {}", s, int(m.abs()), unit)
 }
 
-fn dms(v: f64, pos: char, neg: char) -> String {
-    let a = v.abs();
-    let d = a.floor();
-    let mf = (a - d) * 60.0;
-    let m = mf.floor();
-    let s = (mf - m) * 60.0;
-    format!(
-        "{}°{:02}′{:0>4}″{}",
-        d as i64,
-        m as i64,
-        dec(s, 1),
-        if v >= 0.0 { pos } else { neg }
-    )
-}
-
+/// Współrzędne w formacie wybranym w ustawieniach (stopnie, UTM, MGRS).
 pub fn coords(lon: f64, lat: f64) -> String {
-    format!("{}  {}", dms(lat, 'N', 'S'), dms(lon, 'E', 'W'))
+    crate::coords::format_pos(lon, lat)
 }
 
+/// Stopnie dziesiętne – zapis stały (nazwy zapisanych miejsc, linki).
 pub fn decimal(lon: f64, lat: f64) -> String {
     tf!("{:.5}, {:.5}", lat, lon)
 }

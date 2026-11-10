@@ -17,10 +17,13 @@ struct Globals {
     vs_rect: vec4<f32>,
     flags: vec4<f32>,        // cienie, widoczność, pokrycie terenu, mapa normalnych
     biome: vec4<f32>,        // las, kosodrzewina, skały, okluzja
-    grid_origin: vec4<f32>,  // przesunięcie siatki km (m), metry na m ramki
+    grid_origin: vec4<f32>,  // siatka UTM: punkt odniesienia w ramce (x, z), E i N w nim (mod 10 km)
     land_rect: vec4<f32>,    // maska pokrycia terenu: x0, z0, 1/szer., 1/wys.
     water_rect: vec4<f32>,   // okno poziomów lustra wody: x0, z0, 1/szer., 1/wys.
     water: vec4<f32>,        // czas (s), -, -, -
+    grid_lin: vec4<f32>,     // siatka UTM: dE/dx, dE/dz, dN/dx, dN/dz
+    grid_q: vec4<f32>,       // E: xx/2, xz, zz/2; N: xx/2
+    grid_q2: vec4<f32>,      // N: xz, zz/2, -, -
 };
 
 struct Tile {
@@ -477,12 +480,29 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         col = mix(col, cc, line * select(0.75, 0.55, realistic));
     }
 
-    // siatka kilometrowa
+    // siatka UTM: linie co 100 m (z bliska), 1 km i 10 km (pogrubione), zgodne z mapami topograficznymi
     if (g.style.w > 0.5) {
-        let gp = (wp - g.grid_origin.xy) * g.grid_origin.z / 1000.0;
-        let fw2 = fwidth(gp);
-        let gl = 1.0 - smoothstep(vec2(0.0), fw2 * 1.4, abs(fract(gp + 0.5) - 0.5));
-        col = mix(col, vec3(0.95, 0.9, 0.8), max(gl.x, gl.y) * 0.35);
+        let d = wp - g.grid_origin.xy;
+        let e = g.grid_origin.z + g.grid_lin.x * d.x + g.grid_lin.y * d.y
+            + g.grid_q.x * d.x * d.x + g.grid_q.y * d.x * d.y + g.grid_q.z * d.y * d.y;
+        let n = g.grid_origin.w + g.grid_lin.z * d.x + g.grid_lin.w * d.y
+            + g.grid_q.w * d.x * d.x + g.grid_q2.x * d.x * d.y + g.grid_q2.y * d.y * d.y;
+        let en = vec2(e, n);
+        let k01 = en / 100.0;
+        let k1 = en / 1000.0;
+        let k10 = en / 10000.0;
+        let fw01 = fwidth(k01);
+        let fw1 = fwidth(k1);
+        let fw10 = fwidth(k10);
+        let l01 = 1.0 - smoothstep(vec2(0.0), fw01 * 1.2, abs(fract(k01 + 0.5) - 0.5));
+        let l1 = 1.0 - smoothstep(vec2(0.0), fw1 * 1.5, abs(fract(k1 + 0.5) - 0.5));
+        let l10 = 1.0 - smoothstep(vec2(0.0), fw10 * 2.4, abs(fract(k10 + 0.5) - 0.5));
+        // zanikanie, gdy linie są zbyt gęsto
+        let f01 = 1.0 - smoothstep(0.06, 0.2, max(fw01.x, fw01.y));
+        let f1 = 1.0 - smoothstep(0.08, 0.25, max(fw1.x, fw1.y));
+        let f10 = 1.0 - smoothstep(0.08, 0.25, max(fw10.x, fw10.y));
+        let gl = max(max(max(l01.x, l01.y) * 0.16 * f01, max(l1.x, l1.y) * 0.42 * f1), max(l10.x, l10.y) * 0.7 * f10);
+        col = mix(col, vec3(0.95, 0.9, 0.8), gl);
     }
 
     // kursor: mały pierścień na terenie

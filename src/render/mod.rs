@@ -45,6 +45,10 @@ pub struct Globals {
     pub water_rect: [f32; 4],
     /// Czas animacji (s), -, -, -.
     pub water: [f32; 4],
+    /// Siatka UTM (zob. `coords::local_utm_fit`): pochodne liniowe i wyrazy drugiego rzędu.
+    pub grid_lin: [f32; 4],
+    pub grid_q: [f32; 4],
+    pub grid_q2: [f32; 4],
 }
 
 #[repr(C)]
@@ -101,6 +105,8 @@ pub struct Scene {
     pub contours: bool,
     pub contour_interval: f32,
     pub km_grid: bool,
+    /// Dopasowanie lokalnych metrów ramki do UTM: początek i współczynniki (gdy siatka włączona).
+    pub utm_grid: [[f32; 4]; 4],
     pub sun_dir: [f32; 3],
     pub sun_power: f32,
     pub sun_color: [f32; 3],
@@ -897,10 +903,13 @@ impl Renderer {
             vs_rect: scene.vs_rect,
             flags: [scene.shadows as u8 as f32, scene.viewshed as u8 as f32, scene.landcover as u8 as f32, scene.detail as u8 as f32],
             biome: [scene.biome[0], scene.biome[1], scene.biome[2], 0.0],
-            grid_origin: [0.0, 0.0, 1.0, 0.0],
+            grid_origin: scene.utm_grid[0],
             land_rect: scene.land_rect,
             water_rect: scene.water_rect,
             water: [scene.time, 0.0, 0.0, 0.0],
+            grid_lin: scene.utm_grid[1],
+            grid_q: scene.utm_grid[2],
+            grid_q2: scene.utm_grid[3],
         };
         self.queue.write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&g));
         let inv = vp.inverse();

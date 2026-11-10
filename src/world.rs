@@ -209,6 +209,32 @@ impl World {
         (done, s.wanted.len(), work)
     }
 
+    /// Sektory okolicy względem sektora pod kamerą: (przesunięcie x, y, stan, opis).
+    /// Stan: 0 – gotowy, 1 – w toku, 2 – w kolejce, 3 – błąd.
+    pub fn sector_grid(&self) -> Vec<(i64, i64, u8, String)> {
+        let details = self.details();
+        let s = self.state.0.lock().unwrap();
+        let Some(c) = s.wanted.first().copied() else { return Vec::new() };
+        let n = 1i64 << osm::SECTOR_Z;
+        s.wanted
+            .iter()
+            .zip(details)
+            .map(|(id, (_, txt, ok))| {
+                let mut dx = id.x as i64 - c.x as i64;
+                if dx > n / 2 {
+                    dx -= n;
+                } else if dx < -n / 2 {
+                    dx += n;
+                }
+                let dy = id.y as i64 - c.y as i64;
+                let busy = s.busy == Some(*id) || s.trails_busy.iter().any(|b| b.0 == *id);
+                let err = s.failed.contains_key(id) || s.trails_failed.contains_key(id);
+                let st = if busy { 1 } else if ok { 0 } else if err { 3 } else { 2 };
+                (dx, dy, st, txt)
+            })
+            .collect()
+    }
+
     /// Stan każdego sektora okolicy (do okna szczegółów): nazwa sektora, opis, czy gotowy.
     pub fn details(&self) -> Vec<(String, String, bool)> {
         let s = self.state.0.lock().unwrap();
@@ -576,11 +602,14 @@ fn prominence(pois: &mut [PoiView], height: &(dyn Fn(f64, f64) -> f32 + Sync)) {
                 }
                 (iso / 1000.0) as f32 + (p.ele - low) / 120.0
             }
+            // stałe: zasięg nazwy ok. prom × 15 km od oka (przełęcze i jeziora widać z typowego oddalenia)
             PoiKind::Hut => 6.0,
-            PoiKind::Lake => 3.0,
-            PoiKind::Saddle => 1.2,
+            PoiKind::Lake => 3.5,
+            PoiKind::Saddle => 2.5,
             PoiKind::Valley | PoiKind::Ridge => 2.0,
-            PoiKind::Locality => 1.5,
+            PoiKind::Waterfall | PoiKind::Cableway => 2.0,
+            PoiKind::Locality | PoiKind::Viewpoint => 1.5,
+            PoiKind::Cave | PoiKind::Shelter | PoiKind::Webcam => 1.2,
             PoiKind::Place => {
                 let base = match p.poi.place.as_str() {
                     "city" => 16.0,

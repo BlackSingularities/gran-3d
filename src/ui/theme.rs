@@ -302,3 +302,18 @@ pub fn switch(ui: &mut egui::Ui, value: &mut bool, text: &str) -> egui::Response
     p.circle_filled(egui::pos2(x, track.center().y), 7.0, if *value { ON_ACCENT } else { PAPER_2 });
     resp
 }
+
+/// Kompaktowy kafelek działania: ikona nad krótkim podpisem.
+pub fn action(ui: &mut egui::Ui, glyph: &str, text: &str, w: f32) -> egui::Response {
+    let text = tr(text);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 58.0), Sense::click());
+    let p = ui.painter();
+    let bg = if resp.hovered() { Color32::from_white_alpha(18) } else { Color32::from_white_alpha(7) };
+    p.rect_filled(rect, 12.0, bg);
+    let color = if resp.hovered() { BRASS } else { PAPER };
+    p.text(rect.center_top() + egui::vec2(0.0, 20.0), egui::Align2::CENTER_CENTER, glyph, FontId::proportional(19.0), color);
+    let galley = p.layout_no_wrap(text.to_string(), FontId::proportional(11.0), PAPER_2);
+    let gw = galley.size().x.min(w - 6.0);
+    ui.painter_at(rect.shrink2(egui::vec2(3.0, 0.0))).galley(egui::pos2(rect.center().x - gw / 2.0, rect.bottom() - 20.0), galley, PAPER_2);
+    resp.on_hover_text(text)
+}
