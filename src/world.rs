@@ -27,6 +27,10 @@ pub struct Snapshot {
     pub pois: Vec<PoiView>,
     /// Odcinki z łańcuchami i klamrami: (dł., szer., wysokość).
     pub chains: Vec<Vec<(f64, f64, f32)>>,
+    /// Zamknięte odcinki szlaków (opis z OSM) z liniami z wysokościami.
+    pub closures: Vec<(osm::Closure, Vec<Vec<(f64, f64, f32)>>)>,
+    /// Trasy narciarskie z liniami z wysokościami.
+    pub pistes: Vec<(osm::Piste, Vec<(f64, f64, f32)>)>,
     /// Granice: rodzaj, nazwa, linie z wysokościami.
     pub boundaries: Vec<(osm::BoundaryKind, String, Vec<Vec<(f64, f64, f32)>>)>,
     pub sectors: Vec<SectorId>,
@@ -34,11 +38,46 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// Zamknięcia obowiązujące w dniu (`m`, `d`), przez które przechodzi linia (`lon`, `lat`)
+    /// (punkt linii bliżej niż ~15 m od zamkniętego odcinka).
+    pub fn closures_on(&self, lon: &[f64], lat: &[f64], (m, d): (u32, u32)) -> Vec<&osm::Closure> {
+        const TOL: f64 = 0.000_15;
+        let mut out = Vec::new();
+        for (c, lines) in &self.closures {
+            if !c.active(m, d) {
+                continue;
+            }
+            let hit = lines.iter().any(|l| {
+                let (mut w, mut e, mut s, mut n) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+                for &(x, y, _) in l {
+                    w = w.min(x);
+                    e = e.max(x);
+                    s = s.min(y);
+                    n = n.max(y);
+                }
+                let kx = 1.0 / n.to_radians().cos().max(0.2);
+                lon.iter().zip(lat).any(|(&x, &y)| {
+                    x >= w - TOL * kx
+                        && x <= e + TOL * kx
+                        && y >= s - TOL
+                        && y <= n + TOL
+                        && l.iter().any(|&(px, py, _)| ((px - x) / kx).abs() < TOL && (py - y).abs() < TOL)
+                })
+            });
+            if hit && !out.iter().any(|o: &&osm::Closure| o.rule == c.rule && o.name == c.name) {
+                out.push(c);
+            }
+        }
+        out
+    }
+
     fn empty() -> Self {
         Snapshot {
             graph: TrailGraph::empty(),
             pois: Vec::new(),
             chains: Vec::new(),
+            closures: Vec::new(),
+            pistes: Vec::new(),
             boundaries: Vec::new(),
             sectors: Vec::new(),
             version: 0,
@@ -534,6 +573,16 @@ impl World {
         pois.sort_by(|a, b| b.prom.total_cmp(&a.prom));
         let with_e = |l: &Vec<(f64, f64)>| -> Vec<(f64, f64, f32)> { l.iter().map(|&(lon, lat)| (lon, lat, height(lon, lat))).collect() };
         let chains: Vec<Vec<(f64, f64, f32)>> = refs.iter().flat_map(|s| s.chains.iter()).map(with_e).collect();
+        let closures: Vec<(osm::Closure, Vec<Vec<(f64, f64, f32)>>)> = refs
+            .iter()
+            .flat_map(|s| s.closures.iter())
+            .map(|c| (osm::Closure { lines: Vec::new(), ..c.clone() }, c.lines.iter().map(with_e).collect()))
+            .collect();
+        let pistes: Vec<(osm::Piste, Vec<(f64, f64, f32)>)> = refs
+            .iter()
+            .flat_map(|s| s.pistes.iter())
+            .map(|p| (osm::Piste { line: Vec::new(), ..p.clone() }, with_e(&p.line)))
+            .collect();
         // granice: ta sama linia z kilku sektorów tylko raz
         let mut seen = std::collections::HashSet::new();
         let mut boundaries = Vec::new();
@@ -568,6 +617,8 @@ impl World {
             graph,
             pois,
             chains,
+            closures,
+            pistes,
             boundaries,
             sectors: sectors.iter().map(|s| s.0).collect(),
             version: self.version.fetch_add(1, Ordering::Relaxed) + 1,

@@ -9,7 +9,7 @@ use crate::graph::RouteKind;
 use crate::metrics::{self, TimeModel, DIFFICULTY, SAC_LABEL};
 use crate::osm::PoiKind;
 use crate::sun::{self, Day};
-use crate::ui::atlas::{Atlas, Lens, Quality, RouteMode, Selection, Style, Tool};
+use crate::ui::atlas::{Action, Atlas, Lens, Quality, RouteMode, Selection, Style, Tool};
 use crate::ui::profile;
 use crate::ui::theme;
 

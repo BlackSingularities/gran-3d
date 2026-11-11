@@ -130,6 +130,14 @@ pub struct Prefs {
     pub boundaries: bool,
     /// Zapis współrzędnych w interfejsie (stopnie, UTM, MGRS).
     pub coord_format: crate::coords::CoordFormat,
+    /// Zamknięte szlaki (komunikaty TPN i TANAP, znaczniki z OSM).
+    pub closures: bool,
+    /// Trasy narciarskie i wyciągi.
+    pub pistes: bool,
+    /// Wysoki kontrast interfejsu.
+    pub high_contrast: bool,
+    /// Skala interfejsu (0,75–2).
+    pub ui_scale: f32,
 }
 
 /// Które nazwy pokazywać na mapie (główny przełącznik – `Prefs::labels`, klawisz L).
@@ -156,6 +164,7 @@ pub struct Names {
     pub cableways: bool,
     pub shrines: bool,
     pub webcams: bool,
+    pub stations: bool,
     /// Wysokość przy nazwach szczytów i przełęczy.
     pub elevation: bool,
 }
@@ -183,6 +192,7 @@ impl Default for Names {
             cableways: true,
             shrines: false,
             webcams: true,
+            stations: true,
             elevation: true,
         }
     }
@@ -209,6 +219,7 @@ impl Names {
             PoiKind::Cableway => self.cableways,
             PoiKind::Shrine => self.shrines,
             PoiKind::Webcam => self.webcams,
+            PoiKind::Station => self.stations,
             PoiKind::Place => {
                 if matches!(p.place.as_str(), "city" | "town") {
                     self.towns
@@ -240,6 +251,7 @@ impl Names {
             (i::DROP, "Woda pitna", &mut self.water),
             (i::CAR, "Parkingi", &mut self.parking),
             (i::BUS, "Przystanki", &mut self.bus),
+            (i::TRAIN, "Stacje kolejowe", &mut self.stations),
             (i::ARROW_UP_RIGHT, "Kolejki linowe", &mut self.cableways),
             (i::CROSS, "Kapliczki", &mut self.shrines),
             (i::CAMERA, "Kamery", &mut self.webcams),
@@ -284,6 +296,10 @@ impl Default for Prefs {
             chains: true,
             boundaries: true,
             coord_format: crate::coords::CoordFormat::default(),
+            closures: true,
+            pistes: false,
+            high_contrast: false,
+            ui_scale: 1.0,
         }
     }
 }

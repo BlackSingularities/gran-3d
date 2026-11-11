@@ -52,6 +52,8 @@ pub(super) fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
         (theme::icon::GRID_FOUR, crate::i18n::tr("Siatka UTM"), &mut p.km_grid, None),
         (theme::icon::LINK, crate::i18n::tr("Łańcuchy i klamry"), &mut p.chains, None),
         (theme::icon::FLAG, crate::i18n::tr("Granice parków"), &mut p.boundaries, None),
+        (theme::icon::PROHIBIT, crate::i18n::tr("Zamknięte szlaki (Z)"), &mut p.closures, None),
+        (theme::icon::PERSON_SIMPLE_SKI, crate::i18n::tr("Trasy narciarskie (J)"), &mut p.pistes, None),
     ]);
     ui.add_space(10.0);
     ui.label(theme::kicker(crate::i18n::tr("Teren")));
@@ -113,8 +115,8 @@ pub(super) fn light_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(fmt::hour(hour)).size(34.0).strong());
         ui.vertical(|ui| {
-            ui.label(RichText::new(if a.prefs.custom_time.is_some() { crate::i18n::tr("pora ustawiona") } else { crate::i18n::tr("teraz") }).small().color(theme::PAPER_3));
-            ui.label(RichText::new(tf!("Słońce {}° · {} {}", fmt::dec(alt, 0), az.round(), fmt::compass(az))).small().color(theme::PAPER_2));
+            ui.label(RichText::new(if a.prefs.custom_time.is_some() { crate::i18n::tr("pora ustawiona") } else { crate::i18n::tr("teraz") }).small().color(theme::paper_3()));
+            ui.label(RichText::new(tf!("Słońce {}° · {} {}", fmt::dec(alt, 0), az.round(), fmt::compass(az))).small().color(theme::paper_2()));
         });
     });
     // oś dnia: noc, świt, dzień, zmierzch i bieżąca godzina
@@ -226,6 +228,6 @@ pub fn graphics(a: &mut Atlas, ui: &mut egui::Ui) {
     }
     if let Some(r) = &a.renderer {
         let (d, i) = r.tiles.resident();
-        ui.label(RichText::new(tf!("Rysowane kafle: {} · w pamięci: teren {}, zdjęcia {}", r.drawn, d, i)).small().monospace().color(theme::PAPER_3));
+        ui.label(RichText::new(tf!("Rysowane kafle: {} · w pamięci: teren {}, zdjęcia {}", r.drawn, d, i)).small().monospace().color(theme::paper_3()));
     }
 }

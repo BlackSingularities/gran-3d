@@ -39,7 +39,7 @@ pub(super) fn stat_tile(ui: &mut egui::Ui, w: f32, k: &str, v: &str) {
     p.rect_filled(rect, 10.0, theme::INK_2);
     p.text(rect.left_center() + egui::vec2(11.0, 0.0), egui::Align2::LEFT_CENTER, stat_glyph(k), egui::FontId::proportional(19.0), theme::BRASS);
     let x = rect.left() + 38.0;
-    p.text(egui::pos2(x, rect.top() + 9.0), egui::Align2::LEFT_TOP, crate::i18n::tr(k), egui::FontId::proportional(11.5), theme::PAPER_3);
+    p.text(egui::pos2(x, rect.top() + 9.0), egui::Align2::LEFT_TOP, crate::i18n::tr(k), egui::FontId::proportional(11.5), theme::paper_3());
     let room = rect.width() - 44.0;
     let mut g = p.layout_no_wrap(v.to_string(), egui::FontId::proportional(16.0), theme::PAPER);
     if g.size().x > room {
@@ -58,7 +58,7 @@ pub(super) fn plain_stats(ui: &mut egui::Ui, items: &[(&str, String)]) {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 40.0), egui::Sense::hover());
                 let p = ui.painter().with_clip_rect(rect);
                 p.text(rect.left_center() + egui::vec2(9.0, 0.0), egui::Align2::CENTER_CENTER, stat_glyph(k), egui::FontId::proportional(17.0), theme::BRASS);
-                p.text(egui::pos2(rect.left() + 26.0, rect.top() + 3.0), egui::Align2::LEFT_TOP, crate::i18n::tr(k), egui::FontId::proportional(11.0), theme::PAPER_3);
+                p.text(egui::pos2(rect.left() + 26.0, rect.top() + 3.0), egui::Align2::LEFT_TOP, crate::i18n::tr(k), egui::FontId::proportional(11.0), theme::paper_3());
                 p.text(egui::pos2(rect.left() + 26.0, rect.bottom() - 3.0), egui::Align2::LEFT_BOTTOM, v, egui::FontId::proportional(15.0), theme::PAPER);
             }
         });
@@ -124,6 +124,7 @@ pub(super) fn pill(ui: &mut egui::Ui, text: &str, color: Color32) {
 /// Karta wariantu trasy.
 pub(super) fn variant_card(ui: &mut egui::Ui, r: &Route, title: &str, sub: &str, sel: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 78.0), egui::Sense::click());
+    theme::focus_ring(ui, &resp, rect, 12.0);
     let p = ui.painter().with_clip_rect(rect);
     p.rect_filled(rect, 12.0, if sel { theme::BRASS_DIM } else if resp.hovered() { theme::INK_3 } else { theme::INK_2 });
     let inner = rect.shrink2(egui::vec2(12.0, 9.0));
@@ -131,9 +132,9 @@ pub(super) fn variant_card(ui: &mut egui::Ui, r: &Route, title: &str, sub: &str,
     p.text(inner.right_top(), egui::Align2::RIGHT_TOP, &time, egui::FontId::proportional(15.0), theme::PAPER);
     let title_clip = egui::Rect::from_min_max(inner.left_top(), egui::pos2(inner.right() - 90.0, inner.top() + 20.0));
     p.with_clip_rect(title_clip).text(inner.left_top(), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(14.0), theme::PAPER);
-    p.text(inner.left_top() + egui::vec2(0.0, 21.0), egui::Align2::LEFT_TOP, sub, egui::FontId::proportional(11.5), theme::PAPER_2);
+    p.text(inner.left_top() + egui::vec2(0.0, 21.0), egui::Align2::LEFT_TOP, sub, egui::FontId::proportional(11.5), theme::paper_2());
     let chart = egui::Rect::from_min_max(egui::pos2(inner.left(), inner.bottom() - 16.0), inner.right_bottom());
-    spark(&p, chart, &r.track.e, if sel { theme::BRASS } else { theme::PAPER_3 });
+    spark(&p, chart, &r.track.e, if sel { theme::BRASS } else { theme::paper_3() });
     resp.clicked()
 }
 
@@ -171,7 +172,7 @@ pub(super) fn slope_bar(ui: &mut egui::Ui, r: &Route) {
         for (i, s) in shares.iter().enumerate() {
             let (dot, _) = ui.allocate_exact_size(egui::vec2(9.0, 14.0), egui::Sense::hover());
             ui.painter().circle_filled(dot.center(), 4.0, DIFF_COLORS[i]);
-            ui.label(RichText::new(format!("{} {}%", crate::i18n::tr(NAMES[i]), fmt::dec(*s as f64 * 100.0, 0))).small().color(theme::PAPER_2));
+            ui.label(RichText::new(format!("{} {}%", crate::i18n::tr(NAMES[i]), fmt::dec(*s as f64 * 100.0, 0))).small().color(theme::paper_2()));
         }
     });
 }
@@ -179,7 +180,7 @@ pub(super) fn slope_bar(ui: &mut egui::Ui, r: &Route) {
 pub(super) fn big(ui: &mut egui::Ui, v: String, sub: &str, color: Color32) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(v).size(30.0).strong().color(color));
-        ui.label(RichText::new(sub).color(theme::PAPER_3));
+        ui.label(RichText::new(sub).color(theme::paper_3()));
     });
 }
 
@@ -189,9 +190,9 @@ pub(super) fn row(ui: &mut egui::Ui, name: &str, right: &str, sub: &str) -> bool
             ui.set_width(ui.available_width());
             let l = ui.add(egui::Label::new(RichText::new(name).strong()).sense(egui::Sense::click()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(right).monospace().color(theme::PAPER_2));
+                ui.label(RichText::new(right).monospace().color(theme::paper_2()));
                 if !sub.is_empty() {
-                    ui.label(RichText::new(sub).small().color(theme::PAPER_3));
+                    ui.label(RichText::new(sub).small().color(theme::paper_3()));
                 }
             });
             l.clicked()
@@ -211,14 +212,15 @@ pub(super) fn kind_style(k: PoiKind) -> (&'static str, Color32) {
         PoiKind::Hut => (i::HOUSE_LINE, Color32::from_rgb(255, 190, 110)),
         PoiKind::Shelter => (i::TENT, Color32::from_rgb(255, 190, 110)),
         PoiKind::Lake | PoiKind::Waterfall | PoiKind::Spring | PoiKind::DrinkingWater => (i::DROP, Color32::from_rgb(130, 195, 240)),
-        PoiKind::Cave => (i::CIRCLE_HALF, theme::PAPER_2),
+        PoiKind::Cave => (i::CIRCLE_HALF, theme::paper_2()),
         PoiKind::Viewpoint => (i::BINOCULARS, theme::PAPER),
         PoiKind::Locality => (i::PLANT, Color32::from_rgb(170, 220, 130)),
         PoiKind::Place => (i::BUILDINGS, Color32::from_rgb(230, 222, 200)),
-        PoiKind::Parking => (i::CAR, theme::PAPER_2),
-        PoiKind::BusStop => (i::BUS, theme::PAPER_2),
-        PoiKind::Cableway => (i::ARROW_UP_RIGHT, theme::PAPER_2),
-        PoiKind::Shrine => (i::CROSS, theme::PAPER_2),
+        PoiKind::Parking => (i::CAR, theme::paper_2()),
+        PoiKind::BusStop => (i::BUS, theme::paper_2()),
+        PoiKind::Station => (i::TRAIN, theme::paper_2()),
+        PoiKind::Cableway => (i::ARROW_UP_RIGHT, theme::paper_2()),
+        PoiKind::Shrine => (i::CROSS, theme::paper_2()),
         PoiKind::Webcam => (i::CAMERA, Color32::from_rgb(130, 195, 240)),
     }
 }
@@ -235,7 +237,7 @@ pub(super) fn header(a: &mut Atlas, ui: &mut egui::Ui, glyph: &str, color: Color
             ui.label(theme::kicker(kicker));
             ui.add(egui::Label::new(RichText::new(title).size(22.0).strong()).wrap());
             if !sub.is_empty() {
-                ui.label(RichText::new(sub).small().color(theme::PAPER_3));
+                ui.label(RichText::new(sub).small().color(theme::paper_3()));
             }
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {

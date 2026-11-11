@@ -164,6 +164,89 @@ impl Atlas {
     }
 
     /// Eksport, gdy trasa będzie gotowa (zapisane punkty wyznaczają się w tle).
+    /// Punkty trasy do eksportu (nazwa z mapy albo „Punkt n”).
+    fn export_waypoints(&self) -> Vec<crate::gpx::Waypoint> {
+        self.waypoints
+            .iter()
+            .enumerate()
+            .map(|(i, w)| crate::gpx::Waypoint {
+                name: w.name.clone().unwrap_or_else(|| tf!("Punkt {}", i + 1)),
+                lon: w.lon,
+                lat: w.lat,
+                e: w.e,
+            })
+            .collect()
+    }
+
+    /// Eksport z domyślnym formatem (`gpx`, `fit`, `kml`, `geojson`); okno zapisu pozwala zmienić format.
+    pub fn export_route_as(&mut self, ext: &str) {
+        let Some(r) = self.current_route().cloned() else {
+            self.notify(crate::i18n::tr("Brak trasy do zapisania."));
+            return;
+        };
+        let name = self.route_name();
+        let wps = self.export_waypoints();
+        let mut dlg = rfd::FileDialog::new().set_title(crate::i18n::tr("Eksportuj trasę")).set_file_name(format!("{}.{ext}", file_stem(&name)));
+        // wybrany format pierwszy na liście
+        let mut filters: Vec<(&str, &str)> = vec![
+            ("gpx", "GPX"),
+            ("fit", crate::i18n::tr("FIT – kurs dla zegarka (Garmin, Suunto, Wahoo, Coros)")),
+            ("kml", crate::i18n::tr("KML (OsmAnd, Google Earth)")),
+            ("geojson", "GeoJSON"),
+        ];
+        if let Some(i) = filters.iter().position(|(e, _)| *e == ext) {
+            let f = filters.remove(i);
+            filters.insert(0, f);
+        }
+        for (e, label) in filters {
+            dlg = dlg.add_filter(label, &[e]);
+        }
+        let Some(p) = dlg.save_file() else { return };
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or(ext).to_ascii_lowercase();
+        let bytes: Vec<u8> = match ext.as_str() {
+            "kml" => crate::formats::export_kml(&r, &name, &wps).into_bytes(),
+            "geojson" | "json" => crate::formats::export_geojson(&r, &name, &wps).into_bytes(),
+            "fit" => {
+                let mut pts: Vec<crate::fit::CoursePoint> = wps.iter().map(|w| crate::fit::CoursePoint { name: w.name.clone(), lon: w.lon, lat: w.lat, kind: 0 }).collect();
+                // najwyższy punkt trasy jako „szczyt”
+                let i = r.stats.max_ele_idx.min(r.track.lon.len().saturating_sub(1));
+                if !r.track.lon.is_empty() {
+                    pts.push(crate::fit::CoursePoint {
+                        name: tf!("Najwyżej {}", fmt::ele(r.stats.max_ele)),
+                        lon: r.track.lon[i],
+                        lat: r.track.lat[i],
+                        kind: 1,
+                    });
+                }
+                let start = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0);
+                crate::fit::export(&r, &name, &pts, start)
+            }
+            _ => crate::gpx::export(&r, &name, &wps).into_bytes(),
+        };
+        match std::fs::write(&p, bytes) {
+            Ok(()) => self.notify(tf!("Zapisano {}", p.display())),
+            Err(e) => self.notify(tf!("Nie udało się zapisać: {}", e)),
+        }
+    }
+
+    /// Trasa otwarta w Mapy.com (planer pieszy).
+    pub fn open_in_mapy(&mut self) {
+        let pts: Vec<(f64, f64)> = self.waypoints.iter().map(|w| (w.lon, w.lat)).collect();
+        match crate::transit::mapy_url(&pts) {
+            Some(u) => {
+                let _ = open::that(u);
+            }
+            None => self.notify(crate::i18n::tr("Trasa potrzebuje co najmniej dwóch punktów.")),
+        }
+    }
+
+    /// Zamknięcia (z OSM) na bieżącej trasie w wybranym dniu.
+    pub fn route_closures(&self) -> Vec<crate::osm::Closure> {
+        let Some(r) = self.current_route() else { return Vec::new() };
+        let (day, _) = self.when();
+        self.snap.closures_on(&r.track.lon, &r.track.lat, (day.m, day.d)).into_iter().cloned().collect()
+    }
+
     pub fn export_route_after_routing(&mut self) {
         self.export_pending = true;
     }
@@ -267,41 +350,7 @@ impl Atlas {
 
     /// Eksport bieżącej trasy: GPX, KML albo GeoJSON (według wybranego typu pliku).
     pub fn export_route(&mut self) {
-        let Some(r) = self.current_route().cloned() else {
-            self.notify(crate::i18n::tr("Brak trasy do zapisania."));
-            return;
-        };
-        let name = self.route_name();
-        let wps: Vec<crate::gpx::Waypoint> = self
-            .waypoints
-            .iter()
-            .enumerate()
-            .map(|(i, w)| crate::gpx::Waypoint {
-                name: w.name.clone().unwrap_or_else(|| tf!("Punkt {}", i + 1)),
-                lon: w.lon,
-                lat: w.lat,
-                e: w.e,
-            })
-            .collect();
-        if let Some(p) = rfd::FileDialog::new()
-            .set_title(crate::i18n::tr("Eksportuj trasę"))
-            .set_file_name(format!("{}.gpx", file_stem(&name)))
-            .add_filter("GPX", &["gpx"])
-            .add_filter(crate::i18n::tr("KML (Google Earth)"), &["kml"])
-            .add_filter("GeoJSON", &["geojson"])
-            .save_file()
-        {
-            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("gpx").to_ascii_lowercase();
-            let text = match ext.as_str() {
-                "kml" => crate::formats::export_kml(&r, &name, &wps),
-                "geojson" | "json" => crate::formats::export_geojson(&r, &name, &wps),
-                _ => crate::gpx::export(&r, &name, &wps),
-            };
-            match std::fs::write(&p, text) {
-                Ok(()) => self.notify(tf!("Zapisano {}", p.display())),
-                Err(e) => self.notify(tf!("Nie udało się zapisać: {}", e)),
-            }
-        }
+        self.export_route_as("gpx");
     }
 
     /// Wczytanie śladu z pliku GPX, KML albo GeoJSON.

@@ -123,22 +123,22 @@ pub fn show(
     while e <= hi {
         let yy = y(e);
         p.line_segment([Pos2::new(plot.left(), yy), Pos2::new(plot.right(), yy)], Stroke::new(1.0, Color32::from_white_alpha(14)));
-        p.text(Pos2::new(plot.left() - 6.0, yy), Align2::RIGHT_CENTER, fmt::int(e as f64), FontId::monospace(10.5), theme::PAPER_3);
+        p.text(Pos2::new(plot.left() - 6.0, yy), Align2::RIGHT_CENTER, fmt::int(e as f64), FontId::monospace(10.5), theme::paper_3());
         e += step;
     }
     let dstep = nice_step(total as f64 / 7.0) as f32;
     let mut d = 0.0;
     while d <= total + 1.0 {
         let xx = x(d);
-        p.line_segment([Pos2::new(xx, plot.bottom()), Pos2::new(xx, plot.bottom() + 4.0)], Stroke::new(1.0, theme::PAPER_3));
-        p.text(Pos2::new(xx, plot.bottom() + 6.0), Align2::CENTER_TOP, fmt::dist(d as f64), FontId::monospace(10.5), theme::PAPER_3);
+        p.line_segment([Pos2::new(xx, plot.bottom()), Pos2::new(xx, plot.bottom() + 4.0)], Stroke::new(1.0, theme::paper_3()));
+        p.text(Pos2::new(xx, plot.bottom() + 6.0), Align2::CENTER_TOP, fmt::dist(d as f64), FontId::monospace(10.5), theme::paper_3());
         d += dstep;
     }
 
     // warianty w tle, przerywane
     for o in others {
         let pts: Vec<Pos2> = (0..o.track.len()).step_by(2).filter(|&i| o.track.d2[i] <= total).map(|i| Pos2::new(x(o.track.d2[i]), y(o.track.e[i]))).collect();
-        pp.extend(Shape::dashed_line(&pts, Stroke::new(1.2, theme::PAPER_3.gamma_multiply(0.6)), 5.0, 4.0));
+        pp.extend(Shape::dashed_line(&pts, Stroke::new(1.2, theme::paper_3().gamma_multiply(0.6)), 5.0, 4.0));
     }
 
     // wypełnienie: nachylenie wygładzone na odcinkach, barwa przechodzi ku dołowi w przezroczystość
@@ -214,7 +214,7 @@ pub fn show(
     p.circle(Pos2::new(x(tr.d2[imax]), y(max_e)), 3.5, theme::PAPER, Stroke::new(1.5, theme::INK_0));
     tag(Pos2::new(x(tr.d2[imax]), y(max_e)), format!("▲ {}", fmt::ele(max_e as f64)), theme::PAPER, true);
     if max_e - min_e > 30.0 {
-        tag(Pos2::new(x(tr.d2[imin]), y(min_e)), format!("▼ {}", fmt::ele(min_e as f64)), theme::PAPER_2, false);
+        tag(Pos2::new(x(tr.d2[imin]), y(min_e)), format!("▼ {}", fmt::ele(min_e as f64)), theme::paper_2(), false);
     }
 
     // mijane punkty
@@ -230,7 +230,7 @@ pub fn show(
         let top = plot.top() + 2.0;
         pp.extend(Shape::dashed_line(&[Pos2::new(xx, y(e)), Pos2::new(xx, top + 12.0)], Stroke::new(1.0, theme::BRASS.gamma_multiply(0.6)), 3.0, 3.0));
         p.circle_filled(Pos2::new(xx, y(e)), 3.0, theme::BRASS);
-        p.text(Pos2::new(xx, top), Align2::CENTER_TOP, &m.label, FontId::proportional(10.5), theme::PAPER_2);
+        p.text(Pos2::new(xx, top), Align2::CENTER_TOP, &m.label, FontId::proportional(10.5), theme::paper_2());
     }
     if let Some(od) = obstacle {
         let xx = x(od);
@@ -307,16 +307,16 @@ pub fn show(
         let rows = [
             (fmt::dist(cd as f64), 12.5, theme::PAPER),
             (fmt::ele(e as f64), 12.5, theme::PAPER),
-            (tf!("{:+.0}% nachylenia", (eb - ea) / span * 100.0), 11.0, theme::PAPER_2),
-            (tf!("↑ {} od startu", fmt::ele(up as f64)), 11.0, theme::PAPER_2),
-            (tf!("{} od startu", fmt::time(time as f64)), 11.0, theme::PAPER_2),
+            (tf!("{:+.0}% nachylenia", (eb - ea) / span * 100.0), 11.0, theme::paper_2()),
+            (tf!("↑ {} od startu", fmt::ele(up as f64)), 11.0, theme::paper_2()),
+            (tf!("{} od startu", fmt::time(time as f64)), 11.0, theme::paper_2()),
         ];
         let galleys: Vec<_> = rows.into_iter().map(|(t, size, c)| p.layout_no_wrap(t, FontId::proportional(size), c)).collect();
         let w = galleys.iter().map(|g| g.size().x).fold(0.0, f32::max) + 20.0;
         let h = galleys.iter().map(|g| g.size().y + 1.0).sum::<f32>() + 14.0;
         let left = if xx + 14.0 + w < plot.right() { xx + 14.0 } else { xx - 14.0 - w };
         let card = Rect::from_min_size(Pos2::new(left, plot.top() + 2.0), Vec2::new(w, h));
-        p.rect(card, 10.0, theme::GLASS_FILL, Stroke::new(1.0, theme::GLASS_EDGE), egui::StrokeKind::Inside);
+        p.rect(card, 10.0, theme::glass_fill(), Stroke::new(1.0, theme::glass_edge()), egui::StrokeKind::Inside);
         let mut yy = card.top() + 7.0;
         for g in galleys {
             let gh = g.size().y;

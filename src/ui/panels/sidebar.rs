@@ -45,7 +45,7 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
         .interactable(alpha > 0.05)
         .show(ctx, |ui| {
           ui.multiply_opacity(alpha);
-          egui::Frame::new().fill(theme::GLASS_FILL).inner_margin(egui::Margin::symmetric(18, 16)).show(ui, |ui| {
+          egui::Frame::new().fill(theme::glass_fill()).inner_margin(egui::Margin::symmetric(18, 16)).show(ui, |ui| {
             ui.set_width(SIDEBAR_W - 36.0);
             ui.set_height(height - 32.0);
             // większe pismo niż w szufladzie
@@ -60,9 +60,8 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
                 let (glyph, title) = match (a.tab, a.tool) {
                     (Tab::Library, _) => (theme::icon::BOOKMARKS, crate::i18n::tr("Biblioteka")),
                     (Tab::Conditions, _) => (theme::icon::CLOUD_SUN, crate::i18n::tr("Warunki")),
-                    (_, Tool::Route) => (theme::icon::PATH, crate::i18n::tr("Trasa")),
-                    (_, Tool::Measure) => (theme::icon::RULER, crate::i18n::tr("Pomiar")),
                     (_, Tool::Explore) => (theme::icon::COMPASS, crate::i18n::tr("Szczegóły")),
+                    (_, t) => (t.behavior().icon(), t.behavior().title()),
                 };
                 ui.label(RichText::new(glyph).size(19.0).color(theme::BRASS));
                 ui.label(RichText::new(title).size(17.0).strong());
@@ -134,10 +133,8 @@ pub(super) fn info(a: &mut Atlas, ui: &mut egui::Ui) {
     if a.lens_pin.is_some() {
         return lens_info(a, ui);
     }
-    match a.tool {
-        Tool::Route => return route_info(a, ui),
-        Tool::Measure => return measure_info(a, ui),
-        Tool::Explore => {}
+    if a.tool.behavior().panel(a, ui) {
+        return;
     }
     match a.selection.clone() {
         Selection::Poi(i) => poi_info(a, ui, i),

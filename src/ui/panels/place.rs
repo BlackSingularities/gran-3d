@@ -239,9 +239,9 @@ pub(super) fn coords_section(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f6
             if f == crate::coords::format() {
                 rt = rt.color(theme::PAPER);
             } else {
-                rt = rt.color(theme::PAPER_2);
+                rt = rt.color(theme::paper_2());
             }
-            ui.label(RichText::new(label).small().color(theme::PAPER_3));
+            ui.label(RichText::new(label).small().color(theme::paper_3()));
             ui.label(rt);
             if ui.small_button(theme::icon::COPY).on_hover_text(crate::i18n::tr("Kopiuj")).clicked() {
                 ui.ctx().copy_text(txt);
@@ -274,13 +274,16 @@ pub(super) fn trail_info(a: &mut Atlas, ui: &mut egui::Ui, e: u32) {
             ui.painter().rect_filled(rect, 3.0, Color32::from_rgb(c[0], c[1], c[2]));
             ui.label(RichText::new(&r.name).strong());
             if !r.r#ref.is_empty() {
-                ui.label(RichText::new(&r.r#ref).small().color(theme::PAPER_3));
+                ui.label(RichText::new(&r.r#ref).small().color(theme::paper_3()));
             }
             if ui.small_button("OSM").clicked() {
                 let _ = open::that(format!("https://www.openstreetmap.org/relation/{}", r.id));
             }
         });
     }
+    let (day, _) = a.when();
+    let closed: Vec<crate::osm::Closure> = snap.closures_on(&ed.lon, &ed.lat, (day.m, day.d)).into_iter().cloned().collect();
+    closures_warning(ui, &closed);
     grid2(ui, vec![
         (crate::i18n::tr("Odcinek"), fmt::dist(ed.len2)),
         (crate::i18n::tr("Po terenie"), fmt::dist(ed.len3)),
@@ -324,13 +327,23 @@ pub(super) fn poi_details(a: &mut Atlas, ui: &mut egui::Ui, p: &crate::osm::Poi)
     let row = |ui: &mut egui::Ui, glyph: &str, label: &str, value: &str| {
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(glyph).color(theme::BRASS));
-            ui.label(RichText::new(tr(label)).color(theme::PAPER_3));
+            ui.label(RichText::new(tr(label)).color(theme::paper_3()));
             ui.label(RichText::new(value).color(theme::PAPER));
         });
     };
     if let Some(h) = get("hours") {
+        // stan teraz (otwarte / zamknięte i najbliższa zmiana), gdy program rozumie zapis godzin
+        if let Some(hours) = crate::hours::Hours::parse(&h) {
+            let (day, minute) = crate::hours::now_local();
+            let st = hours.status(day, minute);
+            let color = if st.open { theme::OK } else { theme::SIGNAL };
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(theme::icon::CLOCK).color(color));
+                ui.label(RichText::new(crate::hours::describe(st)).strong().color(color));
+            });
+        }
         let h = if h == "24/7" { tr("całą dobę").to_string() } else { h };
-        row(ui, theme::icon::CLOCK, "Otwarte:", &h);
+        row(ui, theme::icon::CALENDAR_BLANK, "Godziny:", &h);
     }
     if let Some(b) = get("beds").or_else(|| get("capacity")) {
         row(ui, theme::icon::BED, "Miejsca noclegowe:", &b);
@@ -357,7 +370,7 @@ pub(super) fn poi_details(a: &mut Atlas, ui: &mut egui::Ui, p: &crate::osm::Poi)
         row(ui, theme::icon::COINS, "Opłata:", &f);
     }
     if let Some(d) = get("description") {
-        ui.add(egui::Label::new(RichText::new(d).small().color(theme::PAPER_2)).wrap());
+        ui.add(egui::Label::new(RichText::new(d).small().color(theme::paper_2())).wrap());
     }
     ui.horizontal_wrapped(|ui| {
         if let Some(ph) = get("phone") {
@@ -394,7 +407,7 @@ pub(super) fn webcam(a: &mut Atlas, ui: &mut egui::Ui, url: &str) {
         crate::ui::atlas::CamState::Loading => {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(RichText::new(tr("pobieram obraz kamery…")).color(theme::PAPER_3));
+                ui.label(RichText::new(tr("pobieram obraz kamery…")).color(theme::paper_3()));
             });
         }
         crate::ui::atlas::CamState::Image(tex) => {
@@ -405,7 +418,7 @@ pub(super) fn webcam(a: &mut Atlas, ui: &mut egui::Ui, url: &str) {
         }
         crate::ui::atlas::CamState::NotImage => {}
         crate::ui::atlas::CamState::Failed(e) => {
-            ui.label(RichText::new(tf!("Obraz niedostępny: {}", e)).small().color(theme::PAPER_3));
+            ui.label(RichText::new(tf!("Obraz niedostępny: {}", e)).small().color(theme::paper_3()));
         }
     }
     if ui.link(tr("Otwórz stronę kamery")).clicked() {

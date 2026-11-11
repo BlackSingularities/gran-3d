@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// Podpowiedź przycisku: nazwa polecenia i jego skrót.
+pub fn hint(act: Action) -> String {
+    let (_, label, _) = act.info();
+    match act.keys() {
+        Some(k) => format!("{label} ({})", k.text()),
+        None => label.to_string(),
+    }
+}
+
 /// Szkło pod obszarem (okno, panel, menu) z poprzedniej klatki: obraz pod nim jest rozmyty.
 pub fn glass_area(a: &mut Atlas, ctx: &egui::Context, id: egui::Id, alpha: f32) {
     if let Some(r) = ctx.memory(|m| m.area_rect(id)) {
@@ -53,8 +62,8 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
             ui.multiply_opacity(alpha);
             let bar = egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), TOP_BAR_H));
             let p = ui.painter();
-            p.rect_filled(bar, 0.0, theme::GLASS_FILL);
-            p.line_segment([bar.left_bottom(), bar.right_bottom()], egui::Stroke::new(1.0, theme::GLASS_EDGE));
+            p.rect_filled(bar, 0.0, theme::glass_fill());
+            p.line_segment([bar.left_bottom(), bar.right_bottom()], egui::Stroke::new(1.0, theme::glass_edge()));
             ui.allocate_rect(bar, egui::Sense::hover());
             a.glass.push((bar, alpha));
             let inner = bar.shrink2(egui::vec2(12.0, 7.0));
@@ -103,11 +112,12 @@ pub(super) fn search_field(a: &mut Atlas, ui: &mut egui::Ui) {
     let w = (ui.ctx().screen_rect().width() * 0.28).clamp(220.0, 448.0);
     ui.allocate_ui(egui::vec2(w, 42.0), |ui| {
         let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 42.0), egui::Sense::click());
+        theme::focus_ring(ui, &resp, rect, 12.0);
         let p = ui.painter();
         p.rect_filled(rect, 12.0, if resp.hovered() { Color32::from_white_alpha(18) } else { Color32::from_white_alpha(8) });
-        p.text(rect.left_center() + egui::vec2(16.0, 0.0), egui::Align2::LEFT_CENTER, theme::icon::MAGNIFYING_GLASS, egui::FontId::proportional(18.0), theme::PAPER_2);
-        p.text(rect.left_center() + egui::vec2(44.0, 0.0), egui::Align2::LEFT_CENTER, crate::i18n::tr("Szukaj szczytu, szlaku, miejscowości"), egui::FontId::proportional(14.0), theme::PAPER_3);
-        p.text(rect.right_center() - egui::vec2(14.0, 0.0), egui::Align2::RIGHT_CENTER, "/", egui::FontId::monospace(12.0), theme::PAPER_3);
+        p.text(rect.left_center() + egui::vec2(16.0, 0.0), egui::Align2::LEFT_CENTER, theme::icon::MAGNIFYING_GLASS, egui::FontId::proportional(18.0), theme::paper_2());
+        p.text(rect.left_center() + egui::vec2(44.0, 0.0), egui::Align2::LEFT_CENTER, crate::i18n::tr("Szukaj szczytu, szlaku, miejscowości"), egui::FontId::proportional(14.0), theme::paper_3());
+        p.text(rect.right_center() - egui::vec2(14.0, 0.0), egui::Align2::RIGHT_CENTER, "/", egui::FontId::monospace(12.0), theme::paper_3());
         if resp.clicked() {
             a.search = Some(Default::default());
         }
@@ -115,24 +125,15 @@ pub(super) fn search_field(a: &mut Atlas, ui: &mut egui::Ui) {
 }
 
 /// Zwykły tryb: klik zaznacza, bez narzędzia, soczewki i panoramy.
-pub(super) fn select_mode(a: &mut Atlas) {
-    if a.tool == Tool::Route {
-        a.end_planning();
-    }
-    a.tool = Tool::Explore;
-    if a.lens_pin.is_some() {
-        a.unpin_lens();
-    }
-    a.lens = Lens::None;
-    if a.panorama.is_some() {
-        a.exit_panorama();
-    }
+pub(super) fn select_mode(a: &mut Atlas, ctx: &egui::Context) {
+    a.run(Action::Tool(Tool::Explore), ctx);
 }
 
 pub(super) fn tools(a: &mut Atlas, ui: &mut egui::Ui) {
     let plain = a.tool == Tool::Explore && a.lens == Lens::None && a.panorama.is_none();
-    if theme::icon_button(ui, theme::icon::CURSOR, plain).on_hover_text(crate::i18n::tr("Zaznaczanie – zwykły tryb (1)")).clicked() {
-        select_mode(a);
+    let ctx = ui.ctx().clone();
+    if theme::icon_button(ui, theme::icon::CURSOR, plain).on_hover_text(hint(Action::Tool(Tool::Explore))).clicked() {
+        select_mode(a, &ctx);
     }
     if theme::icon_button(ui, theme::icon::COMPASS, a.prefs.panel_open && a.tab == Tab::Info).on_hover_text(crate::i18n::tr("Szczegóły okolicy (P)")).clicked() {
         a.prefs.panel_open = !(a.prefs.panel_open && a.tab == Tab::Info);
@@ -147,29 +148,17 @@ pub(super) fn tools(a: &mut Atlas, ui: &mut egui::Ui) {
         a.tab = Tab::Conditions;
     }
     ui.separator();
-    if theme::icon_button(ui, theme::icon::PATH, a.tool == Tool::Route).on_hover_text(crate::i18n::tr("Planowanie trasy (2)")).clicked() {
-        if a.tool == Tool::Route {
-            a.end_planning();
-        } else {
-            a.tool = Tool::Route;
+    // narzędzia inne niż zwykły tryb – z interfejsu MapTool
+    for t in Tool::ALL.into_iter().filter(|t| *t != Tool::Explore) {
+        if theme::icon_button(ui, t.behavior().icon(), a.tool == t).on_hover_text(hint(Action::Tool(t))).clicked() {
+            a.run(Action::Tool(t), &ctx);
         }
-        a.prefs.panel_open = true;
-        a.tab = Tab::Info;
-    }
-    if theme::icon_button(ui, theme::icon::RULER, a.tool == Tool::Measure).on_hover_text(crate::i18n::tr("Pomiar, przekrój terenu i linia wzroku (3)")).clicked() {
-        a.tool = if a.tool == Tool::Measure { Tool::Explore } else { Tool::Measure };
-        a.prefs.panel_open = true;
-        a.tab = Tab::Info;
     }
     ui.separator();
-    if theme::icon_button(ui, theme::icon::WAVES, a.lens == Lens::Band).on_hover_text(crate::i18n::tr("Ta sama wysokość (H)")).clicked() {
-        a.set_lens(Lens::Band);
-    }
-    if theme::icon_button(ui, theme::icon::PLUS_MINUS, a.lens == Lens::Rel).on_hover_text(crate::i18n::tr("Wysokość względna (W)")).clicked() {
-        a.set_lens(Lens::Rel);
-    }
-    if theme::icon_button(ui, theme::icon::EYE, a.lens == Lens::Vis).on_hover_text(crate::i18n::tr("Co widać stąd (O)")).clicked() {
-        a.set_lens(Lens::Vis);
+    for l in Lens::ALL {
+        if theme::icon_button(ui, l.icon(), a.lens == l).on_hover_text(hint(Action::Lens(l))).clicked() {
+            a.set_lens(l);
+        }
     }
     ui.separator();
     if theme::icon_button(ui, theme::icon::PERSON_SIMPLE_WALK, a.panorama.is_some()).on_hover_text(crate::i18n::tr("Spacer ze środka widoku: W A S D, spacja – skok, prawy przycisk – rozglądanie, Esc – wyjście")).clicked() {
@@ -196,13 +185,14 @@ pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
     };
     let accent = if custom { theme::BRASS } else { theme::PAPER };
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(118.0, 42.0), egui::Sense::click());
+    theme::focus_ring(ui, &resp, rect, 12.0);
     let p = ui.painter();
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     p.rect_filled(rect, 12.0, if open { Color32::from_rgba_unmultiplied(122, 176, 255, 40) } else if resp.hovered() { Color32::from_white_alpha(16) } else { Color32::TRANSPARENT });
     let sun_col = if alt > 6.0 { theme::WARN } else if alt > -6.0 { Color32::from_rgb(255, 150, 90) } else { Color32::from_rgb(160, 180, 255) };
     p.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(22.0), sun_col);
     p.text(rect.left_top() + egui::vec2(38.0, 5.0), egui::Align2::LEFT_TOP, fmt::hour(hour), egui::FontId::proportional(16.0), accent);
-    p.text(rect.left_bottom() + egui::vec2(38.0, -5.0), egui::Align2::LEFT_BOTTOM, if custom { day.label() } else { crate::i18n::tr("teraz").into() }, egui::FontId::proportional(10.5), theme::PAPER_3);
+    p.text(rect.left_bottom() + egui::vec2(38.0, -5.0), egui::Align2::LEFT_BOTTOM, if custom { day.label() } else { crate::i18n::tr("teraz").into() }, egui::FontId::proportional(10.5), theme::paper_3());
     let resp = resp.on_hover_text(if custom { crate::i18n::tr("Pora ustawiona ręcznie") } else { crate::i18n::tr("Oświetlenie jak teraz") });
     egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).frame(theme::glass().inner_margin(egui::Margin::same(14))).show(|ui| {
         ui.set_width(360.0);
@@ -219,13 +209,14 @@ pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bar_menu(ui: &mut egui::Ui, glyph: &str, glyph_color: Color32, title: &str, sub: &str, w: f32, hint: &str, width: f32, body: impl FnOnce(&mut egui::Ui)) -> Option<egui::Rect> {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 42.0), egui::Sense::click());
+    theme::focus_ring(ui, &resp, rect, 12.0);
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     let p = ui.painter();
     p.rect_filled(rect, 12.0, if open { Color32::from_rgba_unmultiplied(122, 176, 255, 40) } else if resp.hovered() { Color32::from_white_alpha(16) } else { Color32::TRANSPARENT });
     p.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(20.0), glyph_color);
     p.text(rect.left_top() + egui::vec2(38.0, 5.0), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(14.0), theme::PAPER);
-    p.text(rect.left_bottom() + egui::vec2(38.0, -5.0), egui::Align2::LEFT_BOTTOM, sub, egui::FontId::proportional(10.5), theme::PAPER_3);
-    p.text(rect.right_center() - egui::vec2(10.0, 0.0), egui::Align2::RIGHT_CENTER, theme::icon::CARET_DOWN, egui::FontId::proportional(12.0), theme::PAPER_3);
+    p.text(rect.left_bottom() + egui::vec2(38.0, -5.0), egui::Align2::LEFT_BOTTOM, sub, egui::FontId::proportional(10.5), theme::paper_3());
+    p.text(rect.right_center() - egui::vec2(10.0, 0.0), egui::Align2::RIGHT_CENTER, theme::icon::CARET_DOWN, egui::FontId::proportional(12.0), theme::paper_3());
     let resp = resp.on_hover_text(hint);
     egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).frame(theme::glass().inner_margin(egui::Margin::same(14))).show(|ui| {
         ui.set_width(width);

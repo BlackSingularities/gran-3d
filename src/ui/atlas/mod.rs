@@ -24,6 +24,7 @@ use crate::sun::{self, Day};
 use crate::ui::theme;
 use crate::world::{Snapshot, World};
 
+mod actions;
 mod input;
 mod jobs;
 mod nav;
@@ -36,6 +37,7 @@ mod tools;
 mod view;
 mod webcam;
 
+pub use actions::*;
 pub use prefs::*;
 pub use tools::*;
 pub use webcam::CamState;
@@ -134,6 +136,8 @@ type LandData = Arc<(Vec<u8>, u32, [f64; 4])>;
 #[derive(Default)]
 pub struct Requests {
     pub open_settings: bool,
+    /// Okno ustawień na pierwszej stronie (paleta poleceń, Ctrl+,).
+    pub open_preferences: bool,
     pub check_updates: bool,
 }
 
@@ -207,6 +211,8 @@ pub struct Atlas {
     drag_waypoint: Option<usize>,
     pub ctx_menu: Option<(Pos2, f64, f64, f32)>,
     pub search: Option<crate::ui::search::Search>,
+    /// Paleta poleceń (Ctrl+K).
+    pub palette: Option<crate::ui::palette::Palette>,
     pub help: bool,
     pub tab: crate::ui::panels::Tab,
     pub toast: Option<(String, Instant)>,
@@ -229,6 +235,8 @@ pub struct Atlas {
     /// Prognozy pogody i komunikaty lawinowe (pobierane w tle).
     pub weather: crate::weather::Weather,
     pub avalanche: crate::avalanche::Avalanche,
+    /// Komunikat turystyczny TPN.
+    pub notices: crate::notices::Notices,
     /// Miejsce wybrane do zakładki „Warunki” (inaczej zaznaczenie albo środek widoku).
     pub cond_at: Option<crate::ui::conditions::Place>,
     /// Okno ze szczegółami wczytywania danych (klik w stan na dolnym pasku).
@@ -337,6 +345,7 @@ impl Atlas {
             orbit_pivot: None,
             drag_waypoint: None,
             ctx_menu: None,
+            palette: None,
             search: None,
             help: false,
             tab: crate::ui::panels::Tab::Info,
@@ -354,6 +363,7 @@ impl Atlas {
             label_hits: Vec::new(),
             weather: Default::default(),
             avalanche: Default::default(),
+            notices: Default::default(),
             cond_at: None,
             profile_sel: None,
             section: None,

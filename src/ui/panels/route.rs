@@ -11,7 +11,7 @@ pub(super) fn daylight(a: &Atlas, ui: &mut egui::Ui, r: &Route) {
     grid2(ui, vec![(crate::i18n::tr("Wyjście"), fmt::hour(start)), (crate::i18n::tr("Dojście"), fmt::hour(end.rem_euclid(24.0))), (crate::i18n::tr("Wschód słońca"), fmt::hour(t.rise)), (crate::i18n::tr("Zachód słońca"), fmt::hour(t.set))]);
     let spare = t.set - end;
     let (txt, col) = if !spare.is_finite() {
-        (crate::i18n::tr("Nie da się wyliczyć zapasu światła").to_string(), theme::PAPER_3)
+        (crate::i18n::tr("Nie da się wyliczyć zapasu światła").to_string(), theme::paper_3())
     } else if spare >= 2.0 {
         (tf!("{} zapasu przed zachodem", fmt::time(spare)), theme::OK)
     } else if spare >= 0.0 {
@@ -49,7 +49,7 @@ pub(super) fn on_route(a: &mut Atlas, ui: &mut egui::Ui, r: &Route) {
         };
         let eta = tr.t.get(i).map(|t| fmt::time(*t as f64)).unwrap_or_default();
         let clicked = ui.horizontal(|ui| {
-            ui.label(RichText::new(glyph).size(15.0).color(theme::PAPER_3));
+            ui.label(RichText::new(glyph).size(15.0).color(theme::paper_3()));
             row(ui, &q.poi.name, &eta, &fmt::ele(q.ele as f64))
         }).inner;
         if clicked {
@@ -66,7 +66,7 @@ pub(super) fn time_model(a: &mut Atlas, ui: &mut egui::Ui) {
         ui.selectable_value(&mut m, TimeModel::Din, "DIN 33466");
     });
     ui.horizontal(|ui| {
-        ui.label(RichText::new(crate::i18n::tr("Tempo")).color(theme::PAPER_3));
+        ui.label(RichText::new(crate::i18n::tr("Tempo")).color(theme::paper_3()));
         ui.selectable_value(&mut pace, 0.8, crate::i18n::tr("szybkie"));
         ui.selectable_value(&mut pace, 1.0, crate::i18n::tr("normalne"));
         ui.selectable_value(&mut pace, 1.25, crate::i18n::tr("spokojne"));
@@ -79,7 +79,7 @@ pub(super) fn time_model(a: &mut Atlas, ui: &mut egui::Ui) {
     }
 }
 
-pub(super) fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
+pub fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
     ui.label(theme::kicker(crate::i18n::tr("Planowanie trasy")));
     ui.heading(if a.route_mode == RouteMode::Trails { crate::i18n::tr("Trasa szlakami") } else { crate::i18n::tr("Trasa przez teren") });
     let before = a.route_mode;
@@ -127,19 +127,20 @@ pub(super) fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
                 if ui.small_button(theme::icon::X).clicked() {
                     remove = Some(i);
                 }
-                ui.label(RichText::new(fmt::ele(w.e as f64)).monospace().small().color(theme::PAPER_3));
+                ui.label(RichText::new(fmt::ele(w.e as f64)).monospace().small().color(theme::paper_3()));
             });
         });
     }
     if let Some(i) = remove {
         a.remove_waypoint(i);
     }
+    closures_warning(ui, &a.route_closures());
     section(ui, theme::icon::CLOCK, crate::i18n::tr("Czas przejścia"));
     time_model(a, ui);
     if a.routing {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.label(RichText::new(crate::i18n::tr("wyznaczam trasę…")).color(theme::PAPER_3));
+            ui.label(RichText::new(crate::i18n::tr("wyznaczam trasę…")).color(theme::paper_3()));
         });
     }
     if let Some(e) = &a.route_error {
@@ -227,10 +228,24 @@ pub(super) fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
         if theme::row_button(ui, theme::icon::EXPORT, crate::i18n::tr("Eksport (GPX, KML, GeoJSON)"), false).on_hover_text("G").clicked() {
             a.export_route();
         }
+        if theme::row_button(ui, theme::icon::WATCH, crate::i18n::tr("Kurs na zegarek (FIT)"), false)
+            .on_hover_text(crate::i18n::tr("Garmin, Suunto, Wahoo, Coros: ślad z planowanym czasem i punktami trasy"))
+            .clicked()
+        {
+            a.export_route_as("fit");
+        }
+        if a.waypoints.len() >= 2
+            && theme::row_button(ui, theme::icon::ARROW_SQUARE_OUT, crate::i18n::tr("Otwórz w Mapy.com"), false)
+                .on_hover_text(crate::i18n::tr("Ta sama trasa w planerze Mapy.com (także w aplikacji na telefonie)"))
+                .clicked()
+        {
+            a.open_in_mapy();
+        }
         let flying = a.flight.is_some();
         if theme::row_button(ui, theme::icon::AIRPLANE_TILT, if flying { crate::i18n::tr("Zatrzymaj przelot") } else { crate::i18n::tr("Przelot") }, flying).on_hover_text("F").clicked() {
             a.toggle_flight();
         }
+        access_section(a, ui);
     }
     ui.add_space(8.0);
     if theme::row_button(ui, theme::icon::FILE_ARROW_UP, crate::i18n::tr("Wczytaj ślad (GPX, KML, GeoJSON)…"), false).clicked() {
@@ -240,7 +255,62 @@ pub(super) fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
     }
 }
 
-pub(super) fn measure_info(a: &mut Atlas, ui: &mut egui::Ui) {
+/// Ostrzeżenie o zamkniętych odcinkach (z OSM) na trasie albo szlaku.
+pub fn closures_warning(ui: &mut egui::Ui, closures: &[crate::osm::Closure]) {
+    if closures.is_empty() {
+        return;
+    }
+    egui::Frame::new().fill(Color32::from_rgb(70, 22, 22)).corner_radius(egui::CornerRadius::same(10)).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.label(RichText::new(theme::ic(theme::icon::PROHIBIT, "Zamknięty odcinek")).strong().color(Color32::from_rgb(255, 140, 130)));
+        for c in closures {
+            let what = if c.name.is_empty() { crate::i18n::tr("odcinek szlaku").to_string() } else { c.name.clone() };
+            let when = if c.periods.is_empty() {
+                crate::i18n::tr("zamknięty").to_string()
+            } else {
+                let p: Vec<String> = c.periods.iter().map(|&((m1, d1), (m2, d2))| format!("{d1}.{m1:02}–{d2}.{m2:02}")).collect();
+                tf!("zamknięty sezonowo ({})", p.join(", "))
+            };
+            ui.add(egui::Label::new(RichText::new(format!("{what}: {when}")).color(theme::PAPER)).wrap());
+            ui.label(RichText::new(&c.rule).small().monospace().color(theme::paper_3()));
+        }
+        theme::para(ui, "Na podstawie OpenStreetMap. Aktualne zamknięcia sprawdź w komunikacie parku (zakładka Warunki).");
+    });
+}
+
+/// Dojazd do początku trasy: najbliższe stacje, przystanki i parkingi z odnośnikami do planerów.
+fn access_section(a: &mut Atlas, ui: &mut egui::Ui) {
+    let Some(start) = a.waypoints.first().cloned() else { return };
+    section(ui, theme::icon::BUS, crate::i18n::tr("Dojazd do początku"));
+    let snap = a.snap.clone();
+    let near = crate::transit::nearby(&snap.pois, start.lon, start.lat);
+    if near.is_empty() {
+        theme::para(ui, "W pobliżu początku trasy nie ma w danych OSM stacji, przystanków ani parkingów.");
+    }
+    for (i, d) in near {
+        let p = &snap.pois[i].poi;
+        let (glyph, color) = kind_style(p.kind);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(glyph).color(color));
+            let r = ui.add(egui::Label::new(RichText::new(&p.name)).sense(egui::Sense::click()));
+            ui.label(RichText::new(format!("{} · {}", crate::i18n::tr(p.kind.label()), fmt::dist(d))).small().color(theme::paper_3()));
+            if r.on_hover_text(crate::i18n::tr("Pokaż na mapie")).clicked() {
+                a.selection = Selection::Poi(i);
+                a.fly_to(p.lon, p.lat, Some(1500.0));
+            }
+        });
+    }
+    ui.horizontal_wrapped(|ui| {
+        if ui.button(theme::ic(theme::icon::TRAIN, "Rozkład jazdy")).on_hover_text(crate::i18n::tr("Połączenia komunikacją publiczną do początku trasy (Google Maps)")).clicked() {
+            crate::transit::open_planner(start.lon, start.lat);
+        }
+        if ui.button(theme::ic(theme::icon::CAR, "Dojazd autem")).clicked() {
+            let _ = open::that(crate::transit::drive_url(start.lon, start.lat));
+        }
+    });
+}
+
+pub fn measure_info(a: &mut Atlas, ui: &mut egui::Ui) {
     ui.label(theme::kicker(crate::i18n::tr("Pomiar, przekrój i linia wzroku")));
     ui.heading(crate::i18n::tr("Odległość po terenie"));
     if a.measure.is_empty() {
@@ -313,7 +383,7 @@ pub(super) fn lens_info(a: &mut Atlas, ui: &mut egui::Ui) {
         Lens::Vis => {
             ui.label(theme::kicker(crate::i18n::tr("Analiza widoczności")));
             ui.heading(crate::i18n::tr("Co widać stąd?"));
-            ui.label(RichText::new(format!("{} · {}", fmt::coords(lon, lat), fmt::ele(e as f64))).monospace().small().color(theme::PAPER_3));
+            ui.label(RichText::new(format!("{} · {}", fmt::coords(lon, lat), fmt::ele(e as f64))).monospace().small().color(theme::paper_3()));
             ui.label(theme::kicker(crate::i18n::tr("Wysokość obserwatora nad terenem")));
             let before = a.prefs.vs_eye;
             ui.horizontal(|ui| {
@@ -327,7 +397,7 @@ pub(super) fn lens_info(a: &mut Atlas, ui: &mut egui::Ui) {
             if a.vs_busy {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(RichText::new(crate::i18n::tr("liczę promienie widzenia…")).color(theme::PAPER_3));
+                    ui.label(RichText::new(crate::i18n::tr("liczę promienie widzenia…")).color(theme::paper_3()));
                 });
             }
             if let Some(v) = &a.vs {
@@ -371,7 +441,7 @@ pub(super) fn lens_info(a: &mut Atlas, ui: &mut egui::Ui) {
                     .horizontal(|ui| {
                         let l = ui.add(egui::Label::new(RichText::new(&p.poi.name).strong()).sense(egui::Sense::click()));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new(fmt::dist(d)).small().color(theme::PAPER_3));
+                            ui.label(RichText::new(fmt::dist(d)).small().color(theme::paper_3()));
                             ui.label(RichText::new(fmt::signed(dh as f64, "m")).monospace().color(col));
                         });
                         l.clicked()
@@ -454,7 +524,7 @@ pub(super) fn compare_section(a: &mut Atlas, ui: &mut egui::Ui) {
                 }
             }
             if opts.is_empty() && lib.is_empty() {
-                ui.label(RichText::new(tr("Brak innych tras – zapisz trasy w bibliotece albo wczytaj ślad.")).small().color(theme::PAPER_3));
+                ui.label(RichText::new(tr("Brak innych tras – zapisz trasy w bibliotece albo wczytaj ślad.")).small().color(theme::paper_3()));
             }
         });
     if let Some(p) = pick {
@@ -478,17 +548,17 @@ pub(super) fn compare_section(a: &mut Atlas, ui: &mut egui::Ui) {
     ];
     egui::Grid::new("porownanie-tabela").num_columns(4).spacing([14.0, 4.0]).show(ui, |ui| {
         ui.label("");
-        ui.label(RichText::new(tr("ta trasa")).small().color(theme::PAPER_3));
+        ui.label(RichText::new(tr("ta trasa")).small().color(theme::paper_3()));
         ui.label(RichText::new(tr("porównywana")).small().color(crate::ui::profile::COMPARE));
-        ui.label(RichText::new(tr("różnica")).small().color(theme::PAPER_3));
+        ui.label(RichText::new(tr("różnica")).small().color(theme::paper_3()));
         ui.end_row();
         for (k, a1, b1, f, lower_better) in rows {
-            ui.label(RichText::new(tr(k)).color(theme::PAPER_2));
+            ui.label(RichText::new(tr(k)).color(theme::paper_2()));
             ui.label(RichText::new(f(a1)).monospace());
             ui.label(RichText::new(f(b1)).monospace());
             let d = b1 - a1;
             let tiny = d.abs() < a1.abs().max(1.0) * 0.01;
-            let color = if tiny { theme::PAPER_3 } else if (d < 0.0) == lower_better { theme::OK } else { theme::WARN };
+            let color = if tiny { theme::paper_3() } else if (d < 0.0) == lower_better { theme::OK } else { theme::WARN };
             let sign = if d > 0.0 { "+" } else if d < 0.0 { "−" } else { "" };
             ui.label(RichText::new(if tiny { "≈".to_string() } else { format!("{sign}{}", f(d.abs())) }).monospace().color(color));
             ui.end_row();

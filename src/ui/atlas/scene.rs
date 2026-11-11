@@ -280,6 +280,71 @@ pub(super) fn chain_lines(snap: &Snapshot, frame: &Frame, ppp: f32) -> Vec<LineI
     out
 }
 
+/// Zamknięte odcinki szlaków: czerwona przerywana linia z ciemną obwódką (tylko gdy zamknięcie
+/// obowiązuje w wybranym dniu).
+pub(super) fn closure_lines(snap: &Snapshot, frame: &Frame, ppp: f32, (m, d): (u32, u32)) -> Vec<LineInst> {
+    let mut out = Vec::new();
+    let w = 5.0 * ppp.max(1.0);
+    for (c, lines) in &snap.closures {
+        if !c.active(m, d) {
+            continue;
+        }
+        for line in lines {
+            let pts = dense(line, frame, 2.0, 12.0);
+            for (k, p) in pts.windows(2).enumerate() {
+                out.push(LineInst { p0: p[0], p1: p[1], color: [0.02, 0.02, 0.02, 1.0], wo: [w + 3.0, 0.0] });
+                if k % 2 == 0 {
+                    out.push(LineInst { p0: p[0], p1: p[1], color: lin([255, 60, 60], 1.0), wo: [w, 0.0] });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Trasy narciarskie: zjazdowe w barwach trudności, biegowe fioletowe, skiturowe pomarańczowe (przerywane).
+pub(super) fn piste_lines(snap: &Snapshot, frame: &Frame, ppp: f32) -> Vec<LineInst> {
+    let mut out = Vec::new();
+    for (p, line) in &snap.pistes {
+        let (rgb, w, dashed) = match (p.kind.as_str(), p.difficulty.as_str()) {
+            ("downhill", "novice" | "easy") => ([60, 130, 255], 3.2, false),
+            ("downhill", "intermediate") => ([235, 50, 50], 3.2, false),
+            ("downhill", "advanced" | "expert" | "freeride" | "extreme") => ([20, 20, 20], 3.2, false),
+            ("downhill", _) => ([60, 130, 255], 3.2, false),
+            ("nordic", _) => ([170, 90, 230], 2.2, true),
+            _ => ([255, 150, 40], 2.2, true),
+        };
+        let pts = dense(line, frame, 1.5, 15.0);
+        for (k, s) in pts.windows(2).enumerate() {
+            if !dashed || k % 2 == 0 {
+                out.push(LineInst { p0: s[0], p1: s[1], color: lin(rgb, 0.95), wo: [w * ppp.max(1.0), 0.0] });
+            }
+        }
+    }
+    out
+}
+
+/// Punkty linii co `step` m (żeby leżała na terenie i dało się ją przerywać), `lift` m nad ziemią.
+fn dense(line: &[(f64, f64, f32)], frame: &Frame, lift: f32, step: f64) -> Vec<[f32; 3]> {
+    let mut out = Vec::new();
+    for w in line.windows(2) {
+        let dist = haversine(w[0].0, w[0].1, w[1].0, w[1].1);
+        let n = (dist / step).ceil().clamp(1.0, 200.0) as usize;
+        for k in 0..n {
+            let f = k as f64 / n as f64;
+            let (lon, lat) = (w[0].0 + (w[1].0 - w[0].0) * f, w[0].1 + (w[1].1 - w[0].1) * f);
+            let e = w[0].2 + (w[1].2 - w[0].2) * f as f32;
+            let (x, z) = frame.to_local(lon, lat);
+            out.push([x as f32, e + lift, z as f32]);
+        }
+    }
+    if let Some(&(lon, lat, e)) = line.last() {
+        let (x, z) = frame.to_local(lon, lat);
+        out.push([x as f32, e + lift, z as f32]);
+    }
+    out
+}
+
 /// Granice: parki narodowe (zielone), rezerwaty (jasnozielone), państwa (jasne).
 pub(super) fn boundary_lines(snap: &Snapshot, frame: &Frame, ppp: f32) -> Vec<LineInst> {
     use crate::osm::BoundaryKind as B;

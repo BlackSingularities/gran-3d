@@ -120,6 +120,8 @@ pub enum PoiKind {
     Shrine,
     /// Kamera internetowa.
     Webcam,
+    /// Stacja albo przystanek kolejowy.
+    Station,
 }
 
 impl PoiKind {
@@ -144,6 +146,7 @@ impl PoiKind {
             PoiKind::Cableway => crate::i18n::tr("Kolejka linowa"),
             PoiKind::Shrine => crate::i18n::tr("Kapliczka"),
             PoiKind::Webcam => crate::i18n::tr("Kamera internetowa"),
+            PoiKind::Station => crate::i18n::tr("Stacja kolejowa"),
         }
     }
 }
@@ -192,6 +195,83 @@ pub struct SectorData {
     pub chains: Vec<Vec<(f64, f64)>>,
     #[serde(default)]
     pub boundaries: Vec<Boundary>,
+    /// Zamknięte (także sezonowo) odcinki szlaków.
+    #[serde(default)]
+    pub closures: Vec<Closure>,
+    /// Trasy narciarskie.
+    #[serde(default)]
+    pub pistes: Vec<Piste>,
+}
+
+/// Zamknięty odcinek szlaku z OSM: `access=no`, `foot=no` albo warunkowo (`access:conditional`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Closure {
+    pub name: String,
+    /// Tag z OSM, np. „access=no” albo „access:conditional=no @ (Nov 01-Jun 15)”.
+    pub rule: String,
+    /// Okresy zamknięcia z tagu warunkowego (puste – zamknięte zawsze).
+    pub periods: Vec<((u32, u32), (u32, u32))>,
+    pub lines: Vec<Vec<(f64, f64)>>,
+}
+
+impl Closure {
+    /// Czy odcinek jest zamknięty danego dnia.
+    pub fn active(&self, m: u32, d: u32) -> bool {
+        self.periods.is_empty()
+            || self.periods.iter().any(|&(a, b)| {
+                let x = (m, d);
+                if a <= b {
+                    a <= x && x <= b
+                } else {
+                    x >= a || x <= b
+                }
+            })
+    }
+}
+
+/// Trasa narciarska: rodzaj (`downhill`, `nordic`, `skitour`), trudność (`novice`…`expert`), nazwa.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Piste {
+    pub kind: String,
+    pub difficulty: String,
+    pub name: String,
+    pub line: Vec<(f64, f64)>,
+}
+
+/// Okresy zamknięcia z wartości warunkowej, np. „no @ (Nov 01-Jun 15)”, „no @ (Dec-Mar); yes @ (Apr-Nov)”.
+/// Zwraca `None`, gdy warunek nie dotyczy zamknięcia albo nie jest zakresem dat.
+pub fn closed_periods(cond: &str) -> Option<Vec<((u32, u32), (u32, u32))>> {
+    const M: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    let md = |s: &str, end: bool| -> Option<(u32, u32)> {
+        let mut it = s.split_whitespace();
+        let w = it.next()?;
+        let m = M.iter().position(|x| w.eq_ignore_ascii_case(x))? as u32 + 1;
+        let d = match it.next() {
+            Some(d) => d.trim().parse().ok()?,
+            None if end => 31,
+            None => 1,
+        };
+        Some((m, d))
+    };
+    let mut out = Vec::new();
+    for part in cond.split(';') {
+        let Some((val, when)) = part.split_once('@') else { continue };
+        if !matches!(val.trim(), "no" | "private" | "closed") {
+            continue;
+        }
+        let when = when.trim().trim_start_matches('(').trim_end_matches(')');
+        for range in when.split(',') {
+            let (a, b) = range.split_once('-')?;
+            let a = md(a.trim(), false)?;
+            let b = b.trim();
+            let b = match b.parse::<u32>() {
+                Ok(d) => (a.0, d),
+                Err(_) => md(b, true)?,
+            };
+            out.push((a, b));
+        }
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 /// Granica obszaru: parku narodowego, rezerwatu albo państwa (linie przycięte do sektora).
@@ -210,7 +290,7 @@ pub enum BoundaryKind {
 }
 
 /// Bieżąca wersja dodatkowych danych sektora.
-pub const EXTRA_VER: u32 = 1;
+pub const EXTRA_VER: u32 = 2;
 
 pub fn load(root: &Path, id: SectorId) -> Option<SectorData> {
     let b = std::fs::read(id.path(root)).ok()?;
@@ -496,6 +576,8 @@ pub struct Extra {
     pois: Vec<Poi>,
     chains: Vec<Vec<(f64, f64)>>,
     boundaries: Vec<Boundary>,
+    closures: Vec<Closure>,
+    pistes: Vec<Piste>,
 }
 
 /// Linie z geometrii Overpass (`geometry`: lista {lat, lon}, przerwy jako null).
@@ -523,7 +605,7 @@ pub fn fetch_extra(id: SectorId, worker: usize) -> Result<Extra, String> {
     let b = id.bbox();
     let bb = format!("{:.6},{:.6},{:.6},{:.6}", b.s, b.w, b.n, b.e);
     let points_q = format!(
-        "[out:json][timeout:90];(nwr[\"natural\"~\"^(valley|ridge|arete|spring|water)$\"][\"name\"]({bb});node[\"place\"=\"locality\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb});nwr[\"tourism\"~\"^(alpine_hut|wilderness_hut)$\"]({bb});nwr[\"amenity\"=\"shelter\"][\"name\"]({bb});node[\"amenity\"=\"drinking_water\"]({bb});nwr[\"amenity\"=\"parking\"][\"access\"!~\"^(private|no)$\"]({bb});node[\"highway\"=\"bus_stop\"][\"name\"]({bb});node[\"aerialway\"=\"station\"]({bb});node[\"historic\"~\"^(wayside_shrine|wayside_cross)$\"]({bb});nwr[\"building\"=\"chapel\"]({bb});nwr[\"contact:webcam\"]({bb});nwr[\"webcam\"]({bb}););out center tags;(way[\"safety_rope\"]({bb});way[\"via_ferrata_scale\"]({bb}););out tags geom;"
+        "[out:json][timeout:90];(nwr[\"natural\"~\"^(valley|ridge|arete|spring|water)$\"][\"name\"]({bb});node[\"place\"=\"locality\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb});nwr[\"tourism\"~\"^(alpine_hut|wilderness_hut)$\"]({bb});nwr[\"amenity\"=\"shelter\"][\"name\"]({bb});node[\"amenity\"=\"drinking_water\"]({bb});nwr[\"amenity\"=\"parking\"][\"access\"!~\"^(private|no)$\"]({bb});node[\"highway\"=\"bus_stop\"][\"name\"]({bb});node[\"aerialway\"=\"station\"]({bb});node[\"railway\"~\"^(station|halt)$\"][\"name\"]({bb});node[\"historic\"~\"^(wayside_shrine|wayside_cross)$\"]({bb});nwr[\"building\"=\"chapel\"]({bb});nwr[\"contact:webcam\"]({bb});nwr[\"webcam\"]({bb}););out center tags;(way[\"safety_rope\"]({bb});way[\"via_ferrata_scale\"]({bb}););out tags geom;"
     );
     let bounds_q = format!(
         "[out:json][timeout:90];(relation[\"boundary\"=\"national_park\"]({bb});way[\"boundary\"=\"national_park\"]({bb});relation[\"leisure\"=\"nature_reserve\"]({bb});way[\"leisure\"=\"nature_reserve\"]({bb});relation[\"boundary\"=\"protected_area\"][\"protect_class\"~\"^(1|1a|1b|2|4)$\"]({bb});relation[\"boundary\"=\"administrative\"][\"admin_level\"=\"2\"]({bb}););out tags geom({bb});"
@@ -562,7 +644,63 @@ pub fn fetch_extra(id: SectorId, worker: usize) -> Result<Extra, String> {
         }
         Err(e) => log::warn!("granice {}/{}: {e}", id.x, id.y),
     }
-    Ok(Extra { pois, chains, boundaries })
+    // zamknięcia szlaków i trasy narciarskie: osobne zapytanie; błąd nie przekreśla reszty
+    let (closures, pistes) = match overpass(&ways_query(&bb), worker) {
+        Ok(wj) => parse_ways(&wj),
+        Err(e) => {
+            log::warn!("zamknięcia i narty {}/{}: {e}", id.x, id.y);
+            (Vec::new(), Vec::new())
+        }
+    };
+    Ok(Extra { pois, chains, boundaries, closures, pistes })
+}
+
+/// Zapytanie o zamknięte odcinki szlaków (członków relacji turystycznych) i trasy narciarskie.
+fn ways_query(bb: &str) -> String {
+    format!(
+        "[out:json][timeout:90];relation[\"route\"~\"^(hiking|foot)$\"]({bb})->.r;(way(r.r)[\"access\"~\"^(no|private)$\"]({bb});way(r.r)[\"foot\"~\"^(no|private)$\"]({bb});way(r.r)[\"access:conditional\"]({bb});way(r.r)[\"foot:conditional\"]({bb}););out tags geom({bb});way[\"piste:type\"~\"^(downhill|nordic|skitour)$\"]({bb});out tags geom({bb});"
+    )
+}
+
+/// Zamknięcia i trasy narciarskie z odpowiedzi Overpass.
+pub fn parse_ways(j: &serde_json::Value) -> (Vec<Closure>, Vec<Piste>) {
+    let (mut closures, mut pistes) = (Vec::new(), Vec::new());
+    for el in j["elements"].as_array().into_iter().flatten() {
+        let t = &el["tags"];
+        let tag = |k: &str| t[k].as_str().unwrap_or("");
+        let lines = geometry_lines(&el["geometry"]);
+        if lines.is_empty() {
+            continue;
+        }
+        let name = if tag("name:pl").is_empty() { tag("name") } else { tag("name:pl") }.to_string();
+        let pt = tag("piste:type");
+        if !pt.is_empty() {
+            let pname = if tag("piste:name").is_empty() { name.clone() } else { tag("piste:name").to_string() };
+            for line in lines {
+                pistes.push(Piste { kind: pt.to_string(), difficulty: tag("piste:difficulty").to_string(), name: pname.clone(), line });
+            }
+            continue;
+        }
+        let mut closure = None;
+        for k in ["access", "foot"] {
+            if matches!(tag(k), "no" | "private") {
+                closure = Some((format!("{k}={}", tag(k)), Vec::new()));
+                break;
+            }
+        }
+        if closure.is_none() {
+            for k in ["access:conditional", "foot:conditional"] {
+                if let Some(p) = closed_periods(tag(k)) {
+                    closure = Some((format!("{k}={}", tag(k)), p));
+                    break;
+                }
+            }
+        }
+        if let Some((rule, periods)) = closure {
+            closures.push(Closure { name, rule, periods, lines });
+        }
+    }
+    (closures, pistes)
 }
 
 /// Dołączenie dodatkowych danych do sektora: nowe punkty, informacje do istniejących (np. schronisk
@@ -589,6 +727,8 @@ pub fn apply_extra(d: &mut SectorData, x: Extra) {
     }
     d.chains = x.chains;
     d.boundaries = x.boundaries;
+    d.closures = x.closures;
+    d.pistes = x.pistes;
     d.extra_ver = EXTRA_VER;
 }
 
@@ -765,6 +905,8 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
             PoiKind::BusStop
         } else if get("aerialway") == "station" {
             PoiKind::Cableway
+        } else if matches!(get("railway"), "station" | "halt") {
+            PoiKind::Station
         } else if matches!(get("historic"), "wayside_shrine" | "wayside_cross") || get("building") == "chapel" {
             PoiKind::Shrine
         } else if !get("contact:webcam").is_empty() || !get("webcam").is_empty() {
@@ -781,6 +923,8 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
         };
         // punkty usługowe często bez nazwy – podpisujemy je rodzajem
         let unnamed_ok = matches!(kind, PoiKind::Hut | PoiKind::DrinkingWater | PoiKind::Parking | PoiKind::Shrine | PoiKind::Cableway | PoiKind::Webcam);
+        // wiata z peronem nie jest przystankiem kolejowym
+        let kind = if kind == PoiKind::BusStop && matches!(get("railway"), "station" | "halt") { PoiKind::Station } else { kind };
         if name.is_empty() && !unnamed_ok {
             continue;
         }

@@ -29,7 +29,7 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
         .fixed_pos([screen.left(), screen.bottom() - STATUS_H - h - 20.0])
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
-            egui::Frame::new().fill(theme::GLASS_FILL).inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
+            egui::Frame::new().fill(theme::glass_fill()).inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
             ui.set_min_size(size);
             ui.set_max_size(size);
             ui.horizontal(|ui| {
@@ -49,8 +49,8 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
                 chip(ui, theme::icon::TREND_UP, fmt::ele(s.up), Color32::from_rgb(240, 160, 110));
                 chip(ui, theme::icon::TREND_DOWN, fmt::ele(s.down), Color32::from_rgb(130, 190, 240));
                 chip(ui, theme::icon::CLOCK, fmt::time(s.time), theme::PAPER);
-                chip(ui, theme::icon::ARROW_LINE_UP, fmt::ele(hi as f64), theme::PAPER_2);
-                chip(ui, theme::icon::ARROW_LINE_DOWN, fmt::ele(lo as f64), theme::PAPER_2);
+                chip(ui, theme::icon::ARROW_LINE_UP, fmt::ele(hi as f64), theme::paper_2());
+                chip(ui, theme::icon::ARROW_LINE_DOWN, fmt::ele(lo as f64), theme::paper_2());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let (glyph, hint) = if open { (theme::icon::CARET_DOWN, crate::i18n::tr("Zwiń profil")) } else { (theme::icon::CARET_UP, crate::i18n::tr("Rozwiń profil")) };
                     if ui.add(egui::Button::new(RichText::new(glyph).size(16.0)).frame(false)).on_hover_text(hint).clicked() {
@@ -62,7 +62,7 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
                     // legenda nachylenia
                     for (k, name) in [(5usize, "> 45%"), (4, "30–45%"), (3, "20–30%"), (2, "12–20%"), (1, "5–12%"), (0, "< 5%")] {
                         let c = metrics::GRADE_RGB[k];
-                        ui.label(RichText::new(name).size(10.5).color(theme::PAPER_3));
+                        ui.label(RichText::new(name).size(10.5).color(theme::paper_3()));
                         ui.label(RichText::new("●").size(11.0).color(Color32::from_rgb(c[0], c[1], c[2])));
                     }
                 });
@@ -99,37 +99,29 @@ pub fn help(a: &mut Atlas, ctx: &egui::Context) {
     if !a.help {
         return;
     }
+    // sterowanie kamerą i myszą; skróty poleceń – z rejestru poleceń
     let rows = [
-        ("1 – 3", crate::i18n::tr("eksploracja · trasa · pomiar")),
-        ("H  W  O", crate::i18n::tr("soczewka: ta sama wysokość · względna · widoczność")),
-        ("/", "wyszukiwarka"),
-        ("M", crate::i18n::tr("następny styl mapy")),
-        ("P", crate::i18n::tr("pokaż / ukryj panel szczegółów")),
-        ("T  L  C", crate::i18n::tr("szlaki · nazwy · poziomice")),
-        (crate::i18n::tr("klik z soczewką / Esc"), crate::i18n::tr("przypnij / odepnij soczewkę")),
-        ("+  −", crate::i18n::tr("przewyższenie terenu")),
-        ("[  ]", crate::i18n::tr("pora dnia −/+ 30 min")),
-        ("F", crate::i18n::tr("przelot nad trasą")),
+        ("Ctrl+K", crate::i18n::tr("paleta poleceń: wszystkie polecenia z wyszukiwaniem")),
+        (crate::i18n::tr("strzałki · Q E · PgUp PgDn · Home End"), crate::i18n::tr("przesuwanie · obrót · nachylenie · przybliżanie")),
         (crate::i18n::tr("W A S D · Shift · spacja"), crate::i18n::tr("spacer: chodzenie · bieg · skok (prawy przycisk – rozglądanie)")),
-        ("N", crate::i18n::tr("północ u góry")),
-        ("V", crate::i18n::tr("widok z góry / ukośny")),
-        ("R", crate::i18n::tr("widok początkowy")),
-        ("G", crate::i18n::tr("eksport trasy (GPX, KML, GeoJSON)")),
-        (crate::i18n::tr("Ctrl+Z  Ctrl+Y"), crate::i18n::tr("cofnij / ponów zmianę punktów trasy")),
-        ("Ctrl+S", crate::i18n::tr("zapisz trasę w bibliotece")),
-        ("Ctrl+D", crate::i18n::tr("zapisz widok w bibliotece")),
-        ("B", "biblioteka"),
-        ("F11", crate::i18n::tr("pełny ekran")),
-        ("S", crate::i18n::tr("zrzut ekranu PNG")),
-        ("⌫", crate::i18n::tr("usuń ostatni punkt")),
-        (crate::i18n::tr("Esc"), crate::i18n::tr("anuluj / wyjdź")),
-        (crate::i18n::tr("strzałki · Q E · PgUp PgDn"), crate::i18n::tr("przesuwanie · obrót · nachylenie")),
         (crate::i18n::tr("lewy przycisk"), crate::i18n::tr("przesuwanie (chwyć teren)")),
         (crate::i18n::tr("prawy przycisk"), crate::i18n::tr("obrót wokół chwyconego punktu · klik – menu analiz")),
         (crate::i18n::tr("kółko"), crate::i18n::tr("przybliżanie do kursora")),
-        ("dwuklik", crate::i18n::tr("przybliż do punktu")),
-        ("Ctrl+,", "ustawienia"),
+        (crate::i18n::tr("dwuklik"), crate::i18n::tr("przybliż do punktu")),
+        (crate::i18n::tr("klik z soczewką / Esc"), crate::i18n::tr("przypnij / odepnij soczewkę")),
+        ("Tab · Shift+Tab · Enter", crate::i18n::tr("przechodzenie po kontrolkach paneli i ich użycie")),
+        (crate::i18n::tr("Esc"), crate::i18n::tr("anuluj / wyjdź")),
+        ("?", crate::i18n::tr("ta pomoc")),
     ];
+    let mut groups: Vec<(crate::ui::atlas::Group, Vec<(String, &'static str)>)> = Vec::new();
+    for act in Action::all() {
+        let Some(k) = act.keys() else { continue };
+        let (_, label, g) = act.info();
+        match groups.iter_mut().find(|(x, _)| *x == g) {
+            Some((_, v)) => v.push((k.text(), label)),
+            None => groups.push((g, vec![(k.text(), label)])),
+        }
+    }
     let mut open = true;
     glass_area(a, ctx, egui::Id::new(crate::i18n::tr("Jak korzystać z Grani")), 1.0);
     egui::Window::new(crate::i18n::tr("Jak korzystać z Grani"))
@@ -141,11 +133,25 @@ pub fn help(a: &mut Atlas, ctx: &egui::Context) {
             ui.set_width(560.0);
             theme::para(ui, crate::i18n::tr("Atlas łączy rzeczywisty model terenu z siecią szlaków OSM. Wszystkie obliczenia – trasy, widoczność, cienie – odbywają się lokalnie na tym komputerze."));
             ui.add_space(8.0);
-            egui::Grid::new("skroty").num_columns(2).striped(true).spacing([24.0, 6.0]).show(ui, |ui| {
-                for (k, v) in rows {
-                    ui.label(crate::i18n::tr(v));
-                    ui.label(RichText::new(crate::i18n::tr(k)).monospace().color(theme::BRASS));
-                    ui.end_row();
+            egui::ScrollArea::vertical().max_height((ctx.screen_rect().height() - 260.0).max(240.0)).show(ui, |ui| {
+                ui.label(theme::kicker("Sterowanie"));
+                egui::Grid::new("skroty").num_columns(2).striped(true).spacing([24.0, 6.0]).show(ui, |ui| {
+                    for (k, v) in rows {
+                        ui.label(v);
+                        ui.label(RichText::new(k).monospace().color(theme::BRASS));
+                        ui.end_row();
+                    }
+                });
+                for (g, list) in &groups {
+                    ui.add_space(8.0);
+                    ui.label(theme::kicker(g.label()));
+                    egui::Grid::new(("skroty", g.label())).num_columns(2).striped(true).spacing([24.0, 6.0]).show(ui, |ui| {
+                        for (k, v) in list {
+                            ui.label(*v);
+                            ui.label(RichText::new(k).monospace().color(theme::BRASS));
+                            ui.end_row();
+                        }
+                    });
                 }
             });
             ui.add_space(8.0);
@@ -217,7 +223,7 @@ pub fn load_window(a: &mut Atlas, ctx: &egui::Context) {
                 ui.add_space(10.0);
                 ui.vertical(|ui| {
                     ui.label(RichText::new(tr("Nazwy i szlaki")).strong());
-                    ui.label(RichText::new(tf!("{} z {} sektorów gotowe", done, grid.len())).color(theme::PAPER_2));
+                    ui.label(RichText::new(tf!("{} z {} sektorów gotowe", done, grid.len())).color(theme::paper_2()));
                     theme::bar(ui, done as f32 / grid.len().max(1) as f32, ok_c);
                     if let Some(w) = a.world.progress().2 {
                         ui.label(RichText::new(tf!("w toku: {}", w)).small().color(busy_c));
@@ -225,7 +231,7 @@ pub fn load_window(a: &mut Atlas, ctx: &egui::Context) {
                     ui.horizontal(|ui| {
                         for (c, t) in [(ok_c, "gotowe"), (busy_c, "w toku"), (wait_c, "kolejka"), (err_c, "błąd")] {
                             ui.label(RichText::new("■").color(c));
-                            ui.label(RichText::new(tr(t)).small().color(theme::PAPER_3));
+                            ui.label(RichText::new(tr(t)).small().color(theme::paper_3()));
                         }
                     });
                 });
@@ -238,7 +244,7 @@ pub fn load_window(a: &mut Atlas, ctx: &egui::Context) {
                     ui.label(RichText::new(glyph).color(if ok { ok_c } else { busy_c }));
                     ui.label(RichText::new(tr(name)).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(state).color(if ok { ok_c } else { theme::PAPER_2 }));
+                        ui.label(RichText::new(state).color(if ok { ok_c } else { theme::paper_2() }));
                     });
                 });
             };
@@ -251,7 +257,7 @@ pub fn load_window(a: &mut Atlas, ctx: &egui::Context) {
             let land = a.world.land_busy();
             row(ui, theme::icon::TREE_EVERGREEN, "Lasy, woda, skały", if land { tr("pobieranie…").to_string() } else { tr("gotowe").to_string() }, !land);
             ui.add_space(4.0);
-            ui.label(RichText::new(tr("Pobrane dane zapisują się na dysku – przy następnym uruchomieniu wczytują się od razu.")).small().color(theme::PAPER_3));
+            ui.label(RichText::new(tr("Pobrane dane zapisują się na dysku – przy następnym uruchomieniu wczytują się od razu.")).small().color(theme::paper_3()));
         });
     if !open {
         a.load_details = false;

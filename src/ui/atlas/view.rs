@@ -141,7 +141,7 @@ impl Atlas {
         self.hover = pointer.and_then(|p| self.ground(&view, local_px(p)));
 
         // nad etykietą – kursor wskazujący (kliknięcie zaznacza punkt)
-        if pointer.is_some_and(|p| self.label_hit(p, rect, &view).is_some()) && self.tool == Tool::Explore {
+        if pointer.is_some_and(|p| self.label_hit(p, rect, &view).is_some()) && self.tool.behavior().picks_labels() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         self.handle_mouse(ui, &resp, rect, &view);
@@ -165,12 +165,15 @@ impl Atlas {
         let ppp = ctx.pixels_per_point();
         let dim = self.current_route().is_some();
         if let Some(r) = &mut self.renderer {
-            let key = self.snap.version * 1_000_000
-                + self.frame_version * 16
-                + self.prefs.trails as u64
-                + dim as u64 * 2
-                + self.prefs.chains as u64 * 4
-                + self.prefs.boundaries as u64 * 8;
+            // zamknięcia sezonowe zależą od daty – dzień w roku w kluczu
+            let (day, _) = self.when();
+            let key = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                (self.snap.version, self.frame_version, self.prefs.trails, dim, self.prefs.chains, self.prefs.boundaries).hash(&mut h);
+                (self.prefs.closures, self.prefs.pistes, day.m, day.d, ppp.to_bits()).hash(&mut h);
+                h.finish()
+            };
             if r.static_version() != key {
                 let mut tl = Vec::new();
                 // granice pod szlakami, łańcuchy nad nimi
@@ -180,8 +183,14 @@ impl Atlas {
                 if self.prefs.trails {
                     tl.extend(trail_lines(&self.snap, &self.frame, ppp, dim));
                 }
+                if self.prefs.pistes {
+                    tl.extend(piste_lines(&self.snap, &self.frame, ppp));
+                }
                 if self.prefs.chains && self.prefs.trails {
                     tl.extend(chain_lines(&self.snap, &self.frame, ppp));
+                }
+                if self.prefs.closures {
+                    tl.extend(closure_lines(&self.snap, &self.frame, ppp, (day.m, day.d)));
                 }
                 r.set_static_lines(key, &tl);
             }

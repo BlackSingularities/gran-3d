@@ -107,7 +107,7 @@ impl Atlas {
                     PoiKind::Place => (poi.poi.name.clone(), Color32::from_rgb(230, 222, 200), if poi.poi.place == "city" || poi.poi.place == "town" { 13.5 } else { 11.5 }),
                     PoiKind::Hut | PoiKind::Shelter => (poi.poi.name.clone(), Color32::from_rgb(255, 214, 150), 11.5),
                     PoiKind::Lake => (poi.poi.name.clone(), Color32::from_rgb(150, 205, 240), 11.0),
-                    _ => (poi.poi.name.clone(), theme::PAPER_2, 11.0),
+                    _ => (poi.poi.name.clone(), theme::paper_2(), 11.0),
                 };
                 let (color, size) = if is_sel { (theme::BRASS, size + 1.5) } else { (color, size) };
                 let font = FontId::proportional(size);
@@ -130,7 +130,7 @@ impl Atlas {
                     PoiKind::Locality => Color32::from_rgb(150, 205, 110),
                     PoiKind::Valley | PoiKind::Ridge => Color32::from_rgb(170, 180, 150),
                     PoiKind::Place => Color32::from_rgb(200, 190, 170),
-                    _ => theme::PAPER_2,
+                    _ => theme::paper_2(),
                 };
                 p.line_segment([sp, sp + Vec2::new(5.0, -5.0)], Stroke::new(1.0, Color32::from_black_alpha(160)));
                 if poi.poi.kind == PoiKind::Peak {
@@ -149,12 +149,12 @@ impl Atlas {
                     let d = haversine(self.cam.lon, self.cam.lat, poi.poi.lon, poi.poi.lat);
                     // odległość tuż pod nazwą, zwykłym pismem, z ikoną strzałki
                     let txt = format!("{} {}", theme::icon::ARROWS_HORIZONTAL, fmt::dist(d));
-                    let g = p.layout_no_wrap(txt, FontId::proportional(11.0), theme::PAPER_2);
+                    let g = p.layout_no_wrap(txt, FontId::proportional(11.0), theme::paper_2());
                     let dp = lr.left_bottom() + Vec2::new(2.0, -2.0);
                     for o in [Vec2::new(1.0, 1.0), Vec2::new(-1.0, 1.0), Vec2::new(1.0, -1.0), Vec2::new(-1.0, -1.0)] {
                         p.galley_with_override_text_color(dp + o, g.clone(), Color32::from_black_alpha(170));
                     }
-                    p.galley(dp, g, theme::PAPER_2);
+                    p.galley(dp, g, theme::paper_2());
                 }
             }
             self.label_hits = hits;
@@ -248,7 +248,7 @@ impl Atlas {
             c,
             r,
             Color32::from_rgba_unmultiplied(26, 29, 35, 242),
-            Stroke::new(1.0, if hot { theme::PAPER_3 } else { theme::INK_4 }),
+            Stroke::new(1.0, if hot { theme::paper_3() } else { theme::INK_4 }),
         );
         // kierunek patrzenia: stały znacznik u góry tarczy
         let top = c - Vec2::new(0.0, r);
@@ -267,7 +267,7 @@ impl Atlas {
             let d = rot(deg);
             let (len, w, col) = match i % 6 {
                 0 => (0.0, 0.0, theme::PAPER),
-                _ if i % 2 == 0 => (5.0, 1.2, theme::PAPER_3),
+                _ if i % 2 == 0 => (5.0, 1.2, theme::paper_3()),
                 _ => (3.0, 1.0, theme::INK_4),
             };
             if len > 0.0 {
@@ -275,7 +275,7 @@ impl Atlas {
             }
         }
         for (deg, s) in [(90.0, "E"), (180.0, "S"), (270.0, "W")] {
-            pc.text(c + rot(deg) * (r - 9.0), Align2::CENTER_CENTER, s, FontId::proportional(9.5), theme::PAPER_3);
+            pc.text(c + rot(deg) * (r - 9.0), Align2::CENTER_CENTER, s, FontId::proportional(9.5), theme::paper_3());
         }
         pc.text(c + rot(0.0) * (r - 9.0), Align2::CENTER_CENTER, "N", FontId::proportional(11.0), theme::SIGNAL);
         // igła: czerwona połowa na północ, jasna na południe, pochylona razem z kamerą
@@ -283,8 +283,8 @@ impl Atlas {
         let side = Vec2::new(-n.y, n.x) * 3.5;
         let tip = 15.0 * (0.45 + 0.55 * (self.cam.pitch as f32).to_radians().sin().abs()).min(1.0);
         pc.add(egui::Shape::convex_polygon(vec![c + n * tip, c + side, c - side], theme::SIGNAL, Stroke::NONE));
-        pc.add(egui::Shape::convex_polygon(vec![c - n * tip, c - side, c + side], theme::PAPER_3, Stroke::NONE));
-        pc.circle(c, 2.5, Color32::from_rgb(26, 29, 35), Stroke::new(1.0, theme::PAPER_3));
+        pc.add(egui::Shape::convex_polygon(vec![c - n * tip, c - side, c + side], theme::paper_3(), Stroke::NONE));
+        pc.circle(c, 2.5, Color32::from_rgb(26, 29, 35), Stroke::new(1.0, theme::paper_3()));
         // odczyt kursu pod tarczą
         let hdg = (self.cam.heading.rem_euclid(360.0).round() as i32) % 360;
         const DIRS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
@@ -350,13 +350,13 @@ impl Atlas {
         }
         let bar = Rect::from_min_max(rect.left_bottom() - Vec2::new(0.0, 24.0), rect.right_bottom());
         self.glass.push((bar, 1.0));
-        p.rect_filled(bar, 0.0, theme::GLASS_FILL);
-        p.text(bar.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, info, FontId::monospace(11.5), theme::PAPER_2);
+        p.rect_filled(bar, 0.0, theme::glass_fill());
+        p.text(bar.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, info, FontId::monospace(11.5), theme::paper_2());
         let attr = match self.prefs.style {
             Style::Satellite => crate::i18n::tr("Zdjęcia © Esri, Maxar, Earthstar Geographics · teren © Mapterhorn · © OpenStreetMap"),
             _ => crate::i18n::tr("Teren © Mapterhorn (ÚGKK SR, GUGiK, ČÚZK), AWS Open Data · © OpenStreetMap"),
         };
-        p.text(bar.right_center() - Vec2::new(12.0, 0.0), Align2::RIGHT_CENTER, attr, FontId::proportional(10.5), theme::PAPER_3);
+        p.text(bar.right_center() - Vec2::new(12.0, 0.0), Align2::RIGHT_CENTER, attr, FontId::proportional(10.5), theme::paper_3());
 
         // stan wczytywania i tryby
         let mut chips: Vec<String> = Vec::new();
@@ -406,10 +406,10 @@ impl Atlas {
         // statusy na środku dolnego paska (nad odczytem kursora i atrybucją)
         if !chips.is_empty() {
             // zwykły tekst na pasku, bez tła i obwódki; klik otwiera szczegóły wczytywania
-            let g = p.layout_no_wrap(chips.join("  ·  "), FontId::proportional(11.5), theme::PAPER_2);
+            let g = p.layout_no_wrap(chips.join("  ·  "), FontId::proportional(11.5), theme::paper_2());
             let r = Rect::from_center_size(bar.center(), g.size() + Vec2::new(8.0, 4.0));
             let resp = ui.interact(r, ui.id().with("stan-wczytywania"), Sense::click());
-            let color = if resp.hovered() { theme::PAPER } else { theme::PAPER_2 };
+            let color = if resp.hovered() { theme::PAPER } else { theme::paper_2() };
             p.galley(bar.center() - g.size() / 2.0, g, color);
             if resp.on_hover_text(crate::i18n::tr("Kliknij, żeby zobaczyć szczegóły wczytywania")).clicked() {
                 self.load_details = !self.load_details;
@@ -422,7 +422,7 @@ impl Atlas {
             egui::Area::new(egui::Id::new("menu-3d")).fixed_pos(pos).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
                 theme::card(false).show(ui, |ui| {
                     ui.set_width(230.0);
-                    ui.label(egui::RichText::new(format!("{}  ·  {}", fmt::coords(lon, lat), fmt::ele(e as f64))).small().monospace().color(theme::PAPER_3));
+                    ui.label(egui::RichText::new(format!("{}  ·  {}", fmt::coords(lon, lat), fmt::ele(e as f64))).small().monospace().color(theme::paper_3()));
                     let mut item = |ui: &mut egui::Ui, t: &str| ui.add(egui::Button::new(t).frame(false)).clicked();
                     if item(ui, crate::i18n::tr("Trasa stąd")) {
                         self.tool = Tool::Route;
@@ -478,7 +478,7 @@ impl Atlas {
                     let mut copy_as = None;
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
-                        ui.label(egui::RichText::new(crate::i18n::tr("jako")).small().color(theme::PAPER_3));
+                        ui.label(egui::RichText::new(crate::i18n::tr("jako")).small().color(theme::paper_3()));
                         for (f, short) in [
                             (crate::coords::CoordFormat::Dms, "°′″"),
                             (crate::coords::CoordFormat::Decimal, "0.00°"),

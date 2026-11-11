@@ -75,111 +75,44 @@ impl Atlas {
             self.help = !self.help;
         }
         for (key, m) in events {
-            use egui::Key as K;
-            if m.ctrl || m.command {
-                match key {
-                    K::Z if m.shift => self.redo_route(),
-                    K::Z => self.undo_route(),
-                    K::Y => self.redo_route(),
-                    K::S => self.save_route_to_library(),
-                    K::D => self.save_view(),
-                    _ => {}
-                }
+            if key == egui::Key::Escape {
+                self.escape();
                 continue;
             }
-            match key {
-                K::Escape => {
-                    if self.help {
-                        self.help = false;
-                    } else if self.ctx_menu.is_some() {
-                        self.ctx_menu = None;
-                    } else if self.panorama.is_some() {
-                        self.exit_panorama();
-                    } else if self.flight.is_some() {
-                        self.flight = None;
-                    } else if self.lens_pin.is_some() {
-                        self.unpin_lens();
-                    } else if self.lens != Lens::None {
-                        self.lens = Lens::None;
-                    } else if self.selection != Selection::None {
-                        self.selection = Selection::None;
-                    } else if self.tool == Tool::Route {
-                        self.end_planning();
-                    } else {
-                        self.tool = Tool::Explore;
-                    }
+            // „?” to Shift+/ – pomoc, nie wyszukiwarka
+            if question && key == egui::Key::Slash {
+                continue;
+            }
+            if let Some(act) = super::actions::Action::for_key(key, m) {
+                if act.enabled(self) {
+                    self.run(act, ctx);
                 }
-                K::Num1 => {
-                    if self.tool == Tool::Route {
-                        self.end_planning();
-                    }
-                    self.tool = Tool::Explore;
-                }
-                K::Num2 => self.tool = Tool::Route,
-                K::Num3 => self.tool = Tool::Measure,
-                K::H | K::I => self.set_lens(Lens::Band),
-                K::W => self.set_lens(Lens::Rel),
-                K::O => self.set_lens(Lens::Vis),
-                K::Slash => self.search = Some(crate::ui::search::Search::default()),
-                K::M => {
-                    // styl mapy jest w menu górnego paska; skrót przełącza na następny
-                    let all = Style::ALL;
-                    let i = all.iter().position(|s| *s == self.prefs.style).unwrap_or(0);
-                    self.prefs.style = all[(i + 1) % all.len()];
-                }
-                K::P => self.prefs.panel_open = !self.prefs.panel_open,
-                K::T => self.prefs.trails = !self.prefs.trails,
-                K::L => self.prefs.labels = !self.prefs.labels,
-                K::C => self.prefs.contours = !self.prefs.contours,
-                K::F => self.toggle_flight(),
-                K::N => {
-                    let mut to = self.cam;
-                    to.heading = 0.0;
-                    self.start_fly(to, 0.7);
-                }
-                K::V => {
-                    let mut to = self.cam;
-                    to.pitch = if self.cam.pitch > 75.0 { 40.0 } else { 89.0 };
-                    self.start_fly(to, 0.7);
-                }
-                K::R => {
-                    let d = Camera::default();
-                    let mut to = self.cam;
-                    to.heading = d.heading;
-                    to.pitch = d.pitch;
-                    to.distance = d.distance.min(self.cam.distance.max(8000.0));
-                    self.start_fly(to, 0.9);
-                }
-                K::G => self.export_route(),
-                K::B => {
-                    let lib = self.prefs.panel_open && self.tab == crate::ui::panels::Tab::Library;
-                    self.prefs.panel_open = !lib;
-                    self.tab = crate::ui::panels::Tab::Library;
-                }
-                K::F11 => self.toggle_fullscreen(ctx),
-                K::K => {
-                    let on = self.prefs.panel_open && self.tab == crate::ui::panels::Tab::Conditions;
-                    self.prefs.panel_open = !on;
-                    self.tab = crate::ui::panels::Tab::Conditions;
-                }
-                K::S => self.screenshot(ctx),
-                K::OpenBracket => self.shift_hour(-0.5),
-                K::CloseBracket => self.shift_hour(0.5),
-                K::Plus | K::Equals => self.prefs.exag = ((self.prefs.exag + 0.1) * 10.0).round() / 10.0,
-                K::Minus => self.prefs.exag = (((self.prefs.exag - 0.1) * 10.0).round() / 10.0).max(1.0),
-                K::Backspace | K::Delete => {
-                    if self.tool == Tool::Route && !self.waypoints.is_empty() {
-                        let n = self.waypoints.len() - 1;
-                        self.remove_waypoint(n);
-                    } else if self.tool == Tool::Measure && !self.measure.is_empty() {
-                        self.measure.pop();
-                        self.start_los();
-                    }
-                }
-                _ => {}
             }
         }
         self.prefs.exag = self.prefs.exag.clamp(1.0, 3.0);
+    }
+
+    /// Esc zamyka najpierw to, co najbardziej „na wierzchu”.
+    pub fn escape(&mut self) {
+        if self.palette.is_some() {
+            self.palette = None;
+        } else if self.help {
+            self.help = false;
+        } else if self.ctx_menu.is_some() {
+            self.ctx_menu = None;
+        } else if self.panorama.is_some() {
+            self.exit_panorama();
+        } else if self.flight.is_some() {
+            self.flight = None;
+        } else if self.lens_pin.is_some() {
+            self.unpin_lens();
+        } else if self.lens != Lens::None {
+            self.lens = Lens::None;
+        } else if self.selection != Selection::None {
+            self.selection = Selection::None;
+        } else {
+            self.close_tool();
+        }
     }
 
     pub(super) fn handle_mouse(&mut self, ui: &mut egui::Ui, resp: &egui::Response, rect: Rect, view: &View) {
@@ -211,15 +144,7 @@ impl Atlas {
             self.drag_waypoint = None;
             self.drag_grab = None;
             if let Some(p) = pointer {
-                if self.tool == Tool::Route {
-                    for (i, w) in self.waypoints.iter().enumerate() {
-                        if let Some(s) = view.project(self.local(w.lon, w.lat, w.e)) {
-                            if (Pos2::new(s[0] + rect.left(), s[1] + rect.top()) - p).length() < 12.0 {
-                                self.drag_waypoint = Some(i);
-                            }
-                        }
-                    }
-                }
+                self.drag_waypoint = self.tool.behavior().grab(self, view, rect, p);
                 if self.drag_waypoint.is_none() {
                     self.drag_grab = self.ground(view, to_px(p)).map(|(lon, lat, e)| self.local(lon, lat, e));
                 }
@@ -227,12 +152,8 @@ impl Atlas {
         }
         if resp.dragged_by(egui::PointerButton::Primary) {
             self.fly = None;
-            if let (Some(i), Some((lon, lat, e))) = (self.drag_waypoint, self.hover) {
-                if let Some(w) = self.waypoints.get_mut(i) {
-                    w.lon = lon;
-                    w.lat = lat;
-                    w.e = e;
-                }
+            if let (Some(i), Some(at)) = (self.drag_waypoint, self.hover) {
+                self.tool.behavior().drag(self, i, at);
             } else if self.panorama.is_some() {
                 // spacer: lewy przycisk to zwykły wskaźnik (rozglądanie – prawym)
             } else if let (Some(g), Some(p)) = (self.drag_grab, pointer) {
@@ -257,17 +178,7 @@ impl Atlas {
         }
         if resp.drag_stopped_by(egui::PointerButton::Primary) {
             if self.drag_waypoint.take().is_some() {
-                if let Some(w) = self.waypoints.last() {
-                    let _ = w;
-                }
-                for w in &mut self.waypoints {
-                    w.name = None;
-                }
-                let names: Vec<Option<String>> = self.waypoints.iter().map(|w| self.name_near(w.lon, w.lat, 120.0)).collect();
-                for (w, n) in self.waypoints.iter_mut().zip(names) {
-                    w.name = n;
-                }
-                self.route_dirty = true;
+                self.tool.behavior().drop_grabbed(self);
             }
             self.drag_grab = None;
         }
@@ -308,7 +219,7 @@ impl Atlas {
             // etykieta pod kursorem
             if let Some(p) = pointer {
                 if let Some(i) = self.label_hit(p, rect, view) {
-                    if self.tool == Tool::Explore && self.lens == Lens::None {
+                    if self.tool.behavior().picks_labels() && self.lens == Lens::None {
                         self.selection = Selection::Poi(i);
                         self.prefs.panel_open = true;
                         self.tab = crate::ui::panels::Tab::Info;
@@ -320,33 +231,7 @@ impl Atlas {
                 self.pin_lens(lon, lat, self.lens);
                 return;
             }
-            match self.tool {
-                Tool::Explore => {
-                    // szlak w pobliżu kliknięcia (promień zależny od odległości)
-                    let r = (self.cam.distance * 0.006).clamp(15.0, 400.0);
-                    if self.prefs.trails {
-                        if let Some(s) = self.snap.graph.snap(lon, lat, r) {
-                            self.selection = Selection::Trail(s.edge);
-                            self.prefs.panel_open = true;
-                            self.tab = crate::ui::panels::Tab::Info;
-                            return;
-                        }
-                    }
-                    self.selection = Selection::Point { lon, lat };
-                    self.prefs.panel_open = true;
-                    self.tab = crate::ui::panels::Tab::Info;
-                }
-                Tool::Route => {
-                    self.add_waypoint(lon, lat, None);
-                    self.prefs.panel_open = true;
-                    self.tab = crate::ui::panels::Tab::Info;
-                }
-                Tool::Measure => {
-                    let e = self.heights.sample_cached(lon, lat).unwrap_or(0.0);
-                    self.measure.push((lon, lat, e));
-                    self.start_los();
-                }
-            }
+            self.tool.behavior().click(self, lon, lat);
         }
         let _ = ctx;
     }
