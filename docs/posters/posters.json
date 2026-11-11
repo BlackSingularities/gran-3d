@@ -12,16 +12,16 @@
       "lead": "Prawdziwy model terenu, znakowane szlaki, trasy z wariantami oraz słońce i cienie o dowolnej porze dnia.",
       "shots": [
         {
-          "src": "../screenshots/windows/01.png",
-          "caption": "Szlaki na modelu terenu"
+          "src": "../screenshots/windows/01-trasa.png",
+          "caption": "Trasa szlakami z wariantami"
         },
         {
-          "src": "../screenshots/windows/02.png",
-          "caption": "Mapa nachyleń"
+          "src": "../screenshots/windows/02-warunki.png",
+          "caption": "Szlaki, pogoda i lawiny"
         },
         {
-          "src": "../screenshots/windows/03.png",
-          "caption": "Słońce i cienie"
+          "src": "../screenshots/windows/03-slonce.png",
+          "caption": "Słońce nad Morskim Okiem"
         }
       ],
       "features": [
