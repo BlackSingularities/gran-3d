@@ -152,7 +152,7 @@ pub fn position(unix: f64, lat: f64, lon: f64) -> (f64, f64) {
     (az, alt)
 }
 
-/// Wschód, zachód, górowanie (godziny czasu polskiego) i najwyższa wysokość Słońca.
+/// Wschód, zachód, górowanie (godziny czasu lokalnego miejsca) i najwyższa wysokość Słońca.
 pub struct SunTimes {
     pub rise: f64,
     pub set: f64,
@@ -161,7 +161,7 @@ pub struct SunTimes {
 }
 
 pub fn times(day: Day, lat: f64, lon: f64) -> SunTimes {
-    let alt = |h: f64| position(warsaw_unix(day, h), lat, lon).1 + 0.833;
+    let alt = |h: f64| position(crate::tz::local_unix(day, h, lon, lat), lat, lon).1 + 0.833;
     let find = |a: f64, b: f64| {
         let mut fa = alt(a);
         let mut h = a + 0.25;

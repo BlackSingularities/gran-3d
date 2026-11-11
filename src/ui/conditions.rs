@@ -1,5 +1,5 @@
 //! Zakładka „Warunki”: pogoda w punkcie (teraz, 48 godzin, 7 dni), pogoda na trasie w porze
-//! przejścia i komunikaty lawinowe dla Tatr (TOPR, SLP HZS).
+//! przejścia i komunikaty lawinowe (Tatry: TOPR i SLP HZS, reszta Europy: EAWS, USA: avalanche.org).
 
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 
@@ -53,9 +53,9 @@ fn place(a: &Atlas) -> Place {
     Place { lon, lat, ele, name }
 }
 
-/// Czas lokalny (polski) z sekund uniksowych: (dzień tygodnia 0 = poniedziałek, godzina).
-fn local(t: i64) -> (i64, f64) {
-    let off = crate::sun::warsaw_offset_min(t as f64) as i64 * 60;
+/// Czas lokalny miejsca (`lon`, `lat`) z sekund uniksowych: (dzień tygodnia 0 = poniedziałek, godzina).
+fn local(t: i64, lon: f64, lat: f64) -> (i64, f64) {
+    let off = crate::tz::offset_min(lon, lat, t as f64) as i64 * 60;
     let l = t + off;
     let days = l.div_euclid(86_400);
     ((days + 3).rem_euclid(7), l.rem_euclid(86_400) as f64 / 3600.0)
@@ -140,7 +140,7 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
     avalanche_ui(a, ui);
 
     ui.add_space(12.0);
-    theme::para(ui, "Prognoza: Open-Meteo (modele ICON, ECMWF i inne). Komunikaty lawinowe: TOPR (lawiny.topr.pl) i SLP HZS (laviny.sk) – zawsze sprawdź pełny komunikat u źródła przed wyjściem.");
+    theme::para(ui, "Prognoza: Open-Meteo (modele ICON, ECMWF i inne). Komunikaty lawinowe: TOPR, SLP HZS, służby EAWS (avalanches.org) i avalanche.org – zawsze sprawdź pełny komunikat u źródła przed wyjściem.");
 }
 
 fn forecast_ui(ui: &mut egui::Ui, f: &Forecast, ele: f32) {
@@ -180,15 +180,15 @@ fn forecast_ui(ui: &mut egui::Ui, f: &Forecast, ele: f32) {
     if !warn.is_empty() {
         ui.add_space(6.0);
         for (w, t) in warn {
-            let (_, hh) = local(t);
+            let (_, hh) = local(t, f.lon, f.lat);
             ui.label(RichText::new(tf!("{}  {} od {}", theme::icon::WARNING, tr(w), fmt::hour(hh.floor()))).color(theme::WARN));
         }
     }
     section(ui, theme::icon::CHART_LINE, "Najbliższe 48 godzin");
-    chart(ui, f.next(now, 48), ele);
+    chart(ui, f.next(now, 48), ele, (f.lon, f.lat));
     section(ui, theme::icon::CALENDAR, "7 dni");
     for d in &f.days {
-        let (wd, _) = local(d.t + 12 * 3600);
+        let (wd, _) = local(d.t + 12 * 3600, f.lon, f.lat);
         ui.horizontal(|ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new(tr(weekday(wd))).strong());
@@ -221,7 +221,8 @@ fn grid(ui: &mut egui::Ui, items: &[(&str, &str, String, Color32)]) {
 }
 
 /// Wykres godzinowy: temperatura (linia), opad (słupki), porywy (linia przerywana), noc (tło), izoterma.
-fn chart(ui: &mut egui::Ui, hours: &[Hour], ele: f32) {
+fn chart(ui: &mut egui::Ui, hours: &[Hour], ele: f32, (lon, lat): (f64, f64)) {
+    let local = |t: i64| local(t, lon, lat);
     if hours.len() < 2 {
         return;
     }
@@ -325,7 +326,8 @@ fn route_weather(a: &mut Atlas, ui: &mut egui::Ui) {
     }
     section(ui, theme::icon::PATH, "Pogoda na trasie");
     let (day, hour) = a.when();
-    let dep = crate::sun::warsaw_unix(day, hour) as i64;
+    let _ = day;
+    let dep = a.when_unix() as i64;
     let imax = (0..n).max_by(|&x, &y| tr_.e[x].total_cmp(&tr_.e[y])).unwrap_or(0);
     let mut idx = vec![0, n / 3, imax, 2 * n / 3, n - 1];
     idx.sort();
@@ -348,7 +350,7 @@ fn route_weather(a: &mut Atlas, ui: &mut egui::Ui) {
         let state = a.weather.get(&ctx, lon, lat, e);
         ui.horizontal(|ui| {
             ui.set_width(ui.available_width());
-            let (_, hh) = local(t);
+            let (_, hh) = local(t, lon, lat);
             ui.label(RichText::new(fmt::hour(hh)).monospace().color(theme::paper_3()));
             ui.label(RichText::new(&label).strong());
             ui.label(RichText::new(fmt::ele(e as f64)).small().color(theme::paper_3()));
@@ -450,24 +452,26 @@ fn notices_ui(a: &mut Atlas, ui: &mut egui::Ui) {
 fn avalanche_ui(a: &mut Atlas, ui: &mut egui::Ui) {
     section(ui, theme::icon::SNOWFLAKE, "Zagrożenie lawinowe");
     let pl = place(a);
-    if !in_tatras(pl.lon, pl.lat) {
-        theme::para(ui, "Komunikaty lawinowe są dostępne dla Tatr (TOPR – strona polska, SLP HZS – Słowacja). Przesuń widok w Tatry, żeby je zobaczyć.");
-        return;
-    }
     let ctx = ui.ctx().clone();
-    match a.avalanche.get(&ctx) {
-        avalanche::State::Loading => {
+    match a.avalanche.at(&ctx, pl.lon, pl.lat) {
+        avalanche::AtState::NoService => {
+            theme::para(ui, "Dla tego miejsca program nie zna otwartego źródła komunikatów lawinowych. Obsługiwane są służby z Europy zrzeszone w EAWS (Alpy, Pireneje, Karpaty, Skandynawia, Wyspy Brytyjskie i inne) oraz centra lawinowe w USA. Sprawdź lokalną służbę lawinową przed wyjściem.");
+            if ui.small_button(theme::ic(theme::icon::ARROW_SQUARE_OUT, "Służby lawinowe na świecie")).clicked() {
+                let _ = open::that("https://www.avalanches.org/");
+            }
+        }
+        avalanche::AtState::Loading => {
             ui.horizontal(|ui| {
                 ui.spinner();
                 ui.label(RichText::new(tr("pobieram komunikaty lawinowe…")).color(theme::paper_3()));
             });
         }
-        avalanche::State::Failed(e) => {
+        avalanche::AtState::Failed(e) => {
             ui.label(RichText::new(tf!("Komunikaty niedostępne: {}", e)).color(theme::WARN));
         }
-        avalanche::State::Ready(list) => {
+        avalanche::AtState::Ready(list) => {
             if list.is_empty() {
-                theme::para(ui, "Brak aktualnych komunikatów (poza sezonem zimowym są wydawane rzadko albo wcale).");
+                theme::para(ui, "Brak aktualnego komunikatu dla tego regionu (poza sezonem zimowym służby wydają je rzadko albo wcale).");
             }
             // najpierw komunikat dla strony, na której jest punkt
             let slovak = pl.lat < 49.205 || (pl.lon > 19.95 && pl.lat < 49.235 && pl.lon < 20.25);
@@ -530,11 +534,11 @@ fn bulletin_ui(ui: &mut egui::Ui, b: &Bulletin, ele: f32) {
                 });
             });
         }
-        let utc = if b.source == "TOPR" { "" } else { " UTC" };
+        let utc = if b.source == "SLP HZS" { " UTC" } else { "" };
         ui.label(RichText::new(tf!("Wydano {}{} · ważny do {}{}", b.issued, utc, b.valid_until, utc)).small().color(theme::paper_3()));
         let long = [b.comment.as_str(), b.snowpack.as_str(), b.tendency.as_str()].iter().any(|s| !s.is_empty());
         if long {
-            egui::CollapsingHeader::new(tr("Komentarz do komunikatu")).id_salt(("lawiny", b.source, &b.region)).show(ui, |ui| {
+            egui::CollapsingHeader::new(tr("Komentarz do komunikatu")).id_salt(("lawiny", &b.source, &b.region)).show(ui, |ui| {
                 for s in [&b.comment, &b.snowpack, &b.tendency] {
                     if !s.is_empty() {
                         ui.add(egui::Label::new(RichText::new(s.as_str()).small().color(theme::paper_2())).wrap());
@@ -543,7 +547,7 @@ fn bulletin_ui(ui: &mut egui::Ui, b: &Bulletin, ele: f32) {
             });
         }
         if ui.link(tf!("Pełny komunikat: {}", b.url.trim_start_matches("https://").trim_end_matches('/'))).clicked() {
-            let _ = open::that(b.url);
+            let _ = open::that(&b.url);
         }
     });
 }

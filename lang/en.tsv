@@ -639,7 +639,7 @@ Najbliższe 48 godzin	Next 48 hours
 Pogoda na trasie	Weather on the route
 Zagrożenie lawinowe	Avalanche danger
 Kliknij punkt albo szczyt na mapie, żeby zobaczyć warunki w tym miejscu. Prognoza jest liczona dla wysokości punktu.	Click a point or a peak on the map to see conditions there. The forecast is computed for the point's elevation.
-Prognoza: Open-Meteo (modele ICON, ECMWF i inne). Komunikaty lawinowe: TOPR (lawiny.topr.pl) i SLP HZS (laviny.sk) – zawsze sprawdź pełny komunikat u źródła przed wyjściem.	Forecast: Open-Meteo (ICON, ECMWF and other models). Avalanche bulletins: TOPR (lawiny.topr.pl) and SLP HZS (laviny.sk) – always check the full bulletin at the source before you go.
+Prognoza: Open-Meteo (modele ICON, ECMWF i inne). Komunikaty lawinowe: TOPR, SLP HZS, służby EAWS (avalanches.org) i avalanche.org – zawsze sprawdź pełny komunikat u źródła przed wyjściem.	Forecast: Open-Meteo (ICON, ECMWF and other models). Avalanche bulletins: TOPR, SLP HZS, EAWS services (avalanches.org) and avalanche.org – always check the full bulletin at the source before you go.
 Komunikaty lawinowe są dostępne dla Tatr (TOPR – strona polska, SLP HZS – Słowacja). Przesuń widok w Tatry, żeby je zobaczyć.	Avalanche bulletins are available for the Tatras (TOPR – Polish side, SLP HZS – Slovakia). Move the view to the Tatras to see them.
 Brak aktualnych komunikatów (poza sezonem zimowym są wydawane rzadko albo wcale).	No current bulletins (outside the winter season they are issued rarely or not at all).
 Bezchmurnie	Clear sky
@@ -856,3 +856,8 @@ Najwyżej {}	Highest {}
 Trasa potrzebuje co najmniej dwóch punktów.	The route needs at least two points.
 Stacja kolejowa	Railway station
 Stacje kolejowe	Railway stations
+Dla tego miejsca program nie zna otwartego źródła komunikatów lawinowych. Obsługiwane są służby z Europy zrzeszone w EAWS (Alpy, Pireneje, Karpaty, Skandynawia, Wyspy Brytyjskie i inne) oraz centra lawinowe w USA. Sprawdź lokalną służbę lawinową przed wyjściem.	GRAŃ knows no open avalanche bulletin source for this place. Supported: European services in EAWS (Alps, Pyrenees, Carpathians, Scandinavia, British Isles and more) and US avalanche centers. Check the local avalanche service before you go.
+Służby lawinowe na świecie	Avalanche services worldwide
+Brak aktualnego komunikatu dla tego regionu (poza sezonem zimowym służby wydają je rzadko albo wcale).	No current bulletin for this region (outside winter services publish rarely or not at all).
+Poza sezonem – centrum nie wydaje prognoz.	Off season – the center is not issuing forecasts.
+czas lokalny środka widoku: {}	local time at the view centre: {}

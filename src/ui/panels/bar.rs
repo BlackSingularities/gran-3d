@@ -193,7 +193,12 @@ pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
     p.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(22.0), sun_col);
     p.text(rect.left_top() + egui::vec2(38.0, 5.0), egui::Align2::LEFT_TOP, fmt::hour(hour), egui::FontId::proportional(16.0), accent);
     p.text(rect.left_bottom() + egui::vec2(38.0, -5.0), egui::Align2::LEFT_BOTTOM, if custom { day.label() } else { crate::i18n::tr("teraz").into() }, egui::FontId::proportional(10.5), theme::paper_3());
-    let resp = resp.on_hover_text(if custom { crate::i18n::tr("Pora ustawiona ręcznie") } else { crate::i18n::tr("Oświetlenie jak teraz") });
+    let zone = crate::tz::label(a.cam.lon, a.cam.lat, a.when_unix());
+    let resp = resp.on_hover_text(format!(
+        "{}\n{}",
+        if custom { crate::i18n::tr("Pora ustawiona ręcznie") } else { crate::i18n::tr("Oświetlenie jak teraz") },
+        tf!("czas lokalny środka widoku: {}", zone)
+    ));
     egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).frame(theme::glass().inner_margin(egui::Margin::same(14))).show(|ui| {
         ui.set_width(360.0);
         light_tab(a, ui);
