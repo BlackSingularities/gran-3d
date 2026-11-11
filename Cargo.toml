@@ -1,8 +1,8 @@
 [package]
 name = "gran"
-version = "2.12.0"
+version = "2.13.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 description = "GRAŃ — atlas szlaków górskich 3D dla Windows"
 authors = ["BlackSingularities"]
 build = "build.rs"
@@ -31,6 +31,9 @@ base64 = "0.22"
 roxmltree = "0.21"
 open = "5"
 log = "0.4"
+tzf-rs = { version = "2.3", default-features = false, features = ["bundled"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+chrono-tz = "0.10"
 env_logger = { version = "0.11", default-features = false, features = ["humantime"] }
 
 [target.'cfg(windows)'.dependencies]

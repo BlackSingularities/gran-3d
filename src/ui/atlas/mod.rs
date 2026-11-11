@@ -472,25 +472,22 @@ impl Atlas {
         self.toast = Some((s.into(), Instant::now()));
     }
 
-    /// Dzień i godzina sceny.
+    /// Dzień i godzina sceny w czasie lokalnym oglądanego miejsca (środka widoku).
     pub fn when(&self) -> (Day, f64) {
         match self.prefs.custom_time {
             Some((y, m, d, h)) => (Day { y, m, d }, h),
-            None => {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs_f64())
-                    .unwrap_or(0.0);
-                let off = sun::warsaw_offset_min(now) as f64 * 60.0;
-                let local = now + off;
-                (Day::today(), (local.rem_euclid(86_400.0)) / 3600.0)
-            }
+            None => crate::tz::now_at(self.cam.lon, self.cam.lat),
         }
     }
 
-    pub fn sun(&self) -> (f64, f64) {
+    /// Chwila sceny w sekundach UTC.
+    pub fn when_unix(&self) -> f64 {
         let (day, hour) = self.when();
-        sun::position(sun::warsaw_unix(day, hour), self.cam.lat, self.cam.lon)
+        crate::tz::local_unix(day, hour, self.cam.lon, self.cam.lat)
+    }
+
+    pub fn sun(&self) -> (f64, f64) {
+        sun::position(self.when_unix(), self.cam.lat, self.cam.lon)
     }
 
     // ------------------------------------------------------------------ kamera

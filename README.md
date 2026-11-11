@@ -19,7 +19,7 @@ Instalacja na wersji 1.x (Electron) usuwa ją jej własnym deinstalatorem i zach
 - **Ortofotomapa** GUGiK (PL), ČÚZK (CZ), ZBGIS (SK), basemap.at (AT), swisstopo SWISSIMAGE (CH) i Provincia di Bolzano (Tyrol Południowy) do ~0,6 m na bliskich kaflach w stylu satelitarnym, a w obszarach „LiDAR i ortofoto” – **model LiDAR 3 m** (NMT GUGiK w PUWG-1992 przeliczany do Web Mercatora, DMR 5G ČÚZK).
 - **Pokrycie terenu z OSM** (wody, lasy, kosodrzewina, piargi) wypiekane do masek sektorów i używane w cieniowaniu.
 - Style: **teren** (piętra roślinności zależne od wysokości, nachylenia i ekspozycji, śnieg według daty, barwy jesieni), **satelita** (Sentinel-2 cloudless), **mapa**, **hipsometria**, **nachylenie jak na mapach lawinowych**, **ekspozycja**.
-- **Słońce według daty i godziny** (NOAA, czas polski), **cienie rzucane przez rzeźbę** liczone w tle, perspektywa powietrzna i niebo z poświatą Słońca.
+- **Słońce według daty i godziny** (NOAA, czas lokalny strefy oglądanego miejsca), **cienie rzucane przez rzeźbę** liczone w tle, perspektywa powietrzna i niebo z poświatą Słońca.
 - Poziomice z automatycznym cięciem, siatka kilometrowa, przewyższenie ×1–3, MSAA i skalowanie rozdzielczości renderu.
 
 ### Trasy
@@ -40,7 +40,7 @@ Instalacja na wersji 1.x (Electron) usuwa ją jej własnym deinstalatorem i zach
 - **Zamknięte szlaki** z OSM (także sezonowo) na mapie i jako ostrzeżenie przy trasie, **trasy narciarskie**, **dojazd do początku trasy** (najbliższe stacje, przystanki i parkingi, rozkład jazdy).
 
 ### Warunki
-Prognoza pogody dla wysokości punktu i na trasie w porze przejścia, komunikaty lawinowe TOPR i SLP HZS, **komunikat turystyczny TPN** (zamknięte szlaki, zagrożenia), godziny otwarcia schronisk ze stanem „otwarte teraz”.
+Prognoza pogody dla wysokości punktu i na trasie w porze przejścia, komunikaty lawinowe (Tatry: TOPR i SLP HZS, Europa: służby EAWS, USA: avalanche.org), czas lokalny strefy oglądanego miejsca, **komunikat turystyczny TPN** (zamknięte szlaki, zagrożenia), godziny otwarcia schronisk ze stanem „otwarte teraz”.
 
 ### Interfejs
 **Paleta poleceń (`Ctrl+K`)** ze wszystkimi poleceniami, pełna obsługa klawiatury, **wysoki kontrast** (`Ctrl+H`) i **skala interfejsu** 75–200%.

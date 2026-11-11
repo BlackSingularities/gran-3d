@@ -35,6 +35,7 @@ mod render;
 mod settings;
 mod store;
 mod sun;
+mod tz;
 mod transit;
 mod ui;
 mod updater;
@@ -93,6 +94,7 @@ fn main() -> eframe::Result<()> {
         persist_window: true,
         ..Default::default()
     };
+    tz::warm_up();
     eframe::run_native(
         "GRAŃ",
         options,

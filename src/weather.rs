@@ -52,6 +52,9 @@ pub struct DayF {
 
 #[derive(Clone, Debug, Default)]
 pub struct Forecast {
+    /// Miejsce prognozy (do czasu lokalnego).
+    pub lon: f64,
+    pub lat: f64,
     pub elevation: f32,
     pub hours: Vec<Hour>,
     pub days: Vec<DayF>,
@@ -142,7 +145,7 @@ fn fetch(lat: f64, lon: f64, ele: f32) -> Result<Forecast, String> {
         "{API}?latitude={lat:.4}&longitude={lon:.4}&elevation={ele:.0}\
          &hourly=temperature_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,wind_direction_10m,cloud_cover,cloud_cover_low,precipitation,precipitation_probability,snowfall,freezing_level_height,weather_code,visibility,is_day\
          &daily=temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,wind_gusts_10m_max,weather_code\
-         &timezone=Europe%2FWarsaw&timeformat=unixtime&forecast_days=7&wind_speed_unit=kmh"
+         &timezone=auto&timeformat=unixtime&forecast_days=7&wind_speed_unit=kmh"
     );
     let body = crate::download::agent()
         .get(&url)
@@ -150,7 +153,8 @@ fn fetch(lat: f64, lon: f64, ele: f32) -> Result<Forecast, String> {
         .map_err(|e| crate::i18n::tr("brak połączenia z serwisem pogody").to_string() + &format!(" ({e})"))?
         .into_string()
         .map_err(|e| e.to_string())?;
-    parse(&body)
+    // czas lokalny liczony dla miejsca z zapytania, nie dla węzła siatki modelu
+    parse(&body).map(|f| Forecast { lon, lat, ..f })
 }
 
 pub fn parse(body: &str) -> Result<Forecast, String> {
@@ -210,7 +214,7 @@ pub fn parse(body: &str) -> Result<Forecast, String> {
     if hours.is_empty() {
         return Err(crate::i18n::tr("pusta prognoza").into());
     }
-    Ok(Forecast { elevation: v["elevation"].as_f64().unwrap_or(0.0) as f32, hours, days })
+    Ok(Forecast { lon: v["longitude"].as_f64().unwrap_or(0.0), lat: v["latitude"].as_f64().unwrap_or(0.0), elevation: v["elevation"].as_f64().unwrap_or(0.0) as f32, hours, days })
 }
 
 /// Opis i ikona kodu pogody WMO.

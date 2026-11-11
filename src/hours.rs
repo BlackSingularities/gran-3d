@@ -267,13 +267,10 @@ impl Hours {
     }
 }
 
-/// Bieżący dzień i minuta czasu polskiego.
-pub fn now_local() -> (Day, u16) {
-    let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
-    let local = unix + crate::sun::warsaw_offset_min(unix) as f64 * 60.0;
-    let days = (local / 86_400.0).floor() as i64;
-    let minute = ((local - days as f64 * 86_400.0) / 60.0) as u16;
-    (crate::sun::civil_from_days(days), minute.min(1439))
+/// Bieżący dzień i minuta czasu lokalnego w punkcie (`lon`, `lat`).
+pub fn now_local(lon: f64, lat: f64) -> (Day, u16) {
+    let (day, hour) = crate::tz::now_at(lon, lat);
+    (day, ((hour * 60.0) as u16).min(1439))
 }
 
 /// Opis stanu po polsku, np. „otwarte · do 18:00”, „zamknięte · otwarcie jutro o 8:00”.

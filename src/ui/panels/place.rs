@@ -334,7 +334,7 @@ pub(super) fn poi_details(a: &mut Atlas, ui: &mut egui::Ui, p: &crate::osm::Poi)
     if let Some(h) = get("hours") {
         // stan teraz (otwarte / zamknięte i najbliższa zmiana), gdy program rozumie zapis godzin
         if let Some(hours) = crate::hours::Hours::parse(&h) {
-            let (day, minute) = crate::hours::now_local();
+            let (day, minute) = crate::hours::now_local(p.lon, p.lat);
             let st = hours.status(day, minute);
             let color = if st.open { theme::OK } else { theme::SIGNAL };
             ui.horizontal(|ui| {
