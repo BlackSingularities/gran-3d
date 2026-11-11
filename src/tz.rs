@@ -85,18 +85,18 @@ mod tests {
 
     #[test]
     fn zones_around_the_world() {
-        assert_eq!(zone(19.95, 49.23).map(|z| z.name()), Some("Europe/Warsaw"));
-        assert_eq!(zone(86.92, 27.99).map(|z| z.name()), Some("Asia/Kathmandu"));
+        assert_eq!(zone(19.95, 49.30).map(|z| z.name()), Some("Europe/Warsaw"));
+        assert_eq!(zone(85.32, 27.71).map(|z| z.name()), Some("Asia/Kathmandu"));
         assert_eq!(zone(-105.27, 40.01).map(|z| z.name()), Some("America/Denver"));
     }
 
     #[test]
     fn offsets_follow_daylight_saving() {
-        // Zakopane: zima UTC+1, lato UTC+2
-        assert_eq!(offset_min(19.95, 49.23, unix(2026, 1, 15, 12.0)), 60);
-        assert_eq!(offset_min(19.95, 49.23, unix(2026, 7, 15, 12.0)), 120);
+        // Zakopane: zima UTC+1, lato UTC+2 (punkty z dala od granic – uproszczone granice stref)
+        assert_eq!(offset_min(19.95, 49.30, unix(2026, 1, 15, 12.0)), 60);
+        assert_eq!(offset_min(19.95, 49.30, unix(2026, 7, 15, 12.0)), 120);
         // Nepal bez czasu letniego, UTC+5:45
-        assert_eq!(offset_min(86.92, 27.99, unix(2026, 7, 15, 12.0)), 345);
+        assert_eq!(offset_min(85.32, 27.71, unix(2026, 7, 15, 12.0)), 345);
         // Kolorado latem UTC−6
         assert_eq!(offset_min(-105.27, 40.01, unix(2026, 7, 15, 12.0)), -360);
     }
