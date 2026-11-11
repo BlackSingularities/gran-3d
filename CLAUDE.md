@@ -12,4 +12,7 @@
 - Dane map: jeden folder (`<wybrany>\GRAN-dane`) z limitem 1–500 GB, zapisywane samoczynnie podczas oglądania; po przekroczeniu limitu usuwane od najdawniej używanych: paczki kafli `tiles\`, sektory OSM `sectors\`. Ustawienia w `%APPDATA%\GRAN\gran.json`, ścieżka danych też w `datadir.txt` (dla deinstalatora).
 - **Języki**: napisy w kodzie są po polsku i przechodzą przez `crate::i18n::tr("…")` albo `tf!("…", …)` (zamiast `format!`); tłumaczenia w `lang/<kod>.tsv` (polski<TAB>tłumaczenie). Nowy napis w interfejsie → dopisz go do `lang/en.tsv`. Nowy język → plik `.tsv` i wpis w `i18n::LANGS`.
 - Biblioteka tras, miejsc i widoków: `library.rs` + `ui/library.rs`, plik `%APPDATA%\GRAN\biblioteka.json`. Dziennik: `%LOCALAPPDATA%\GRAN\gran.log`.
-- Struktura: `render/` (kamera, kafle, shadery WGSL), `ui/atlas.rs` (widok 3D, narzędzia), `ui/panels.rs`, `graph.rs` (trasy), `osm.rs` + `world.rs` (sektory OSM), `heights.rs`, `analysis.rs`, `store.rs` + `pack.rs` (dane na dysku).
+- Struktura: `render/` (kamera, kafle, shadery WGSL), `ui/atlas/` (widok 3D podzielony na moduły: `view`, `input`, `nav`, `route`, `jobs`, `scene`, `overlays`…), `ui/panels/` (pasek, panel boczny, szczegóły, trasa, ustawienia mapy, okna),
+  - **Narzędzia mapy** implementują trait `MapTool` (`ui/atlas/tools.rs`): nowe narzędzie = wariant `Tool` + `impl MapTool` + wpis w `Tool::behavior`/`Tool::ALL`.
+  - **Polecenia** (skróty, paleta Ctrl+K, okno pomocy) są w jednym rejestrze `Action` (`ui/atlas/actions.rs`) – nowe polecenie dopisuj tam, nie do obsługi klawiatury.
+  - `graph.rs` (trasy), `osm.rs` + `world.rs` (sektory OSM), `heights.rs`, `analysis.rs`, `store.rs` + `pack.rs` (dane na dysku).
