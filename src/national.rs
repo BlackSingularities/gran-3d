@@ -1,4 +1,5 @@
-//! Krajowe ortofotomapy (GUGiK – PL, ZBGIS – SK, ČÚZK – CZ). Zasięg krajów z Natural Earth 1:50m.
+//! Krajowe ortofotomapy: GUGiK (PL), ZBGIS (SK), ČÚZK (CZ), basemap.at (AT), swisstopo SWISSIMAGE (CH)
+//! i Provincia di Bolzano (Tyrol Południowy). Zasięg krajów z Natural Earth 1:50m, prowincji z OSM.
 
 use std::io::Read;
 use std::sync::{Condvar, Mutex, OnceLock};
@@ -79,7 +80,7 @@ pub fn ortho_sources(t: TileId) -> Vec<&'static str> {
     if t.z < ORTHO_MIN_Z {
         return Vec::new();
     }
-    ["sk", "cz", "pl"]
+    ["sk", "cz", "pl", "at", "ch", "bz"]
         .into_iter()
         .filter(|code| tile_touches(t, 0.0, |c| c.ortho.as_deref() == Some(*code)))
         .collect()
@@ -156,6 +157,37 @@ fn get_bytes(url: &str, limit: u64) -> Result<Vec<u8>, FetchError> {
     Err(FetchError::Network(last))
 }
 
+/// Adres kafla 256 px usługi kaflowej (EPSG:3857, schemat XYZ).
+fn xyz_url(src: &str, z: u8, x: u32, y: u32) -> String {
+    match src {
+        "at" => format!("https://mapsneu.wien.gv.at/basemap/bmaporthofoto30cm/normal/google3857/{z}/{y}/{x}.jpeg"),
+        _ => format!("https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg"),
+    }
+}
+
+/// Obraz 512 px kafla `t` z czterech kafli 256 px poziomu `t.z + 1`. Brakujący kafel (poza zasięgiem
+/// usługi) zostaje przezroczysty.
+fn xyz_quad(src: &str, t: TileId) -> Result<image::RgbaImage, FetchError> {
+    let n = ORTHO_PX;
+    let half = n / 2;
+    let mut out = image::RgbaImage::new(n, n);
+    let mut any = false;
+    for (qx, qy) in [(0u32, 0u32), (1, 0), (0, 1), (1, 1)] {
+        let url = xyz_url(src, t.z + 1, t.x * 2 + qx, t.y * 2 + qy);
+        match get_bytes(&url, 4 << 20) {
+            Ok(b) => {
+                let Ok(img) = image::load_from_memory(&b) else { continue };
+                let img = image::imageops::resize(&img.to_rgba8(), half, half, image::imageops::FilterType::Triangle);
+                image::imageops::overlay(&mut out, &img, (qx * half) as i64, (qy * half) as i64);
+                any = true;
+            }
+            Err(FetchError::Missing) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    if any { Ok(out) } else { Err(FetchError::Missing) }
+}
+
 /// Ortofoto kafla złożone z usług krajowych (przezroczyste poza krajem) na tle zdjęcia satelitarnego.
 /// Zwraca JPEG albo `Missing`, gdy żadna usługa nie ma obrazu.
 pub fn fetch_ortho(t: TileId, background: Option<image::RgbaImage>) -> Result<Vec<u8>, FetchError> {
@@ -187,15 +219,21 @@ pub fn fetch_ortho(t: TileId, background: Option<image::RgbaImage>) -> Result<Ve
                 rings.iter().any(|r| in_ring(lon, lat, r))
             })
             .collect();
-        let url = match src {
-            "pl" => format!("https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMS/HighResolution?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=Raster&STYLES=&CRS=EPSG:3857&BBOX={bb}&WIDTH={n}&HEIGHT={n}&FORMAT=image/png&TRANSPARENT=TRUE"),
-            "sk" => format!("https://zbgis.skgeodesy.sk/zbgis/rest/services/Ortofoto/MapServer/export?bbox={bb}&bboxSR=3857&imageSR=3857&size={n},{n}&format=png32&transparent=true&f=image"),
-            _ => format!("https://ags.cuzk.gov.cz/arcgis1/rest/services/ORTOFOTO_WM/MapServer/export?bbox={bb}&bboxSR=3857&imageSR=3857&size={n},{n}&format=png32&transparent=true&f=image"),
+        let fetched = match src {
+            // usługi kaflowe (256 px): cztery kafle o poziom głębiej składają obraz 512 px
+            "at" | "ch" => xyz_quad(src, t),
+            _ => {
+                let url = match src {
+                    "pl" => format!("https://mapy.geoportal.gov.pl/wss/service/PZGIK/ORTO/WMS/HighResolution?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=Raster&STYLES=&CRS=EPSG:3857&BBOX={bb}&WIDTH={n}&HEIGHT={n}&FORMAT=image/png&TRANSPARENT=TRUE"),
+                    "sk" => format!("https://zbgis.skgeodesy.sk/zbgis/rest/services/Ortofoto/MapServer/export?bbox={bb}&bboxSR=3857&imageSR=3857&size={n},{n}&format=png32&transparent=true&f=image"),
+                    "bz" => format!("https://geoservices.buergernetz.bz.it/mapproxy/ows?SERVICE=WMS&REQUEST=GetMap&VERSION=1.3.0&LAYERS=p_bz-Orthoimagery:Aerial-2023-RGB&STYLES=&CRS=EPSG:3857&BBOX={bb}&WIDTH={n}&HEIGHT={n}&FORMAT=image/png&TRANSPARENT=TRUE"),
+                    _ => format!("https://ags.cuzk.gov.cz/arcgis1/rest/services/ORTOFOTO_WM/MapServer/export?bbox={bb}&bboxSR=3857&imageSR=3857&size={n},{n}&format=png32&transparent=true&f=image"),
+                };
+                get_bytes(&url, 16 << 20).and_then(|b| image::load_from_memory(&b).map(|i| i.to_rgba8()).map_err(|_| FetchError::Missing))
+            }
         };
-        match get_bytes(&url, 16 << 20) {
-            Ok(b) => {
-                let Ok(img) = image::load_from_memory(&b) else { continue };
-                let img = img.to_rgba8();
+        match fetched {
+            Ok(img) => {
                 if img.width() != n || img.height() != n {
                     continue;
                 }
@@ -251,5 +289,11 @@ mod tests {
         assert_eq!(country_at(2.35, 48.85), None);
         let t = crate::geo::tile_at(19.94, 50.06, 14);
         assert_eq!(ortho_sources(t), vec!["pl"]);
+        assert_eq!(country_at(16.37, 48.21), Some("AT"));
+        assert_eq!(country_at(8.54, 47.37), Some("CH"));
+        assert_eq!(country_at(11.35, 46.5), Some("IT-BZ"));
+        assert_eq!(ortho_sources(crate::geo::tile_at(11.35, 46.5, 15)), vec!["bz"]);
+        assert_eq!(ortho_sources(crate::geo::tile_at(7.45, 46.95, 15)), vec!["ch"]);
+        assert_eq!(xyz_url("at", 16, 35300, 22900), "https://mapsneu.wien.gv.at/basemap/bmaporthofoto30cm/normal/google3857/16/22900/35300.jpeg");
     }
 }

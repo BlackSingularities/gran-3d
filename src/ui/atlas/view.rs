@@ -164,9 +164,9 @@ impl Atlas {
         let lines = self.dyn_lines(&view);
         let ppp = ctx.pixels_per_point();
         let dim = self.current_route().is_some();
+        // zamknięcia sezonowe zależą od daty – dzień w roku w kluczu
+        let (day, _) = self.when();
         if let Some(r) = &mut self.renderer {
-            // zamknięcia sezonowe zależą od daty – dzień w roku w kluczu
-            let (day, _) = self.when();
             let key = {
                 use std::hash::{Hash, Hasher};
                 let mut h = std::collections::hash_map::DefaultHasher::new();

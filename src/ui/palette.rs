@@ -158,7 +158,6 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
     }
     match run {
         Some(Item::Act(act)) if act.enabled(a) => {
-            close = true;
             a.palette = None;
             a.run(act, ctx);
             // polecenie mogło otworzyć paletę na nowo (Ctrl+K w palecie)
