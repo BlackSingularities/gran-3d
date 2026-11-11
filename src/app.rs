@@ -302,6 +302,18 @@ impl App {
                                 }
                             });
                             ui.add_space(12.0);
+                            ui.label(theme::kicker(crate::i18n::tr("Dostępność")));
+                            theme::switch(ui, &mut atlas.prefs.high_contrast, crate::i18n::tr("Wysoki kontrast (Ctrl+H)"));
+                            ui.horizontal(|ui| {
+                                ui.label(crate::i18n::tr("Wielkość interfejsu"));
+                                ui.add(
+                                    egui::Slider::new(&mut atlas.prefs.ui_scale, crate::ui::atlas::UI_SCALE_MIN..=crate::ui::atlas::UI_SCALE_MAX)
+                                        .step_by(0.05)
+                                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                                );
+                            });
+                            theme::para(ui, crate::i18n::tr("Skróty: Ctrl+= powiększa, Ctrl+− pomniejsza, Ctrl+0 przywraca. Wszystkie polecenia są też w palecie (Ctrl+K), a Tab przechodzi po kontrolkach paneli."));
+                            ui.add_space(12.0);
                             ui.label(theme::kicker(crate::i18n::tr("Program")));
                             theme::switch(ui, &mut view.draft.auto_update, crate::i18n::tr("Sprawdzaj aktualizacje"));
                             theme::switch(ui, &mut view.draft.vsync, crate::i18n::tr("Synchronizacja z monitorem"));
@@ -340,7 +352,7 @@ impl App {
                             ui.label(theme::kicker(crate::i18n::tr("Zajęte miejsce")));
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(if known { fmt_bytes(used) } else { "…".into() }).size(22.0).strong());
-                                ui.label(RichText::new(tf!("z {} GB", current_limit)).color(theme::PAPER_3));
+                                ui.label(RichText::new(tf!("z {} GB", current_limit)).color(theme::paper_3()));
                             });
                             let limit = current_limit as u64 * (1 << 30);
                             theme::bar(ui, used as f32 / limit as f32, theme::BRASS);
@@ -358,7 +370,7 @@ impl App {
                             ui.label(theme::kicker(crate::i18n::tr("Folder danych")));
                             ui.label(RichText::new(view.draft.data_dir.display().to_string()).monospace());
                             if let Some(f) = free_space(&view.draft.data_dir) {
-                                ui.label(RichText::new(tf!("Wolne miejsce: {}", fmt_bytes(f))).small().color(theme::PAPER_3));
+                                ui.label(RichText::new(tf!("Wolne miejsce: {}", fmt_bytes(f))).small().color(theme::paper_3()));
                             }
                             if ui.button(theme::ic(theme::icon::FOLDER_OPEN, "Zmień folder…")).clicked() {
                                 if let Some(p) = rfd::FileDialog::new().set_title(crate::i18n::tr("Folder na dane map GRANIA")).pick_folder() {
@@ -382,13 +394,13 @@ impl App {
                             if ui.link("redzikowski.com").clicked() {
                                 let _ = open::that("https://redzikowski.com");
                             }
-                            ui.label(RichText::new("kontakt@redzikowski.com").small().color(theme::PAPER_3));
+                            ui.label(RichText::new("kontakt@redzikowski.com").small().color(theme::paper_3()));
                             if ui.add(theme::primary(&theme::ic(theme::icon::COFFEE, "Postaw kawę"))).clicked() {
                                 let _ = open::that("https://buycoffee.to/adamredzikowski");
                             }
                             ui.add_space(12.0);
                             ui.label(theme::kicker(crate::i18n::tr("Źródła danych")));
-                            theme::para(ui, crate::i18n::tr("Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), opcjonalne ortofoto: GUGiK, ČÚZK, ÚGKK SR. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim."));
+                            theme::para(ui, crate::i18n::tr("Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), opcjonalne ortofoto: GUGiK, ČÚZK, ÚGKK SR, basemap.at, swisstopo (SWISSIMAGE), Provincia autonoma di Bolzano. Komunikat turystyczny: TPN. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim."));
                         }
                     });
                 });
@@ -523,7 +535,7 @@ impl App {
                         ui.set_width(380.0);
                         ui.label(tf!("Pobieranie wersji {}…", version));
                         theme::bar(ui, got as f32 / total as f32, theme::BRASS);
-                        ui.label(RichText::new(format!("{} z {}", fmt_bytes(got), fmt_bytes(total))).small().color(theme::PAPER_3));
+                        ui.label(RichText::new(format!("{} z {}", fmt_bytes(got), fmt_bytes(total))).small().color(theme::paper_3()));
                     });
                 ctx.request_repaint_after(Duration::from_millis(200));
                 let done = slot.lock().unwrap().take();
@@ -575,12 +587,12 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(glyph).size(30.0).color(theme::BRASS));
                 ui.vertical(|ui| {
-                    ui.label(RichText::new(tf!("Krok {} z {}", step + 1, steps.len())).small().color(theme::PAPER_3));
+                    ui.label(RichText::new(tf!("Krok {} z {}", step + 1, steps.len())).small().color(theme::paper_3()));
                     ui.label(RichText::new(tr(title)).size(20.0).strong());
                 });
             });
             ui.add_space(10.0);
-            ui.add(egui::Label::new(RichText::new(tr(body)).size(15.0).color(theme::PAPER_2)).wrap());
+            ui.add(egui::Label::new(RichText::new(tr(body)).size(15.0).color(theme::paper_2())).wrap());
             ui.add_space(16.0);
             ui.horizontal(|ui| {
                 // postęp: kropki
@@ -666,9 +678,19 @@ impl eframe::App for App {
         if r.open_settings {
             self.open_settings(Page::Data);
         }
+        if r.open_preferences {
+            self.open_settings(Page::General);
+        }
         if r.check_updates {
             self.check_updates(true);
         }
+        // skala interfejsu i wysoki kontrast z ustawień (zmieniane też skrótami i z palety)
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        let scale = self.atlas.prefs.ui_scale.clamp(crate::ui::atlas::UI_SCALE_MIN, crate::ui::atlas::UI_SCALE_MAX);
+        if (ctx.zoom_factor() - scale).abs() > 0.001 {
+            ctx.set_zoom_factor(scale);
+        }
+        theme::set_high_contrast(ctx, self.atlas.prefs.high_contrast);
         self.update_ui(ctx);
 
         self.top_bar(ctx);
@@ -681,6 +703,7 @@ impl eframe::App for App {
         crate::ui::panels::nav(&mut self.atlas, ctx);
         crate::ui::panels::profile_panel(&mut self.atlas, ctx);
         crate::ui::search::show(&mut self.atlas, ctx);
+        crate::ui::palette::show(&mut self.atlas, ctx);
         crate::ui::panels::help(&mut self.atlas, ctx);
         crate::ui::panels::load_window(&mut self.atlas, ctx);
         self.settings_window(ctx);

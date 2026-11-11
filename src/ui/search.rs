@@ -24,6 +24,13 @@ pub struct Search {
     focused: bool,
 }
 
+impl Search {
+    /// Wyszukiwarka z wpisanym już tekstem (np. z palety poleceń).
+    pub fn with_query(q: &str) -> Self {
+        Search { q: q.to_string(), typed: Some(Instant::now()), ..Default::default() }
+    }
+}
+
 enum Hit {
     /// Wpisane współrzędne (długość, szerokość).
     Coord(f64, f64),
@@ -210,7 +217,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
                     let resp = theme::card(k == s.sel).inner_margin(egui::Margin::symmetric(10, 6)).show(ui, |ui| {
                         ui.set_width(ui.available_width());
                         ui.label(RichText::new(name).strong());
-                        ui.label(RichText::new(sub).small().color(theme::PAPER_3));
+                        ui.label(RichText::new(sub).small().color(theme::paper_3()));
                     });
                     if resp.response.interact(egui::Sense::click()).clicked() {
                         choose = Some(match h {
@@ -224,7 +231,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
                 if s.pending.is_some() {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label(RichText::new(crate::i18n::tr("szukam w OpenStreetMap…")).small().color(theme::PAPER_3));
+                        ui.label(RichText::new(crate::i18n::tr("szukam w OpenStreetMap…")).small().color(theme::paper_3()));
                     });
                 }
                 if let Some(e) = &s.error {

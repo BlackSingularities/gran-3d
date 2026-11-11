@@ -16,7 +16,7 @@ Instalacja na wersji 1.x (Electron) usuwa ją jej własnym deinstalatorem i zach
 
 ### Teren
 - Teren kaflowy z poziomami szczegółów (drzewo czwórkowe Web Mercator, siatka 64×64 na kafel, fartuchy maskujące szczeliny, krzywizna Ziemi), dane wczytywane w wątkach wokół kamery, a do czasu wczytania – fragmenty kafli nadrzędnych.
-- **Ortofotomapa** GUGiK (PL), ČÚZK (CZ) i ZBGIS (SK) do ~0,6 m na bliskich kaflach w stylu satelitarnym, a w obszarach „LiDAR i ortofoto” – **model LiDAR 3 m** (NMT GUGiK w PUWG-1992 przeliczany do Web Mercatora, DMR 5G ČÚZK).
+- **Ortofotomapa** GUGiK (PL), ČÚZK (CZ), ZBGIS (SK), basemap.at (AT), swisstopo SWISSIMAGE (CH) i Provincia di Bolzano (Tyrol Południowy) do ~0,6 m na bliskich kaflach w stylu satelitarnym, a w obszarach „LiDAR i ortofoto” – **model LiDAR 3 m** (NMT GUGiK w PUWG-1992 przeliczany do Web Mercatora, DMR 5G ČÚZK).
 - **Pokrycie terenu z OSM** (wody, lasy, kosodrzewina, piargi) wypiekane do masek sektorów i używane w cieniowaniu.
 - Style: **teren** (piętra roślinności zależne od wysokości, nachylenia i ekspozycji, śnieg według daty, barwy jesieni), **satelita** (Sentinel-2 cloudless), **mapa**, **hipsometria**, **nachylenie jak na mapach lawinowych**, **ekspozycja**.
 - **Słońce według daty i godziny** (NOAA, czas polski), **cienie rzucane przez rzeźbę** liczone w tle, perspektywa powietrzna i niebo z poświatą Słońca.
@@ -29,7 +29,7 @@ Instalacja na wersji 1.x (Electron) usuwa ją jej własnym deinstalatorem i zach
 - **Trasa przez teren**: A* po modelu (16 kierunków), funkcja Toblera, limit nachylenia.
 - Metryki: dystans w rzucie i po powierzchni, linia prosta i krętość, podejścia/zejścia z histerezą, czas wg **reguły PTTK** lub **DIN 33466** z tempem i skalą SAC, **punkty GOT PTTK**, maks. nachylenie, ocena trudności.
 - **Profil wysokości** barwiony nachyleniem, z pasem kolorów szlaków, mijanymi punktami, wariantami w tle i kursorem zsynchronizowanym z mapą.
-- **Przelot kamery** nad trasą, eksport i import **GPX** (także przeciągnięciem pliku na okno), **link `gran://`** z widokiem i punktami trasy (rejestrowany przez instalator, otwierany też z wyszukiwarki).
+- **Przelot kamery** nad trasą, eksport i import **GPX**, KML i GeoJSON (także przeciągnięciem pliku na okno), **kurs FIT na zegarek** (Garmin, Suunto, Wahoo, Coros) z planowanym czasem, otwieranie trasy w **Mapy.com**, **link `gran://`** z widokiem i punktami trasy (rejestrowany przez instalator, otwierany też z wyszukiwarki).
 
 ### Analizy
 - **Soczewki** (`H` `W` `O`): ta sama wysokość (pas ± lub poziomica), wysokość względna, widoczność z miejsca pod kursorem; kliknięcie przypina, `Esc` odpina.
@@ -37,7 +37,13 @@ Instalacja na wersji 1.x (Electron) usuwa ją jej własnym deinstalatorem i zach
 - **Pomiar po terenie** i **linia wzroku** między dwoma punktami.
 - **Panorama** z dowolnego miejsca z odległościami do szczytów.
 
+- **Zamknięte szlaki** z OSM (także sezonowo) na mapie i jako ostrzeżenie przy trasie, **trasy narciarskie**, **dojazd do początku trasy** (najbliższe stacje, przystanki i parkingi, rozkład jazdy).
+
+### Warunki
+Prognoza pogody dla wysokości punktu i na trasie w porze przejścia, komunikaty lawinowe TOPR i SLP HZS, **komunikat turystyczny TPN** (zamknięte szlaki, zagrożenia), godziny otwarcia schronisk ze stanem „otwarte teraz”.
+
 ### Interfejs
+**Paleta poleceń (`Ctrl+K`)** ze wszystkimi poleceniami, pełna obsługa klawiatury, **wysoki kontrast** (`Ctrl+H`) i **skala interfejsu** 75–200%.
 Wyszukiwarka (`/`) szczytów, schronisk, przełęczy, szlaków (także po kolorze) i miejsc w Europie (Nominatim), panel informacji, karta „Mapa i światło”, presety jakości z licznikiem klatek, skróty klawiszowe (`?`), kompas, podziałka, odczyt kursora (współrzędne, wysokość, nachylenie, ekspozycja), zrzut ekranu (`S`).
 
 ## Dane na dysku

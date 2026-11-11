@@ -42,7 +42,7 @@ Plik gran.log – przydaje się przy zgłaszaniu błędów	The gran.log file –
 Autor	Author
 Postaw kawę	Buy me a coffee
 Źródła danych	Data sources
-Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), opcjonalne ortofoto: GUGiK, ČÚZK, ÚGKK SR. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim.	Terrain: Mapterhorn from the DMR 5.0 ÚGKK SR models (CC BY 4.0), NMT GUGiK and DMR 4G ČÚZK (CC BY 4.0), with Terrarium/AWS Open Data as fallback. Imagery: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), optional orthophotos: GUGiK, ČÚZK, ÚGKK SR. Names: OpenFreeMap, OpenMapTiles. Trails and points: © OpenStreetMap (ODbL). Search: Nominatim.
+Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), opcjonalne ortofoto: GUGiK, ČÚZK, ÚGKK SR, basemap.at, swisstopo (SWISSIMAGE), Provincia autonoma di Bolzano. Komunikat turystyczny: TPN. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim.	Terrain: Mapterhorn from the DMR 5.0 ÚGKK SR models (CC BY 4.0), NMT GUGiK and DMR 4G ČÚZK (CC BY 4.0), with Terrarium/AWS Open Data as fallback. Imagery: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), optional orthophotos: GUGiK, ČÚZK, ÚGKK SR, basemap.at, swisstopo (SWISSIMAGE), Autonomous Province of Bolzano. Trail bulletin: TPN. Names: OpenFreeMap, OpenMapTiles. Trails and points: © OpenStreetMap (ODbL). Search: Nominatim.
 Zapisz	Save
 Anuluj	Cancel
 Przenoszenie danych	Moving data
@@ -749,3 +749,110 @@ jako	as
 współrzędne	coordinates
 współrzędne · w pobliżu: {}	coordinates · near: {}
 Kopiuj	Copy
+Narzędzia	Tools
+Widok	View
+Panele i okna	Panels and windows
+Interfejs	Interface
+Poziomice	Contour lines
+Ortofoto krajowe	National orthophoto
+Zamknięte szlaki	Closed trails
+Trasy narciarskie	Ski runs
+Spacer ze środka widoku	Walk from the view centre
+Przelot nad trasą	Fly along the route
+Północ u góry	North up
+Widok z góry / ukośny	Top / oblique view
+Domyślne nachylenie widoku	Default view tilt
+Pełny ekran	Full screen
+Następny styl mapy	Next map style
+Większe przewyższenie	More vertical exaggeration
+Mniejsze przewyższenie	Less vertical exaggeration
+Pół godziny wcześniej	Half an hour earlier
+Pół godziny później	Half an hour later
+Bieżąca pora dnia	Current time of day
+Panel boczny	Side panel
+Szczegóły okolicy	Area details
+Warunki: pogoda i lawiny	Conditions: weather and avalanches
+Szukaj na mapie	Search the map
+Paleta poleceń	Command palette
+Skróty i sterowanie	Shortcuts and controls
+Szczegóły wczytywania danych	Data loading details
+Eksport trasy do GPX	Export route to GPX
+Eksport kursu do zegarka (FIT)	Export course to a watch (FIT)
+Eksport do KML (OsmAnd, Google Earth)	Export to KML (OsmAnd, Google Earth)
+Wczytaj ślad (GPX, KML, FIT)	Load track (GPX, KML, FIT)
+Cofnij zmianę trasy	Undo route change
+Ponów zmianę trasy	Redo route change
+Zapisz trasę w bibliotece	Save route to library
+Odwróć kierunek trasy	Reverse route
+Zakończ planowanie i usuń trasę	End planning and remove the route
+Usuń ostatni punkt	Remove last point
+Pokaż całą trasę	Show whole route
+Dojazd do początku trasy	Getting to the start
+Otwórz trasę w Mapy.com	Open route in Mapy.com
+Zapisz widok w bibliotece	Save view to library
+Zrzut ekranu	Screenshot
+Wysoki kontrast	High contrast
+Powiększ interfejs	Enlarge interface
+Pomniejsz interfejs	Shrink interface
+Domyślny rozmiar interfejsu	Default interface size
+Co widać stąd	What can be seen from here
+Bez soczewki	No lens
+Zaznaczanie – zwykły tryb	Select – normal mode
+Pomiar, przekrój terenu i linia wzroku	Measure, terrain profile and line of sight
+Wpisz polecenie, np. „siatka”, „kontrast”, „gpx”…	Type a command, e.g. "grid", "contrast", "gpx"…
+Brak pasujących poleceń.	No matching commands.
+Szukaj „{}” na mapie	Search the map for "{}"
+wł.	on
+wył.	off
+↑ ↓ wybór · Enter wykonuje · Esc zamyka	↑ ↓ select · Enter runs · Esc closes
+Kurs na zegarek (FIT)	Course for a watch (FIT)
+Garmin, Suunto, Wahoo, Coros: ślad z planowanym czasem i punktami trasy	Garmin, Suunto, Wahoo, Coros: track with planned timing and route points
+Otwórz w Mapy.com	Open in Mapy.com
+Ta sama trasa w planerze Mapy.com (także w aplikacji na telefonie)	The same route in the Mapy.com planner (also in the phone app)
+Zamknięty odcinek	Closed section
+odcinek szlaku	trail section
+zamknięty	closed
+zamknięty sezonowo ({})	closed seasonally ({})
+Na podstawie OpenStreetMap. Aktualne zamknięcia sprawdź w komunikacie parku (zakładka Warunki).	Based on OpenStreetMap. Check current closures in the park bulletin (Conditions tab).
+Dojazd do początku	Getting to the start
+W pobliżu początku trasy nie ma w danych OSM stacji, przystanków ani parkingów.	OSM has no stations, stops or car parks near the start of the route.
+Pokaż na mapie	Show on map
+Rozkład jazdy	Timetable
+Połączenia komunikacją publiczną do początku trasy (Google Maps)	Public transport connections to the start (Google Maps)
+Dojazd autem	Drive there
+Godziny:	Hours:
+paleta poleceń: wszystkie polecenia z wyszukiwaniem	command palette: every command, searchable
+strzałki · Q E · PgUp PgDn · Home End	arrows · Q E · PgUp PgDn · Home End
+przesuwanie · obrót · nachylenie · przybliżanie	pan · rotate · tilt · zoom
+przechodzenie po kontrolkach paneli i ich użycie	move between panel controls and use them
+ta pomoc	this help
+Sterowanie	Controls
+Zamknięte szlaki (Z)	Closed trails (Z)
+Trasy narciarskie (J)	Ski runs (J)
+Komunikat turystyczny TPN	TPN trail bulletin
+pobieram komunikat TPN…	fetching TPN bulletin…
+Komunikat niedostępny: {}	Bulletin unavailable: {}
+Zagrożenia	Hazards
+Informacje dodatkowe	Additional information
+Pełny komunikat TPN	Full TPN bulletin
+TANAP (Słowacja)	TANAP (Slovakia)
+Zamknięte odcinki zapisane w OpenStreetMap program rysuje na mapie na czerwono (Warstwy → Zamknięte szlaki, klawisz Z) i ostrzega o nich przy trasie.	Closed sections recorded in OpenStreetMap are drawn in red (Layers → Closed trails, key Z) and flagged on your route.
+Dostępność	Accessibility
+Wysoki kontrast (Ctrl+H)	High contrast (Ctrl+H)
+Wielkość interfejsu	Interface size
+Skróty: Ctrl+= powiększa, Ctrl+− pomniejsza, Ctrl+0 przywraca. Wszystkie polecenia są też w palecie (Ctrl+K), a Tab przechodzi po kontrolkach paneli.	Shortcuts: Ctrl+= enlarges, Ctrl+− shrinks, Ctrl+0 resets. Every command is also in the palette (Ctrl+K), and Tab moves between panel controls.
+o {}	at {}
+jutro o {}	tomorrow at {}
+za {} dni o {}	in {} days at {}
+otwarte całą dobę	open 24 hours
+otwarte · do {}	open · until {}
+otwarte · zamknięcie {}	open · closes {}
+zamknięte · otwarcie {}	closed · opens {}
+zamknięte	closed
+strona nie zawiera komunikatu (zmieniony układ?)	the page has no bulletin (layout changed?)
+FIT – kurs dla zegarka (Garmin, Suunto, Wahoo, Coros)	FIT – course for a watch (Garmin, Suunto, Wahoo, Coros)
+KML (OsmAnd, Google Earth)	KML (OsmAnd, Google Earth)
+Najwyżej {}	Highest {}
+Trasa potrzebuje co najmniej dwóch punktów.	The route needs at least two points.
+Stacja kolejowa	Railway station
+Stacje kolejowe	Railway stations

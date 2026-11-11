@@ -93,7 +93,7 @@ fn gust_color(g: f32) -> Color32 {
     } else if g >= 60.0 {
         theme::WARN
     } else {
-        theme::PAPER_2
+        theme::paper_2()
     }
 }
 
@@ -126,7 +126,7 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
         weather::State::Loading => {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(RichText::new(tr("pobieram prognozę…")).color(theme::PAPER_3));
+                ui.label(RichText::new(tr("pobieram prognozę…")).color(theme::paper_3()));
             });
         }
         weather::State::Failed(e) => {
@@ -136,6 +136,7 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
     }
 
     route_weather(a, ui);
+    notices_ui(a, ui);
     avalanche_ui(a, ui);
 
     ui.add_space(12.0);
@@ -155,7 +156,7 @@ fn forecast_ui(ui: &mut egui::Ui, f: &Forecast, ele: f32) {
         ui.label(RichText::new(glyph).size(44.0).color(theme::BRASS));
         ui.vertical(|ui| {
             ui.label(RichText::new(temp(h.temp)).size(30.0).strong().color(temp_color(h.temp)));
-            ui.label(RichText::new(tf!("{} · odczuwalna {}", tr(desc), temp(h.feels))).color(theme::PAPER_2));
+            ui.label(RichText::new(tf!("{} · odczuwalna {}", tr(desc), temp(h.feels))).color(theme::paper_2()));
         });
     });
     let vis = if h.vis.is_finite() { fmt::dist(h.vis as f64) } else { "—".into() };
@@ -196,7 +197,7 @@ fn forecast_ui(ui: &mut egui::Ui, f: &Forecast, ele: f32) {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(RichText::new(kmh(d.gust)).monospace().small().color(gust_color(d.gust)));
                 let wet = if d.snow > 0.2 { tf!("{} cm", fmt::dec(d.snow as f64, 0)) } else { tf!("{} mm", fmt::dec(d.precip as f64, 1)) };
-                ui.label(RichText::new(wet).monospace().small().color(theme::PAPER_3));
+                ui.label(RichText::new(wet).monospace().small().color(theme::paper_3()));
                 ui.label(RichText::new(format!("{} / {}", temp(d.tmin), temp(d.tmax))).monospace().color(temp_color(d.tmax)));
             });
         });
@@ -212,7 +213,7 @@ fn grid(ui: &mut egui::Ui, items: &[(&str, &str, String, Color32)]) {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 40.0), Sense::hover());
                 let p = ui.painter().with_clip_rect(rect);
                 p.text(rect.left_center() + Vec2::new(9.0, 0.0), Align2::CENTER_CENTER, *g, FontId::proportional(16.0), theme::BRASS);
-                p.text(Pos2::new(rect.left() + 26.0, rect.top() + 3.0), Align2::LEFT_TOP, *k, FontId::proportional(11.0), theme::PAPER_3);
+                p.text(Pos2::new(rect.left() + 26.0, rect.top() + 3.0), Align2::LEFT_TOP, *k, FontId::proportional(11.0), theme::paper_3());
                 p.text(Pos2::new(rect.left() + 26.0, rect.bottom() - 3.0), Align2::LEFT_BOTTOM, v, FontId::proportional(14.5), *c);
             }
         });
@@ -262,16 +263,16 @@ fn chart(ui: &mut egui::Ui, hours: &[Hour], ele: f32) {
     let line: Vec<Pos2> = hours.iter().enumerate().map(|(i, h)| Pos2::new(x(i as f32), yt(h.temp))).collect();
     p.add(egui::Shape::line(line, Stroke::new(2.2, Color32::from_rgb(255, 170, 110))));
     // osie
-    p.text(Pos2::new(plot.left() - 4.0, plot.top()), Align2::RIGHT_TOP, temp(tmax - 2.0), FontId::monospace(10.0), theme::PAPER_3);
-    p.text(Pos2::new(plot.left() - 4.0, plot.bottom()), Align2::RIGHT_BOTTOM, temp(tmin + 2.0), FontId::monospace(10.0), theme::PAPER_3);
+    p.text(Pos2::new(plot.left() - 4.0, plot.top()), Align2::RIGHT_TOP, temp(tmax - 2.0), FontId::monospace(10.0), theme::paper_3());
+    p.text(Pos2::new(plot.left() - 4.0, plot.bottom()), Align2::RIGHT_BOTTOM, temp(tmin + 2.0), FontId::monospace(10.0), theme::paper_3());
     p.text(Pos2::new(plot.right() + 4.0, plot.top()), Align2::LEFT_TOP, fmt::dec(gmax as f64, 0), FontId::monospace(10.0), theme::WARN);
     for (i, h) in hours.iter().enumerate() {
         let (_, hh) = local(h.t);
         if (hh.round() as i64) % 6 == 0 {
             let xx = x(i as f32);
-            p.line_segment([Pos2::new(xx, plot.bottom()), Pos2::new(xx, plot.bottom() + 3.0)], Stroke::new(1.0, theme::PAPER_3));
+            p.line_segment([Pos2::new(xx, plot.bottom()), Pos2::new(xx, plot.bottom() + 3.0)], Stroke::new(1.0, theme::paper_3()));
             let label = if hh.round() as i64 == 0 { let (wd, _) = local(h.t); tr(weekday(wd)).to_string() } else { format!("{:02}", hh.round() as i64) };
-            p.text(Pos2::new(xx, plot.bottom() + 5.0), Align2::CENTER_TOP, label, FontId::monospace(10.0), theme::PAPER_3);
+            p.text(Pos2::new(xx, plot.bottom() + 5.0), Align2::CENTER_TOP, label, FontId::monospace(10.0), theme::paper_3());
         }
     }
     // odczyt pod kursorem
@@ -297,7 +298,7 @@ fn chart(ui: &mut egui::Ui, hours: &[Hour], ele: f32) {
         let hgt = gs.iter().map(|g| g.size().y + 1.0).sum::<f32>() + 10.0;
         let left = if xx + 10.0 + w < rect.right() { xx + 10.0 } else { xx - 10.0 - w };
         let card = Rect::from_min_size(Pos2::new(left.max(rect.left()), plot.top()), Vec2::new(w, hgt));
-        p.rect(card, 8.0, theme::POPUP_FILL, Stroke::new(1.0, theme::GLASS_EDGE), egui::StrokeKind::Inside);
+        p.rect(card, 8.0, theme::POPUP_FILL, Stroke::new(1.0, theme::glass_edge()), egui::StrokeKind::Inside);
         let mut yy = card.top() + 5.0;
         for g in gs {
             let gh = g.size().y;
@@ -348,14 +349,14 @@ fn route_weather(a: &mut Atlas, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.set_width(ui.available_width());
             let (_, hh) = local(t);
-            ui.label(RichText::new(fmt::hour(hh)).monospace().color(theme::PAPER_3));
+            ui.label(RichText::new(fmt::hour(hh)).monospace().color(theme::paper_3()));
             ui.label(RichText::new(&label).strong());
-            ui.label(RichText::new(fmt::ele(e as f64)).small().color(theme::PAPER_3));
+            ui.label(RichText::new(fmt::ele(e as f64)).small().color(theme::paper_3()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match &state {
                 weather::State::Ready(f) => match f.at(t) {
                     Some(h) => {
                         ui.label(RichText::new(kmh(h.gust)).monospace().small().color(gust_color(h.gust)));
-                        ui.label(RichText::new(tf!("{}%", h.prob.round())).monospace().small().color(theme::PAPER_3));
+                        ui.label(RichText::new(tf!("{}%", h.prob.round())).monospace().small().color(theme::paper_3()));
                         ui.label(RichText::new(temp(h.temp)).monospace().color(temp_color(h.temp)));
                         let (glyph, desc) = weather::describe(h.code, h.day);
                         ui.label(RichText::new(glyph).size(16.0).color(theme::BRASS)).on_hover_text(tr(desc));
@@ -366,14 +367,14 @@ fn route_weather(a: &mut Atlas, ui: &mut egui::Ui) {
                         }
                     }
                     None => {
-                        ui.label(RichText::new(tr("poza zakresem prognozy")).small().color(theme::PAPER_3));
+                        ui.label(RichText::new(tr("poza zakresem prognozy")).small().color(theme::paper_3()));
                     }
                 },
                 weather::State::Loading => {
                     ui.spinner();
                 }
                 weather::State::Failed(_) => {
-                    ui.label(RichText::new("—").color(theme::PAPER_3));
+                    ui.label(RichText::new("—").color(theme::paper_3()));
                 }
             });
         });
@@ -388,6 +389,64 @@ fn in_tatras(lon: f64, lat: f64) -> bool {
     (19.4..=20.6).contains(&lon) && (48.75..=49.45).contains(&lat)
 }
 
+/// Komunikat turystyczny TPN: warunki, zagrożenia, zamknięte szlaki (także informacja o TANAP).
+fn notices_ui(a: &mut Atlas, ui: &mut egui::Ui) {
+    let pl = place(a);
+    if !in_tatras(pl.lon, pl.lat) {
+        return;
+    }
+    section(ui, theme::icon::SIGNPOST, "Komunikat turystyczny TPN");
+    let ctx = ui.ctx().clone();
+    match a.notices.get(&ctx) {
+        crate::notices::State::Loading => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(tr("pobieram komunikat TPN…")).color(theme::paper_3()));
+            });
+        }
+        crate::notices::State::Failed(e) => {
+            ui.label(RichText::new(tf!("Komunikat niedostępny: {}", e)).color(theme::WARN));
+        }
+        crate::notices::State::Ready(n) => {
+            if !n.headline.is_empty() {
+                ui.add(egui::Label::new(RichText::new(&n.headline).strong()).wrap());
+            }
+            if !n.date.is_empty() {
+                ui.label(RichText::new(&n.date).small().color(theme::paper_3()));
+            }
+            let list = |ui: &mut egui::Ui, glyph: &str, color: Color32, title: &str, items: &[String]| {
+                if items.is_empty() {
+                    return;
+                }
+                ui.add_space(6.0);
+                ui.label(RichText::new(format!("{glyph}  {}", tr(title))).strong().color(color));
+                for it in items {
+                    ui.horizontal_top(|ui| {
+                        ui.label(RichText::new("•").color(color));
+                        ui.add(egui::Label::new(RichText::new(it).color(theme::paper_2())).wrap());
+                    });
+                }
+            };
+            list(ui, theme::icon::PROHIBIT, Color32::from_rgb(255, 120, 110), "Zamknięte szlaki", &n.closures);
+            list(ui, theme::icon::WARNING, theme::WARN, "Zagrożenia", &n.hazards);
+            egui::CollapsingHeader::new(tr("Informacje dodatkowe")).id_salt("tpn-dodatkowe").show(ui, |ui| {
+                for it in &n.extra {
+                    ui.add(egui::Label::new(RichText::new(format!("• {it}")).small().color(theme::paper_2())).wrap());
+                }
+            });
+        }
+    }
+    ui.horizontal_wrapped(|ui| {
+        if ui.small_button(theme::ic(theme::icon::ARROW_SQUARE_OUT, "Pełny komunikat TPN")).clicked() {
+            let _ = open::that(crate::notices::TPN_URL);
+        }
+        if ui.small_button(theme::ic(theme::icon::ARROW_SQUARE_OUT, "TANAP (Słowacja)")).clicked() {
+            let _ = open::that(crate::notices::TANAP_URL);
+        }
+    });
+    theme::para(ui, "Zamknięte odcinki zapisane w OpenStreetMap program rysuje na mapie na czerwono (Warstwy → Zamknięte szlaki, klawisz Z) i ostrzega o nich przy trasie.");
+}
+
 fn avalanche_ui(a: &mut Atlas, ui: &mut egui::Ui) {
     section(ui, theme::icon::SNOWFLAKE, "Zagrożenie lawinowe");
     let pl = place(a);
@@ -400,7 +459,7 @@ fn avalanche_ui(a: &mut Atlas, ui: &mut egui::Ui) {
         avalanche::State::Loading => {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(RichText::new(tr("pobieram komunikaty lawinowe…")).color(theme::PAPER_3));
+                ui.label(RichText::new(tr("pobieram komunikaty lawinowe…")).color(theme::paper_3()));
             });
         }
         avalanche::State::Failed(e) => {
@@ -433,7 +492,7 @@ fn bulletin_ui(ui: &mut egui::Ui, b: &Bulletin, ele: f32) {
             ui.painter().text(r.center(), Align2::CENTER_CENTER, b.level.to_string(), FontId::proportional(26.0), Color32::from_rgb(20, 20, 20));
             ui.vertical(|ui| {
                 ui.label(RichText::new(tr(avalanche::level_name(b.level))).size(17.0).strong());
-                ui.label(RichText::new(format!("{} · {}", b.source, b.region)).small().color(theme::PAPER_3));
+                ui.label(RichText::new(format!("{} · {}", b.source, b.region)).small().color(theme::paper_3()));
             });
         });
         if let Some((h, up, lo)) = b.split {
@@ -444,7 +503,7 @@ fn bulletin_ui(ui: &mut egui::Ui, b: &Bulletin, ele: f32) {
             ui.label(tf!("Rano: {} · po południu: {}", am, pm));
         }
         if !b.highlight.is_empty() {
-            ui.label(RichText::new(&b.highlight).strong().color(theme::PAPER_2));
+            ui.label(RichText::new(&b.highlight).strong().color(theme::paper_2()));
         }
         for p in &b.problems {
             ui.horizontal(|ui| {
@@ -466,19 +525,19 @@ fn bulletin_ui(ui: &mut egui::Ui, b: &Bulletin, ele: f32) {
                         where_.push(tf!("wystawy {}", dirs.join(" ")));
                     }
                     if !where_.is_empty() {
-                        ui.label(RichText::new(where_.join(" · ")).small().color(theme::PAPER_3));
+                        ui.label(RichText::new(where_.join(" · ")).small().color(theme::paper_3()));
                     }
                 });
             });
         }
         let utc = if b.source == "TOPR" { "" } else { " UTC" };
-        ui.label(RichText::new(tf!("Wydano {}{} · ważny do {}{}", b.issued, utc, b.valid_until, utc)).small().color(theme::PAPER_3));
+        ui.label(RichText::new(tf!("Wydano {}{} · ważny do {}{}", b.issued, utc, b.valid_until, utc)).small().color(theme::paper_3()));
         let long = [b.comment.as_str(), b.snowpack.as_str(), b.tendency.as_str()].iter().any(|s| !s.is_empty());
         if long {
             egui::CollapsingHeader::new(tr("Komentarz do komunikatu")).id_salt(("lawiny", b.source, &b.region)).show(ui, |ui| {
                 for s in [&b.comment, &b.snowpack, &b.tendency] {
                     if !s.is_empty() {
-                        ui.add(egui::Label::new(RichText::new(s.as_str()).small().color(theme::PAPER_2)).wrap());
+                        ui.add(egui::Label::new(RichText::new(s.as_str()).small().color(theme::paper_2())).wrap());
                     }
                 }
             });
@@ -502,5 +561,5 @@ fn rose(ui: &mut egui::Ui, aspects: &[bool; 8]) {
         let fill = if *on { Color32::from_rgb(255, 120, 60) } else { theme::INK_3 };
         p.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(1.0, theme::INK_0)));
     }
-    p.text(c - Vec2::new(0.0, rad + 1.0), Align2::CENTER_BOTTOM, "N", FontId::proportional(8.5), theme::PAPER_3);
+    p.text(c - Vec2::new(0.0, rad + 1.0), Align2::CENTER_BOTTOM, "N", FontId::proportional(8.5), theme::paper_3());
 }

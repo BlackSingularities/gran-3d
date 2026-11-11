@@ -1,5 +1,7 @@
 //! Wygląd: ciemne, lekko przezroczyste szkło unoszące się nad mapą, z jednym niebieskim akcentem.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use eframe::egui::{self, Color32, CornerRadius, FontFamily, FontId, Sense, Stroke, TextStyle, Visuals};
 
 pub use egui_phosphor::regular as icon;
@@ -24,6 +26,47 @@ pub const WARN: Color32 = Color32::from_rgb(247, 201, 72);
 
 const ON_ACCENT: Color32 = Color32::from_rgb(8, 20, 38);
 
+/// Tryb wysokiego kontrastu (ustawienie użytkownika, Ctrl+H).
+static HIGH_CONTRAST: AtomicBool = AtomicBool::new(false);
+
+pub fn high_contrast() -> bool {
+    HIGH_CONTRAST.load(Ordering::Relaxed)
+}
+
+/// Tekst drugorzędny: w wysokim kontraście prawie tak jasny jak główny.
+pub fn paper_2() -> Color32 {
+    if high_contrast() { PAPER } else { PAPER_2 }
+}
+
+/// Tekst pomocniczy (podpisy, jednostki).
+pub fn paper_3() -> Color32 {
+    if high_contrast() { Color32::from_rgb(214, 219, 228) } else { PAPER_3 }
+}
+
+/// Tło szkła nad mapą: w wysokim kontraście nieprzezroczyste.
+pub fn glass_fill() -> Color32 {
+    if high_contrast() { INK_0 } else { GLASS_FILL }
+}
+
+/// Krawędź szkła: w wysokim kontraście wyraźna jasna linia.
+pub fn glass_edge() -> Color32 {
+    if high_contrast() { PAPER_3 } else { GLASS_EDGE }
+}
+
+/// Włącza albo wyłącza wysoki kontrast (wygląd przeliczany tylko przy zmianie).
+pub fn set_high_contrast(ctx: &egui::Context, on: bool) {
+    if HIGH_CONTRAST.swap(on, Ordering::Relaxed) != on {
+        ctx.set_visuals(visuals());
+    }
+}
+
+/// Obwódka fokusu klawiatury na własnych kontrolkach (Tab przechodzi po kontrolkach).
+pub fn focus_ring(ui: &egui::Ui, resp: &egui::Response, rect: egui::Rect, radius: f32) {
+    if resp.has_focus() {
+        ui.painter().rect_stroke(rect.expand(1.0), radius, Stroke::new(2.0_f32, BRASS), egui::StrokeKind::Outside);
+    }
+}
+
 /// Ikona z podpisem na przycisku.
 pub fn ic(glyph: &str, text: &str) -> String {
     format!("{glyph}  {}", tr(text))
@@ -43,6 +86,24 @@ pub fn apply(ctx: &egui::Context) {
         }
     }
     ctx.set_fonts(fonts);
+    ctx.set_visuals(visuals());
+    ctx.style_mut(|s| {
+        // tekst nie zawija się w wiersze interfejsu; akapity zawija jawnie `para`
+        s.wrap_mode = Some(egui::TextWrapMode::Truncate);
+        s.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        s.spacing.button_padding = egui::vec2(12.0, 7.0);
+        s.spacing.slider_width = 170.0;
+        s.text_styles.insert(TextStyle::Heading, FontId::new(21.0, FontFamily::Proportional));
+        s.text_styles.insert(TextStyle::Body, FontId::new(14.0, FontFamily::Proportional));
+        s.text_styles.insert(TextStyle::Button, FontId::new(14.0, FontFamily::Proportional));
+        s.text_styles.insert(TextStyle::Small, FontId::new(12.0, FontFamily::Proportional));
+        s.text_styles.insert(TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace));
+    });
+}
+
+/// Wygląd kontrolek egui (zwykły albo wysoki kontrast).
+fn visuals() -> Visuals {
+    let hc = high_contrast();
     let mut v = Visuals::dark();
     v.panel_fill = INK_1;
     v.window_fill = Color32::from_rgba_premultiplied(22, 25, 31, 246);
@@ -54,7 +115,7 @@ pub fn apply(ctx: &egui::Context) {
     v.selection.stroke = Stroke::new(1.0_f32, BRASS);
     v.window_corner_radius = CornerRadius::same(16);
     v.menu_corner_radius = CornerRadius::same(12);
-    v.window_stroke = Stroke::new(1.0_f32, GLASS_EDGE);
+    v.window_stroke = Stroke::new(1.0_f32, glass_edge());
     v.window_shadow = egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(110) };
     v.popup_shadow = egui::Shadow { offset: [0, 6], blur: 22, spread: 0, color: Color32::from_black_alpha(100) };
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, INK_3);
@@ -75,37 +136,29 @@ pub fn apply(ctx: &egui::Context) {
     ] {
         w.corner_radius = CornerRadius::same(10);
     }
-    ctx.set_visuals(v);
-    ctx.style_mut(|s| {
-        // tekst nie zawija się w wiersze interfejsu; akapity zawija jawnie `para`
-        s.wrap_mode = Some(egui::TextWrapMode::Truncate);
-        s.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        s.spacing.button_padding = egui::vec2(12.0, 7.0);
-        s.spacing.slider_width = 170.0;
-        s.text_styles.insert(
-            TextStyle::Heading,
-            FontId::new(21.0, FontFamily::Proportional),
-        );
-        s.text_styles
-            .insert(TextStyle::Body, FontId::new(14.0, FontFamily::Proportional));
-        s.text_styles.insert(
-            TextStyle::Button,
-            FontId::new(14.0, FontFamily::Proportional),
-        );
-        s.text_styles.insert(
-            TextStyle::Small,
-            FontId::new(12.0, FontFamily::Proportional),
-        );
-        s.text_styles.insert(
-            TextStyle::Monospace,
-            FontId::new(12.0, FontFamily::Monospace),
-        );
-    });
+    if hc {
+        // wyraźne krawędzie kontrolek, nieprzezroczyste tła i mocniejszy fokus
+        v.panel_fill = INK_0;
+        v.window_fill = INK_0;
+        v.override_text_color = Some(Color32::WHITE);
+        v.window_stroke = Stroke::new(1.5_f32, PAPER_2);
+        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, PAPER_3);
+        v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
+        v.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, PAPER_3);
+        v.widgets.inactive.fg_stroke = Stroke::new(1.5_f32, Color32::WHITE);
+        v.widgets.inactive.weak_bg_fill = INK_2;
+        v.widgets.hovered.bg_stroke = Stroke::new(1.5_f32, PAPER);
+        v.widgets.hovered.fg_stroke = Stroke::new(1.5_f32, Color32::WHITE);
+        v.widgets.active.bg_stroke = Stroke::new(2.0_f32, BRASS);
+        v.selection.bg_fill = Color32::from_rgb(40, 90, 170);
+        v.selection.stroke = Stroke::new(2.0_f32, Color32::WHITE);
+    }
+    v
 }
 
 /// Mały nagłówek sekcji.
 pub fn kicker(text: &str) -> egui::RichText {
-    egui::RichText::new(tr(text).to_string()).size(12.0).color(PAPER_3).strong()
+    egui::RichText::new(tr(text).to_string()).size(12.0).color(paper_3()).strong()
 }
 
 /// Główny przycisk akcji.
@@ -136,7 +189,7 @@ pub const POPUP_FILL: Color32 = Color32::from_rgba_premultiplied(22, 25, 31, 246
 pub fn glass() -> egui::Frame {
     egui::Frame::new()
         .fill(POPUP_FILL)
-        .stroke(Stroke::new(1.0_f32, GLASS_EDGE))
+        .stroke(Stroke::new(1.0_f32, glass_edge()))
         .corner_radius(CornerRadius::same(18))
         .inner_margin(egui::Margin::same(6))
         .shadow(egui::Shadow { offset: [0, 6], blur: 24, spread: 0, color: Color32::from_black_alpha(90) })
@@ -153,6 +206,7 @@ pub fn tile_ex(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool, w: f32, dis
     let disabled = disabled.map(tr);
     let sense = if disabled.is_some() { Sense::hover() } else { Sense::click() };
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 74.0), sense);
+    focus_ring(ui, &resp, rect, 12.0);
     if let Some(why) = disabled {
         let p = ui.painter();
         p.rect_filled(rect, 14.0, Color32::from_white_alpha(3));
@@ -175,7 +229,7 @@ pub fn tile_ex(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool, w: f32, dis
     p.rect_stroke(rect, 14.0, edge, egui::StrokeKind::Inside);
     let color = if on { BRASS } else { PAPER };
     p.text(rect.center_top() + egui::vec2(0.0, 26.0), egui::Align2::CENTER_CENTER, glyph, FontId::proportional(24.0), color);
-    let galley = p.layout_no_wrap(text.to_string(), FontId::proportional(12.0), if on { PAPER } else { PAPER_2 });
+    let galley = p.layout_no_wrap(text.to_string(), FontId::proportional(12.0), if on { PAPER } else { paper_2() });
     let gw = galley.size().x.min(w - 8.0);
     let clip = rect.shrink2(egui::vec2(4.0, 0.0));
     ui.painter_at(clip).galley(egui::pos2(rect.center().x - gw / 2.0, rect.bottom() - 24.0), galley, PAPER);
@@ -197,6 +251,7 @@ pub fn tile_grid(ui: &mut egui::Ui, cols: usize, body: impl FnOnce(&mut egui::Ui
 pub fn option_card(ui: &mut egui::Ui, title: &str, desc: &str, on: bool) -> egui::Response {
     let (title, desc) = (tr(title), tr(desc));
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 52.0), Sense::click());
+    focus_ring(ui, &resp, rect, 12.0);
     let p = ui.painter();
     let bg = if on {
         Color32::from_rgba_unmultiplied(122, 176, 255, 40)
@@ -210,12 +265,12 @@ pub fn option_card(ui: &mut egui::Ui, title: &str, desc: &str, on: bool) -> egui
         p.rect_stroke(rect, 12.0, Stroke::new(1.5_f32, BRASS), egui::StrokeKind::Inside);
     }
     let dot = rect.left_center() + egui::vec2(18.0, 0.0);
-    p.circle_stroke(dot, 7.0, Stroke::new(1.5_f32, if on { BRASS } else { PAPER_3 }));
+    p.circle_stroke(dot, 7.0, Stroke::new(1.5_f32, if on { BRASS } else { paper_3() }));
     if on {
         p.circle_filled(dot, 4.0, BRASS);
     }
     p.text(rect.left_top() + egui::vec2(36.0, 9.0), egui::Align2::LEFT_TOP, title, FontId::proportional(14.0), PAPER);
-    p.text(rect.left_bottom() + egui::vec2(36.0, -9.0), egui::Align2::LEFT_BOTTOM, desc, FontId::proportional(11.5), PAPER_3);
+    p.text(rect.left_bottom() + egui::vec2(36.0, -9.0), egui::Align2::LEFT_BOTTOM, desc, FontId::proportional(11.5), paper_3());
     resp
 }
 
@@ -232,7 +287,7 @@ pub fn bar(ui: &mut egui::Ui, frac: f32, color: Color32) {
 /// Akapit objaśnienia: jedyne miejsce, gdzie tekst się zawija.
 pub fn para(ui: &mut egui::Ui, text: impl Into<String>) {
     let text: String = text.into();
-    ui.add(egui::Label::new(egui::RichText::new(tr(&text).to_string()).small().color(PAPER_3)).wrap());
+    ui.add(egui::Label::new(egui::RichText::new(tr(&text).to_string()).small().color(paper_3())).wrap());
 }
 
 /// Okrągły przycisk z samą ikoną.
@@ -250,6 +305,7 @@ pub fn icon_button(ui: &mut egui::Ui, glyph: &str, on: bool) -> egui::Response {
 pub fn row_button(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool) -> egui::Response {
     let text = tr(text);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 36.0), Sense::click());
+    focus_ring(ui, &resp, rect, 10.0);
     let bg = if on {
         BRASS_DIM
     } else if resp.hovered() {
@@ -281,6 +337,7 @@ pub fn row_button(ui: &mut egui::Ui, glyph: &str, text: &str, on: bool) -> egui:
 pub fn switch(ui: &mut egui::Ui, value: &mut bool, text: &str) -> egui::Response {
     let text = tr(text);
     let (rect, mut resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), Sense::click());
+    focus_ring(ui, &resp, rect, 8.0);
     if resp.clicked() {
         *value = !*value;
         resp.mark_changed();
@@ -299,7 +356,7 @@ pub fn switch(ui: &mut egui::Ui, value: &mut bool, text: &str) -> egui::Response
     let track = egui::Rect::from_center_size(rect.right_center() - egui::vec2(26.0, 0.0), egui::vec2(34.0, 18.0));
     p.rect_filled(track, 9.0, if *value { BRASS } else { INK_4 });
     let x = if *value { track.right() - 9.0 } else { track.left() + 9.0 };
-    p.circle_filled(egui::pos2(x, track.center().y), 7.0, if *value { ON_ACCENT } else { PAPER_2 });
+    p.circle_filled(egui::pos2(x, track.center().y), 7.0, if *value { ON_ACCENT } else { paper_2() });
     resp
 }
 
@@ -307,13 +364,14 @@ pub fn switch(ui: &mut egui::Ui, value: &mut bool, text: &str) -> egui::Response
 pub fn action(ui: &mut egui::Ui, glyph: &str, text: &str, w: f32) -> egui::Response {
     let text = tr(text);
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 58.0), Sense::click());
+    focus_ring(ui, &resp, rect, 12.0);
     let p = ui.painter();
     let bg = if resp.hovered() { Color32::from_white_alpha(18) } else { Color32::from_white_alpha(7) };
     p.rect_filled(rect, 12.0, bg);
     let color = if resp.hovered() { BRASS } else { PAPER };
     p.text(rect.center_top() + egui::vec2(0.0, 20.0), egui::Align2::CENTER_CENTER, glyph, FontId::proportional(19.0), color);
-    let galley = p.layout_no_wrap(text.to_string(), FontId::proportional(11.0), PAPER_2);
+    let galley = p.layout_no_wrap(text.to_string(), FontId::proportional(11.0), paper_2());
     let gw = galley.size().x.min(w - 6.0);
-    ui.painter_at(rect.shrink2(egui::vec2(3.0, 0.0))).galley(egui::pos2(rect.center().x - gw / 2.0, rect.bottom() - 20.0), galley, PAPER_2);
+    ui.painter_at(rect.shrink2(egui::vec2(3.0, 0.0))).galley(egui::pos2(rect.center().x - gw / 2.0, rect.bottom() - 20.0), galley, paper_2());
     resp.on_hover_text(text)
 }

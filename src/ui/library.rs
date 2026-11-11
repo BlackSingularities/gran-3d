@@ -132,8 +132,8 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
         for r in list {
             if !r.group.is_empty() && last_group.as_deref() != Some(r.group.as_str()) {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(theme::icon::FOLDER_SIMPLE).size(13.0).color(theme::PAPER_3));
-                    ui.label(RichText::new(&r.group).small().strong().color(theme::PAPER_2));
+                    ui.label(RichText::new(theme::icon::FOLDER_SIMPLE).size(13.0).color(theme::paper_3()));
+                    ui.label(RichText::new(&r.group).small().strong().color(theme::paper_2()));
                 });
             }
             last_group = Some(r.group.clone());
@@ -250,7 +250,7 @@ fn item_row(ui: &mut egui::Ui, r: &Row, actions: &mut Vec<Action>) {
             if r.kind == Kind::Route && ui.small_button(theme::icon::EXPORT).on_hover_text(tr("Eksportuj do pliku")).clicked() {
                 actions.push(Action::ExportRoute(r.idx));
             }
-            ui.label(RichText::new(&r.sub).small().color(theme::PAPER_3));
+            ui.label(RichText::new(&r.sub).small().color(theme::paper_3()));
         });
     });
 }
@@ -258,9 +258,9 @@ fn item_row(ui: &mut egui::Ui, r: &Row, actions: &mut Vec<Action>) {
 fn edit_row(ui: &mut egui::Ui, e: &mut Editing, groups: &[String], r: &Row, actions: &mut Vec<Action>) {
     theme::card(true).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(RichText::new(tr("Nazwa")).small().color(theme::PAPER_3));
+        ui.label(RichText::new(tr("Nazwa")).small().color(theme::paper_3()));
         let resp = ui.add(egui::TextEdit::singleline(&mut e.name).desired_width(f32::INFINITY));
-        ui.label(RichText::new(tr("Grupa (folder)")).small().color(theme::PAPER_3));
+        ui.label(RichText::new(tr("Grupa (folder)")).small().color(theme::paper_3()));
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(&mut e.group).hint_text(tr("bez grupy")).desired_width(180.0));
             if !groups.is_empty() {
