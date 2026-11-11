@@ -153,7 +153,8 @@ fn fetch(lat: f64, lon: f64, ele: f32) -> Result<Forecast, String> {
         .map_err(|e| crate::i18n::tr("brak połączenia z serwisem pogody").to_string() + &format!(" ({e})"))?
         .into_string()
         .map_err(|e| e.to_string())?;
-    parse(&body)
+    // czas lokalny liczony dla miejsca z zapytania, nie dla węzła siatki modelu
+    parse(&body).map(|f| Forecast { lon, lat, ..f })
 }
 
 pub fn parse(body: &str) -> Result<Forecast, String> {
@@ -213,7 +214,7 @@ pub fn parse(body: &str) -> Result<Forecast, String> {
     if hours.is_empty() {
         return Err(crate::i18n::tr("pusta prognoza").into());
     }
-    Ok(Forecast { lon, lat, elevation: v["elevation"].as_f64().unwrap_or(0.0) as f32, hours, days })
+    Ok(Forecast { lon: v["longitude"].as_f64().unwrap_or(0.0), lat: v["latitude"].as_f64().unwrap_or(0.0), elevation: v["elevation"].as_f64().unwrap_or(0.0) as f32, hours, days })
 }
 
 /// Opis i ikona kodu pogody WMO.
