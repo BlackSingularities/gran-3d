@@ -1,0 +1,38 @@
+{
+  "slug": "gran-3d",
+  "name": "GRAŃ",
+  "label": "trójwymiarowy atlas gór",
+  "icon": "icon.png",
+  "url": "https://redzikowski.com/portfolio/gran-3d",
+  "posters": [
+    {
+      "platform": "windows",
+      "file": "windows.png",
+      "title": "Góry *w trzech wymiarach*",
+      "lead": "Prawdziwy model terenu, znakowane szlaki, trasy z wariantami oraz słońce i cienie o dowolnej porze dnia.",
+      "shots": [
+        {
+          "src": "../screenshots/windows/01.png",
+          "caption": "Szlaki na modelu terenu"
+        },
+        {
+          "src": "../screenshots/windows/02.png",
+          "caption": "Mapa nachyleń"
+        },
+        {
+          "src": "../screenshots/windows/03.png",
+          "caption": "Słońce i cienie"
+        }
+      ],
+      "features": [
+        "LiDAR 3 m i ortofoto",
+        "szlaki PTTK z OSM",
+        "czasy PTTK i punkty GOT",
+        "profil wysokości",
+        "linia wzroku i panorama",
+        "eksport GPX"
+      ],
+      "meta": "Windows 10 i 11"
+    }
+  ]
+}

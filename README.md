@@ -1,5 +1,13 @@
 # GRAŃ — atlas szlaków górskich 3D
 
+<!-- posters:start -->
+<p align="center">
+  <img src="docs/posters/windows.png" alt="GRAŃ – Windows" width="460">
+</p>
+
+<p align="center"><a href="https://redzikowski.com/portfolio/gran-3d">redzikowski.com/portfolio/gran-3d</a></p>
+<!-- posters:end -->
+
 Natywny program dla Windows (Rust, wgpu, egui): trójwymiarowy atlas gór łączący rzeczywisty model terenu z siecią znakowanych szlaków z OpenStreetMap, z narzędziami analitycznymi — wysokością względną, wyznaczaniem tras z wariantami, polem widoczności, linią wzroku, cieniami o dowolnej porze dnia i przelotem kamery nad trasą.
 
 Jeden plik `Gran.exe`, bez przeglądarki, Node i lokalnego serwera. Dystrybucja przez [redzikowski.com](https://redzikowski.com/portfolio/gran-3d) (pliki z GitHub Releases tego repozytorium). Repozytorium nie zawiera danych gór: teren, zdjęcia, szlaki i punkty pobierane są w miarę oglądania mapy, a w menedżerze map (przycisk „Mapy” albo `D`) można zapisać obszary do pracy bez internetu.
