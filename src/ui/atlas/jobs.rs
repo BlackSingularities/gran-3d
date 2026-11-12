@@ -89,10 +89,12 @@ impl Atlas {
             // zasięg: po szlaku najwyżej ~5,5 km/h
             let radius = (hours as f64 * 5_500.0 / pace.max(0.5) as f64).clamp(3_000.0, 48_000.0);
             let g = Self::grid_around(&heights, lon, lat, radius, 1100.0);
-            let on = walk_mask(&g, &snap.graph, &roads);
+            let on = road_mask(&g, &roads);
             let (sx, sy) = g.to_grid(lon, lat);
             let max_s = hours * 3600.0;
-            let t = analysis::travel_time(&g, sx, sy, &on, 40.0, pace, max_s);
+            // szlaki: czas jak w planowaniu trasy (PTTK/DIN z tempem) – zgodny z drogowskazami
+            let seeds = trail_seeds(&g, &snap.graph, (lon, lat), (sx, sy), pace, max_s as f64);
+            let t = analysis::travel_time(&g, sx, sy, &seeds, &on, 40.0, pace, max_s);
             let mask: Vec<u8> = t.iter().map(|&s| if s.is_finite() { ((s / max_s).min(1.0) * 254.0).round() as u8 } else { 255 }).collect();
             let reach = t.iter().filter(|s| s.is_finite()).count();
             let mut pois: Vec<(usize, f32)> = snap
@@ -536,30 +538,146 @@ impl Atlas {
     // ------------------------------------------------------------------ wejście
 }
 
-/// Komórki siatki na szlakach i drogach dostępnych pieszo (bez autostrad, dróg ekspresowych i torów) –
-/// tam czas dojścia liczy się pełnym tempem.
-fn walk_mask(g: &Grid, graph: &crate::graph::TrailGraph, roads: &[Arc<Vec<crate::roads::Road>>]) -> Vec<bool> {
-    use crate::roads::Class;
-    let mut m = vec![false; g.w * g.h];
+/// Komórki odcinka `a`–`b` (współrzędne siatki) z wartością liniowo od `ta` do `tb`; `f` dostaje indeks i wartość.
+fn raster(g: &Grid, a: (f64, f64), b: (f64, f64), ta: f64, tb: f64, mut f: impl FnMut(usize, f64)) {
     let (w, h) = (g.w as f64, g.h as f64);
-    let mut seg = |a: (f64, f64), b: (f64, f64)| {
-        if a.0.max(b.0) < -1.0 || a.1.max(b.1) < -1.0 || a.0.min(b.0) > w || a.1.min(b.1) > h {
-            return;
+    if a.0.max(b.0) < -1.0 || a.1.max(b.1) < -1.0 || a.0.min(b.0) > w || a.1.min(b.1) > h {
+        return;
+    }
+    let n = ((b.0 - a.0).abs().max((b.1 - a.1).abs()) * 2.0).ceil().clamp(1.0, 100_000.0) as usize;
+    for i in 0..=n {
+        let k = i as f64 / n as f64;
+        let (x, y) = ((a.0 + (b.0 - a.0) * k).round(), (a.1 + (b.1 - a.1) * k).round());
+        if x >= 0.0 && y >= 0.0 && x < w && y < h {
+            f(y as usize * g.w + x as usize, ta + (tb - ta) * k);
         }
-        let n = ((b.0 - a.0).abs().max((b.1 - a.1).abs()) * 2.0).ceil().clamp(1.0, 100_000.0) as usize;
-        for i in 0..=n {
-            let f = i as f64 / n as f64;
-            let (x, y) = ((a.0 + (b.0 - a.0) * f).round(), (a.1 + (b.1 - a.1) * f).round());
-            if x >= 0.0 && y >= 0.0 && x < w && y < h {
-                m[y as usize * g.w + x as usize] = true;
+    }
+}
+
+/// Czasy przejścia krawędzi (s) od jej początku do każdego punktu (`fwd`) i od każdego punktu
+/// z powrotem do początku (`back`) – model czasu z planowania trasy (PTTK/DIN, tempo, trudność SAC).
+/// Całość jak w planowaniu (podejścia z histerezą), po drodze proporcjonalnie do odcinków.
+fn edge_times(ed: &crate::graph::Edge) -> (Vec<f64>, Vec<f64>) {
+    let n = ed.n().min(ed.lat.len()).min(ed.e.len());
+    let mut fwd = vec![0.0; n];
+    let mut back = vec![0.0; n];
+    for i in 1..n {
+        let d = haversine(ed.lon[i - 1], ed.lat[i - 1], ed.lon[i], ed.lat[i]);
+        let dh = (ed.e[i] - ed.e[i - 1]) as f64;
+        fwd[i] = fwd[i - 1] + metrics::walk_time(d, dh.max(0.0), (-dh).max(0.0));
+        back[i] = back[i - 1] + metrics::walk_time(d, (-dh).max(0.0), dh.max(0.0));
+    }
+    let sac = metrics::sac_factor(ed.sac);
+    let tf = metrics::walk_time(ed.len2, ed.up, ed.down) * sac * 3600.0;
+    let tb = metrics::walk_time(ed.len2, ed.down, ed.up) * sac * 3600.0;
+    if n > 1 {
+        let (sf, sb) = (fwd[n - 1], back[n - 1]);
+        for v in &mut fwd {
+            *v = if sf > 0.0 { *v / sf * tf } else { 0.0 };
+        }
+        for v in &mut back {
+            *v = if sb > 0.0 { *v / sb * tb } else { 0.0 };
+        }
+    }
+    (fwd, back)
+}
+
+/// Wartość w ułamkowym indeksie punktu krawędzi.
+fn at_p(v: &[f64], p: f64) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    let i = (p.floor() as usize).min(v.len() - 1);
+    let j = (i + 1).min(v.len() - 1);
+    v[i] + (v[j] - v[i]) * (p - i as f64).clamp(0.0, 1.0)
+}
+
+/// Czas dojścia po sieci szlaków od punktu (`lon`, `lat`) do każdej komórki szlaku w siatce (s):
+/// dojście do najbliższego szlaku w terenie (Tobler), potem Dijkstra po węzłach z czasami jak
+/// w planowaniu trasy. Wynik – czasy startowe dla [`analysis::travel_time`].
+fn trail_seeds(g: &Grid, graph: &crate::graph::TrailGraph, (lon, lat): (f64, f64), (sx, sy): (f64, f64), pace: f32, max_s: f64) -> Vec<(usize, f32)> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let Some(s) = graph.snap(lon, lat, 400.0) else { return Vec::new() };
+    let Some(se) = graph.edges.get(s.edge as usize) else { return Vec::new() };
+    let times: Vec<(Vec<f64>, Vec<f64>)> = graph.edges.iter().map(edge_times).collect();
+    // dojście do szlaku poza ścieżką
+    let e0 = g.sample(sx, sy);
+    let t0 = (analysis::tobler(s.dist as f32, s.e - e0) / 0.6 * pace) as f64;
+    let (sf, sb) = &times[s.edge as usize];
+    let (fp, bp) = (at_p(sf, s.p), at_p(sb, s.p));
+    let mut node = vec![f64::INFINITY; graph.nodes.len()];
+    let mut heap = BinaryHeap::new();
+    let relax = |node: &mut Vec<f64>, heap: &mut BinaryHeap<(Reverse<u64>, u32)>, v: u32, t: f64| {
+        if let Some(c) = node.get_mut(v as usize) {
+            if t < *c && t <= max_s {
+                *c = t;
+                heap.push((Reverse(t.to_bits()), v));
             }
         }
     };
-    for e in &graph.edges {
-        for i in 1..e.lon.len().min(e.lat.len()) {
-            seg(g.to_grid(e.lon[i - 1], e.lat[i - 1]), g.to_grid(e.lon[i], e.lat[i]));
+    relax(&mut node, &mut heap, se.a, t0 + bp);
+    relax(&mut node, &mut heap, se.b, t0 + sf.last().copied().unwrap_or(0.0) - fp);
+    while let Some((Reverse(bits), u)) = heap.pop() {
+        let t = f64::from_bits(bits);
+        if t > node[u as usize] {
+            continue;
+        }
+        for &eid in &graph.nodes[u as usize].edges {
+            let ed = &graph.edges[eid as usize];
+            let (f, b) = &times[eid as usize];
+            if ed.a == u {
+                relax(&mut node, &mut heap, ed.b, t + f.last().copied().unwrap_or(0.0));
+            }
+            if ed.b == u {
+                relax(&mut node, &mut heap, ed.a, t + b.last().copied().unwrap_or(0.0));
+            }
         }
     }
+    // czasy w punktach krawędzi: z węzła początkowego albo końcowego (i na krawędzi startu – od miejsca startu)
+    let mut best: std::collections::HashMap<usize, f32> = std::collections::HashMap::new();
+    for (eid, ed) in graph.edges.iter().enumerate() {
+        let (f, b) = &times[eid];
+        let n = f.len();
+        if n < 2 {
+            continue;
+        }
+        let ta = node.get(ed.a as usize).copied().unwrap_or(f64::INFINITY);
+        let tb = node.get(ed.b as usize).copied().unwrap_or(f64::INFINITY);
+        let at = |i: usize| -> f64 {
+            let mut t = (ta + f[i]).min(tb + b[n - 1] - b[i]);
+            if eid == s.edge as usize {
+                let pi = i as f64;
+                t = t.min(if pi >= s.p { t0 + f[i] - fp } else { t0 + bp - b[i] });
+            }
+            t
+        };
+        if ta.min(tb) > max_s && eid != s.edge as usize {
+            continue;
+        }
+        let pts: Vec<(f64, f64)> = (0..n).map(|i| g.to_grid(ed.lon[i], ed.lat[i])).collect();
+        let ts: Vec<f64> = (0..n).map(at).collect();
+        for i in 1..n {
+            if ts[i - 1].min(ts[i]) > max_s {
+                continue;
+            }
+            raster(g, pts[i - 1], pts[i], ts[i - 1], ts[i], |c, t| {
+                let e = best.entry(c).or_insert(f32::INFINITY);
+                if (t as f32) < *e {
+                    *e = t as f32;
+                }
+            });
+        }
+    }
+    best.into_iter().collect()
+}
+
+/// Komórki siatki na drogach dostępnych pieszo (bez autostrad, dróg ekspresowych i torów) –
+/// tam czas dojścia liczy się pełnym tempem (szlaki mają własne czasy z [`trail_seeds`]).
+fn road_mask(g: &Grid, roads: &[Arc<Vec<crate::roads::Road>>]) -> Vec<bool> {
+    use crate::roads::Class;
+    let mut m = vec![false; g.w * g.h];
+    let mut seg = |a: (f64, f64), b: (f64, f64)| raster(g, a, b, 0.0, 0.0, |c, _| m[c] = true);
     for sector in roads {
         for r in sector.iter() {
             if matches!(r.class, Class::Motorway | Class::Trunk | Class::Rail | Class::Tram) {

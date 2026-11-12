@@ -95,6 +95,27 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
         });
 }
 
+/// Mały przycisk sterowania kamerą: sama ikona, podświetlenie pod kursorem, bez stałego wypełnienia.
+fn nav_button(ui: &mut egui::Ui, glyph: &str, hint: &str) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), egui::Sense::click());
+    theme::focus_ring(ui, &resp, rect, 8.0);
+    let p = ui.painter();
+    if resp.is_pointer_button_down_on() {
+        p.rect_filled(rect, 8.0, Color32::from_white_alpha(30));
+    } else if resp.hovered() {
+        p.rect_filled(rect, 8.0, Color32::from_white_alpha(16));
+    }
+    let color = if resp.hovered() { theme::PAPER } else { theme::paper_2() };
+    p.text(rect.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(16.0), color);
+    resp.on_hover_text(hint)
+}
+
+/// Cienka pozioma kreska między grupami przycisków kamery.
+fn nav_divider(ui: &mut egui::Ui) {
+    let (r, _) = ui.allocate_exact_size(egui::vec2(30.0, 7.0), egui::Sense::hover());
+    ui.painter().line_segment([egui::pos2(r.left() + 7.0, r.center().y), egui::pos2(r.right() - 7.0, r.center().y)], egui::Stroke::new(1.0, Color32::from_white_alpha(28)));
+}
+
 /// Sterowanie kamerą w prawym dolnym rogu.
 pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
     let alpha = controls_alpha(a, ctx);
@@ -104,29 +125,37 @@ pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
         .interactable(alpha > 0.05)
         .show(ctx, |ui| {
             ui.multiply_opacity(alpha);
-            theme::glass_float().show(ui, |ui| {
+            theme::glass_float().corner_radius(egui::CornerRadius::same(11)).inner_margin(egui::Margin::same(3)).show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 1.0;
                 ui.vertical(|ui| {
                     let zoom = |a: &mut Atlas, k: f64| {
                         let mut to = a.cam;
                         to.distance = (a.cam.distance * k).clamp(a.min_dist(), 900_000.0);
                         a.start_fly(to, 0.35);
                     };
-                    if theme::icon_button(ui, theme::icon::PLUS, false).on_hover_text(crate::i18n::tr("Przybliż")).clicked() {
+                    if nav_button(ui, theme::icon::PLUS, crate::i18n::tr("Przybliż")).clicked() {
                         zoom(a, 0.55);
                     }
-                    if theme::icon_button(ui, theme::icon::MINUS, false).on_hover_text(crate::i18n::tr("Oddal")).clicked() {
+                    if nav_button(ui, theme::icon::MINUS, crate::i18n::tr("Oddal")).clicked() {
                         zoom(a, 1.8);
                     }
-                    ui.separator();
+                    nav_divider(ui);
+                    // ikona mówi, dokąd przełączy: z góry → ukośnie, ukośnie → z góry
+                    let top = a.cam.pitch > 75.0;
+                    let (glyph, hint) = if top {
+                        (theme::icon::PERSPECTIVE, crate::i18n::tr("Widok ukośny (V)"))
+                    } else {
+                        (theme::icon::SQUARE, crate::i18n::tr("Widok z góry (V)"))
+                    };
+                    if nav_button(ui, glyph, hint).clicked() {
+                        let mut to = a.cam;
+                        to.pitch = if top { 40.0 } else { 89.0 };
+                        a.start_fly(to, 0.7);
+                    }
                     let full = ui.ctx().input(|i| i.viewport().fullscreen.unwrap_or(false));
-                    if theme::icon_button(ui, if full { theme::icon::CORNERS_IN } else { theme::icon::CORNERS_OUT }, full).on_hover_text(crate::i18n::tr("Pełny ekran (F11)")).clicked() {
+                    if nav_button(ui, if full { theme::icon::CORNERS_IN } else { theme::icon::CORNERS_OUT }, if full { crate::i18n::tr("Zamknij pełny ekran (F11)") } else { crate::i18n::tr("Pełny ekran (F11)") }).clicked() {
                         let ctx = ui.ctx().clone();
                         a.toggle_fullscreen(&ctx);
-                    }
-                    if theme::icon_button(ui, theme::icon::PERSPECTIVE, a.cam.pitch < 75.0).on_hover_text(crate::i18n::tr("Widok ukośny / z góry (V)")).clicked() {
-                        let mut to = a.cam;
-                        to.pitch = if a.cam.pitch > 75.0 { 40.0 } else { 89.0 };
-                        a.start_fly(to, 0.7);
                     }
                 });
             });

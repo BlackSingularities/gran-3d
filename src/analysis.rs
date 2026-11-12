@@ -116,7 +116,7 @@ pub fn line_of_sight(g: &Grid, a: (f64, f64), b: (f64, f64), eye: f32) -> Option
 }
 
 /// Czas marszu wg funkcji Toblera (s) dla odcinka o długości poziomej `d` i przewyższeniu `dh`.
-fn tobler(d: f32, dh: f32) -> f32 {
+pub fn tobler(d: f32, dh: f32) -> f32 {
     let v = 6.0 * (-3.5 * (dh / d + 0.05).abs()).exp();
     d.hypot(dh) / 1000.0 / v * 3600.0
 }
@@ -296,22 +296,29 @@ pub fn insolation(g: &Grid, suns: &[([f32; 3], f32)]) -> Vec<u8> {
 }
 
 /// Czas dojścia pieszo z punktu (`sx`, `sy`) po siatce wysokości (Dijkstra, 16 kierunków, funkcja Toblera).
-/// `on_trail` – komórki szlaków i dróg (pełne tempo); poza nimi tempo jak w terenie bez ścieżki (×0,6)
+/// `seeds` – komórki z już znanym czasem (s), np. punkty szlaków policzone po sieci szlaków.
+/// `on_trail` – komórki dróg (pełne tempo); poza nimi tempo jak w terenie bez ścieżki (×0,6)
 /// i stoki ponad `max_slope_deg` nieprzejezdne. `pace` – mnożnik czasu (1 – zwykłe tempo).
 /// Wynik w sekundach, `f32::INFINITY` – nieosiągalne w `max_s`.
-pub fn travel_time(g: &Grid, sx: f64, sy: f64, on_trail: &[bool], max_slope_deg: f32, pace: f32, max_s: f32) -> Vec<f32> {
+#[allow(clippy::too_many_arguments)]
+pub fn travel_time(g: &Grid, sx: f64, sy: f64, seeds: &[(usize, f32)], on_trail: &[bool], max_slope_deg: f32, pace: f32, max_s: f32) -> Vec<f32> {
     let (w, h) = (g.w, g.h);
     let mut cost = vec![f32::INFINITY; w * h];
+    let mut heap = BinaryHeap::new();
     let (ix, iy) = (sx.round(), sy.round());
-    if ix < 0.0 || iy < 0.0 || ix >= w as f64 || iy >= h as f64 {
-        return cost;
+    if ix >= 0.0 && iy >= 0.0 && ix < w as f64 && iy < h as f64 {
+        let s = iy as usize * w + ix as usize;
+        cost[s] = 0.0;
+        heap.push(Item(0.0, s as u32));
     }
-    let s = iy as usize * w + ix as usize;
+    for &(i, t) in seeds {
+        if i < cost.len() && t < cost[i] && t <= max_s {
+            cost[i] = t;
+            heap.push(Item(t, i as u32));
+        }
+    }
     let max_tan = max_slope_deg.to_radians().tan();
     let mpp = g.mpp;
-    let mut heap = BinaryHeap::new();
-    cost[s] = 0.0;
-    heap.push(Item(0.0, s as u32));
     const DX: [i32; 16] = [1, -1, 0, 0, 1, 1, -1, -1, 2, 2, -2, -2, 1, 1, -1, -1];
     const DY: [i32; 16] = [0, 0, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 2, -2, 2, -2];
     while let Some(Item(c, u)) = heap.pop() {
@@ -528,16 +535,19 @@ mod tests {
         let mut g = cone();
         g.data.iter_mut().for_each(|v| *v = 500.0);
         let off = vec![false; g.w * g.h];
-        let t = travel_time(&g, 50.0, 50.0, &off, 40.0, 1.0, 1e9);
+        let t = travel_time(&g, 50.0, 50.0, &[], &off, 40.0, 1.0, 1e9);
         assert_eq!(t[50 * 101 + 50], 0.0);
         assert!(t[50 * 101 + 60] < t[50 * 101 + 80]);
         // 30 px × 30 m = 900 m po płaskim bez ścieżki: ok. 900 m / (5 km/h × 0,6) ≈ 1080 s
         assert!((t[50 * 101 + 80] - 1080.0).abs() < 120.0, "{}", t[50 * 101 + 80]);
         let on = vec![true; g.w * g.h];
-        let t2 = travel_time(&g, 50.0, 50.0, &on, 40.0, 1.0, 1e9);
+        let t2 = travel_time(&g, 50.0, 50.0, &[], &on, 40.0, 1.0, 1e9);
         assert!(t2[50 * 101 + 80] < t[50 * 101 + 80] * 0.7);
         // limit czasu: dalej nieosiągalne
-        let t3 = travel_time(&g, 50.0, 50.0, &off, 40.0, 1.0, 300.0);
+        let t3 = travel_time(&g, 50.0, 50.0, &[], &off, 40.0, 1.0, 300.0);
         assert!(t3[50 * 101 + 95].is_infinite());
+        // znany czas w innej komórce (np. ze szlaku) rozchodzi się dalej od niej
+        let t4 = travel_time(&g, 50.0, 50.0, &[(50 * 101 + 90, 60.0)], &off, 40.0, 1.0, 1e9);
+        assert!((t4[50 * 101 + 92] - 60.0 - 2.0 * 30.0 / (5.04 / 3.6 * 0.6)).abs() < 10.0, "{}", t4[50 * 101 + 92]);
     }
 }
