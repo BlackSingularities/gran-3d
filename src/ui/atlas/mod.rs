@@ -153,6 +153,8 @@ pub struct Atlas {
     pub tool: Tool,
     pub lens: Lens,
     pub lens_pin: Option<(f64, f64, f32)>,
+    /// Soczewka sprzed przypięcia z panelu albo menu – wraca po odpięciu.
+    lens_back: Option<Lens>,
     pub waypoints: Vec<Waypoint>,
     pub route_mode: RouteMode,
     pub routes: Vec<Route>,
@@ -168,6 +170,8 @@ pub struct Atlas {
     pub selection: Selection,
     pub hover: Option<(f64, f64, f32)>,
     pub profile_cursor: Option<f32>,
+    /// Dystans na trasie wskazany w panelu bocznym (mały profil, lista punktów) – znacznik na mapie i profilu.
+    pub panel_cursor: Option<f32>,
     pub vs: Option<VsInfo>,
     pub vs_busy: bool,
     pub rel: Option<RelInfo>,
@@ -293,6 +297,7 @@ impl Atlas {
             tool: Tool::Explore,
             lens: Lens::None,
             lens_pin: None,
+            lens_back: None,
             waypoints: Vec::new(),
             route_mode: RouteMode::Trails,
             routes: Vec::new(),
@@ -308,6 +313,7 @@ impl Atlas {
             selection: Selection::None,
             hover: None,
             profile_cursor: None,
+            panel_cursor: None,
             vs: None,
             vs_busy: false,
             rel: None,

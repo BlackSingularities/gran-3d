@@ -35,8 +35,7 @@ pub(super) fn region_info(a: &mut Atlas, ui: &mut egui::Ui) {
             (crate::i18n::tr("Sektory"), a.snap.sectors.len().to_string()),
         ]);
     }
-    ui.add_space(10.0);
-    ui.label(theme::kicker(crate::i18n::tr("Najbardziej wybitne szczyty")));
+    section(ui, theme::icon::MOUNTAINS, crate::i18n::tr("Najbardziej wybitne szczyty"));
     let peaks: Vec<(usize, String, f32)> = a
         .snap
         .pois
@@ -55,10 +54,7 @@ pub(super) fn region_info(a: &mut Atlas, ui: &mut egui::Ui) {
         }
     }
     if let Some(r) = a.gpx.clone() {
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            ui.label(theme::kicker(crate::i18n::tr("Wczytany ślad GPX")));
-        });
+        section(ui, theme::icon::PATH, crate::i18n::tr("Wczytany ślad GPX"));
         let s = r.stats;
         ui.label(RichText::new(r.labels[0].clone()).strong());
         grid2(ui, vec![(crate::i18n::tr("Dystans"), fmt::dist(s.len2)), (crate::i18n::tr("Czas"), fmt::time(s.time)), (crate::i18n::tr("Podejścia"), fmt::ele(s.up)), (crate::i18n::tr("Zejścia"), fmt::ele(s.down))]);
@@ -178,8 +174,7 @@ pub(super) fn poi_info(a: &mut Atlas, ui: &mut egui::Ui, i: usize) {
     ui.add_space(6.0);
     point_buttons(a, ui, p.poi.lon, p.poi.lat);
     if p.poi.kind == PoiKind::Peak {
-        ui.add_space(10.0);
-        ui.label(theme::kicker(crate::i18n::tr("Sąsiednie szczyty")));
+        section(ui, theme::icon::MOUNTAINS, crate::i18n::tr("Sąsiednie szczyty"));
         let mut near: Vec<(usize, f64)> = a
             .snap
             .pois

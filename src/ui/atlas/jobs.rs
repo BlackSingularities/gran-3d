@@ -360,12 +360,18 @@ impl Atlas {
     // ------------------------------------------------------------------ soczewki
 
     pub fn set_lens(&mut self, l: Lens) {
-        self.lens = if self.lens == l { Lens::None } else { l };
+        // jawny wybór soczewki: odpięcie nie przywraca już wcześniejszego trybu
+        self.lens_back = None;
         self.unpin_lens();
+        self.lens = if self.lens == l { Lens::None } else { l };
     }
 
     pub fn pin_lens(&mut self, lon: f64, lat: f64, mode: Lens) {
         let e = self.heights.sample_cached(lon, lat).unwrap_or(0.0);
+        // przypięcie z panelu albo menu (bez włączonej tej soczewki): po odpięciu wraca wcześniejszy tryb
+        if self.lens != mode && self.lens_back.is_none() {
+            self.lens_back = Some(self.lens);
+        }
         self.lens = mode;
         self.lens_pin = Some((lon, lat, e));
         self.rel = None;
@@ -381,6 +387,9 @@ impl Atlas {
     pub fn unpin_lens(&mut self) {
         self.gen += 1;
         self.lens_pin = None;
+        if let Some(l) = self.lens_back.take() {
+            self.lens = l;
+        }
         self.vs = None;
         self.vs_busy = false;
         self.rel = None;
