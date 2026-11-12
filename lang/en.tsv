@@ -238,7 +238,7 @@ przelot · F – stop	fly-through · F – stop
 soczewka: ta sama wysokość	lens: same elevation
 soczewka: wysokość względna	lens: relative elevation
 soczewka: widoczność	lens: visibility
- (przypięta · Esc)	 (pinned · Esc)
+ (przypięta · klik – w nowe miejsce · Esc)	 (pinned · click – move · Esc)
  · klik przypina	 · click to pin
 Trasa stąd	Route from here
 Trasa tutaj	Route to here
@@ -929,3 +929,13 @@ liczę czas marszu…	computing walking times…
 km² w zasięgu {} h marszu	km² within a {} h walk
 Funkcja Toblera po modelu terenu, szlaki i drogi pełnym tempem, poza nimi wolniej, stoki ponad 40° pominięte. Tempo jak w planowaniu trasy. Linie co 30 min, pogrubione co godzinę. Bez przerw na odpoczynek – to analiza terenu, nie zachęta do schodzenia ze szlaków.	Tobler's function over the terrain model: trails and roads at full pace, slower off them, slopes over 40° excluded. Pace as in route planning. Lines every 30 min, bold every hour. No rest breaks – this is terrain analysis, not encouragement to leave the trails.
 W zasięgu ({})	Within reach ({})
+poza zasięgiem	out of reach
+linie co 30 min, grubsze co godzinę	lines every 30 min, bolder every hour
+niebieskie niżej, czerwone wyżej; białe pierścienie co 1 km	blue lower, red higher; white rings every 1 km
+lawiny schodzą najczęściej ze stoków 30–45°	most avalanches release on 30–45° slopes
+barwa – kierunek, w który opada stok	colour – direction the slope faces
+nasycenie – nachylenie (szare = płasko)	saturation – steepness (grey = flat)
+godziny słońca {} · dzień trwa {}	sunshine hours {} · day length {}
+Widok ukośny (V)	Oblique view (V)
+Widok z góry (V)	Top-down view (V)
+Zamknij pełny ekran (F11)	Exit full screen (F11)

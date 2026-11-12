@@ -435,7 +435,7 @@ impl Atlas {
             Lens::None => None,
         };
         if let Some(t) = lens_txt {
-            chips.push(format!("{t}{}", if self.lens_pin.is_some() { " (przypięta · Esc)" } else { " · klik przypina" }));
+            chips.push(format!("{t}{}", if self.lens_pin.is_some() { crate::i18n::tr(" (przypięta · klik – w nowe miejsce · Esc)") } else { crate::i18n::tr(" · klik przypina") }));
         }
         // statusy na środku dolnego paska (nad odczytem kursora i atrybucją)
         if !chips.is_empty() {

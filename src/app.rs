@@ -701,6 +701,7 @@ impl eframe::App for App {
                 self.atlas.view_ui(ui, frame);
             });
         crate::ui::panels::nav(&mut self.atlas, ctx);
+        crate::ui::panels::legend(&mut self.atlas, ctx);
         crate::ui::panels::profile_panel(&mut self.atlas, ctx);
         crate::ui::search::show(&mut self.atlas, ctx);
         crate::ui::palette::show(&mut self.atlas, ctx);

@@ -227,7 +227,9 @@ impl Atlas {
                     }
                 }
             }
-            if self.lens != Lens::None && self.lens_pin.is_none() {
+            // włączona soczewka działa cały czas: każdy klik przenosi ją w nowe miejsce (przypięta
+            // tylko z menu albo panelu – bez włączonej soczewki – klik wraca do zwykłego działania)
+            if self.lens != Lens::None && (self.lens_pin.is_none() || self.lens_back.is_none()) {
                 self.pin_lens(lon, lat, self.lens);
                 return;
             }
