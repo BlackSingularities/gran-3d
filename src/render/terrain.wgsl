@@ -23,7 +23,7 @@ struct Globals {
     water: vec4<f32>,        // czas (s), -, -, -
     grid_lin: vec4<f32>,     // siatka UTM: dE/dx, dE/dz, dN/dx, dN/dz
     grid_q: vec4<f32>,       // E: xx/2, xz, zz/2; N: xx/2
-    grid_q2: vec4<f32>,      // N: xz, zz/2, -, -
+    grid_q2: vec4<f32>,      // N: xz, zz/2; wysokość płaszczyzny siatki względem oka; płaska siatka (1/0)
 };
 
 struct Tile {
@@ -482,8 +482,16 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     }
 
     // siatka UTM: linie co 100 m (z bliska), 1 km i 10 km (pogrubione), zgodne z mapami topograficznymi
+    // Linie są proste: siatka leży na poziomej płaszczyźnie na wysokości środka widoku i jest rzutowana
+    // promieniem z oka (nie układa się na stokach, więc nie faluje z rzeźbą i pokazuje kierunek).
+    // W widoku z ziemi (spacer) płaszczyzna byłaby tuż pod okiem – tam siatka zostaje na terenie.
     if (g.style.w > 0.5) {
-        let d = wp - g.grid_origin.xy;
+        let planar = g.grid_q2.w > 0.5;
+        let rxz = wp - g.eye.xz;
+        let ry = h * exag - g.eye.y - dot(rxz, rxz) / (2.0 * EARTH_R) * 0.87;
+        let gp = select(wp, g.eye.xz + rxz * (g.grid_q2.z / min(ry, -0.001)), planar);
+        let g_on = select(1.0, 0.0, planar && ry > -0.001);
+        let d = gp - g.grid_origin.xy;
         let e = g.grid_origin.z + g.grid_lin.x * d.x + g.grid_lin.y * d.y
             + g.grid_q.x * d.x * d.x + g.grid_q.y * d.x * d.y + g.grid_q.z * d.y * d.y;
         let n = g.grid_origin.w + g.grid_lin.z * d.x + g.grid_lin.w * d.y
@@ -503,7 +511,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         let f1 = 1.0 - smoothstep(0.08, 0.25, max(fw1.x, fw1.y));
         let f10 = 1.0 - smoothstep(0.08, 0.25, max(fw10.x, fw10.y));
         let gl = max(max(max(l01.x, l01.y) * 0.16 * f01, max(l1.x, l1.y) * 0.42 * f1), max(l10.x, l10.y) * 0.7 * f10);
-        col = mix(col, vec3(0.95, 0.9, 0.8), gl);
+        col = mix(col, vec3(0.95, 0.9, 0.8), gl * g_on);
     }
 
     // kursor: mały pierścień na terenie
