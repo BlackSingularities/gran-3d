@@ -1,5 +1,6 @@
 // GRAŃ – teren kaflowy: wysokości z kafla DEM (257×257, narożniki pikseli), gradient do cieniowania,
-// style (teren, hipsometria, nachylenie, ekspozycja, satelita/ortofoto, mapa), mapa normalnych, cienie, soczewki, mgła.
+// style (teren, hipsometria, nachylenie, ekspozycja, satelita/ortofoto, mapa, szwajcarska, rycina, nasłonecznienie),
+// mapa normalnych, cienie, soczewki (też czas dojścia), mgła.
 
 struct Globals {
     view_proj: mat4x4<f32>,
@@ -11,10 +12,10 @@ struct Globals {
     style: vec4<f32>,        // styl, cięcie poziomic, poziomice, siatka km
     season: vec4<f32>,       // granica śniegu, śnieg, jesień, szum
     lens: vec4<f32>,         // x, z, wysokość, tryb (0 brak, 1 poziomica, 2 pas, 3 względna, 4 widoczność)
-    lens2: vec4<f32>,        // pas ±m, zakres względny, przypięta, czas
+    lens2: vec4<f32>,        // pas ±m, zakres względny, czas dojścia: najdłuższy (h), długość dnia (h, nasłonecznienie)
     cursor: vec4<f32>,       // x, z, wysokość, aktywny
-    shadow_rect: vec4<f32>,  // x0, z0, 1/szer, 1/wys (m ramki)
-    vs_rect: vec4<f32>,
+    shadow_rect: vec4<f32>,  // x0, z0, 1/szer, 1/wys (m ramki); w stylu nasłonecznienia – godziny słońca / 24
+    vs_rect: vec4<f32>,      // widoczność albo czas dojścia (0..254 – do najdłuższego, 255 – dalej)
     flags: vec4<f32>,        // cienie, widoczność, pokrycie terenu, mapa normalnych
     biome: vec4<f32>,        // las, kosodrzewina, skały, okluzja
     grid_origin: vec4<f32>,  // siatka UTM: punkt odniesienia w ramce (x, z), E i N w nim (mod 10 km)
@@ -159,6 +160,51 @@ fn hypso(e: f32) -> vec3<f32> {
     return srgb(c);
 }
 
+// kreski spadku (rycina, skały): pasy wzdłuż linii największego spadku, `cover` – udział tuszu.
+// Gdy kresek jest za gęsto na ekranie, zostaje ich średni ton (bez migotania).
+fn hachure(wp: vec2<f32>, grad: vec2<f32>, spacing: f32, cover: f32) -> f32 {
+    let len = max(length(grad), 1e-5);
+    let t = vec2(-grad.y, grad.x) / len;
+    let u = dot(wp, t) / spacing;
+    let fw = fwidth(u);
+    let d = abs(fract(u) - 0.5);
+    let hw = cover * 0.5;
+    let line = 1.0 - smoothstep(hw - fw, hw + fw, d);
+    return mix(line, cover, smoothstep(0.3, 0.7, fw));
+}
+
+// nasłonecznienie: udział dnia w słońcu 0..1 → granat, fiolet, czerwień, pomarańcz, żółć
+fn insol_ramp(r: f32) -> vec3<f32> {
+    var stops = array<vec4<f32>, 5>(
+        vec4(0.0, 0.16, 0.19, 0.40), vec4(0.25, 0.40, 0.30, 0.60), vec4(0.5, 0.80, 0.38, 0.42),
+        vec4(0.75, 0.97, 0.64, 0.25), vec4(1.0, 1.0, 0.94, 0.55));
+    var c = stops[0].yzw;
+    for (var i = 1; i < 5; i++) {
+        let a = stops[i - 1];
+        let b = stops[i];
+        if (r >= a.x) {
+            c = mix(a.yzw, b.yzw, clamp((r - a.x) / (b.x - a.x), 0.0, 1.0));
+        }
+    }
+    return srgb(c);
+}
+
+// czas dojścia: udział najdłuższego czasu 0..1 → zieleń, żółć, pomarańcz, czerwień, fiolet
+fn iso_ramp(r: f32) -> vec3<f32> {
+    var stops = array<vec4<f32>, 5>(
+        vec4(0.0, 0.20, 0.75, 0.45), vec4(0.25, 0.80, 0.88, 0.30), vec4(0.5, 0.98, 0.62, 0.20),
+        vec4(0.75, 0.90, 0.25, 0.22), vec4(1.0, 0.55, 0.20, 0.62));
+    var c = stops[0].yzw;
+    for (var i = 1; i < 5; i++) {
+        let a = stops[i - 1];
+        let b = stops[i];
+        if (r >= a.x) {
+            c = mix(a.yzw, b.yzw, clamp((r - a.x) / (b.x - a.x), 0.0, 1.0));
+        }
+    }
+    return srgb(c);
+}
+
 fn in_rect(wp: vec2<f32>, r: vec4<f32>) -> vec3<f32> {
     let uv = (wp - r.xy) * r.zw;
     let inside = select(0.0, 1.0, all(uv >= vec2(0.0)) && all(uv <= vec2(1.0)));
@@ -178,26 +224,17 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let depth = max(wa.y - bed, 0.0);
     let h = select(bed, max(bed, wa.y), wa.x > 0.0);
     let grad = select(textureSample(grad_tex, samp, in.dem_uv).xy, vec2(0.0), on_water);
-    // lekka mapa normalnych z bliska: na zdjęciach z jasności obrazu, inaczej z drobnego szumu
+    // lekka mapa normalnych z bliska, we wszystkich stylach ta sama: drobny szum w metrach terenu,
+    // zmienia tylko normalną (światło), nie kształt ani położenie. Na zdjęciu nie z jasności obrazu –
+    // tłoczenie zdjęcia dawało podwójne krawędzie, jakby teren był przesunięty względem obrazu.
     let detail_on = g.flags.w * (1.0 - smoothstep(2000.0, 30000.0, in.dist));
     let photo = style == 4 && tile.img.w > 0.5;
-    // pochodne poza rozgałęzieniem: odczyty w środku dają ten sam wynik co zwykłe textureSample
-    let duv_x = dpdx(in.img_uv);
-    let duv_y = dpdy(in.img_uv);
     var detail = vec2(0.0);
     // liczone tylko tam, gdzie widać efekt (włączone i bliżej niż 30 km) – oszczędza kartę graficzną
     if (detail_on > 0.0) {
-        if (photo) {
-            let px = vec2(1.5) / vec2<f32>(textureDimensions(img_tex));
-            let lum = vec3(0.3, 0.59, 0.11);
-            let lx = dot(textureSampleGrad(img_tex, samp, in.img_uv + vec2(px.x, 0.0), duv_x, duv_y).rgb - textureSampleGrad(img_tex, samp, in.img_uv - vec2(px.x, 0.0), duv_x, duv_y).rgb, lum);
-            let lz = dot(textureSampleGrad(img_tex, samp, in.img_uv + vec2(0.0, px.y), duv_x, duv_y).rgb - textureSampleGrad(img_tex, samp, in.img_uv - vec2(0.0, px.y), duv_x, duv_y).rgb, lum);
-            detail = vec2(lx, lz) * 5.5 * detail_on;
-        } else {
-            let mx = fbm((in.wp + vec2(2.0, 0.0)) / 11.0) - fbm((in.wp - vec2(2.0, 0.0)) / 11.0);
-            let mz = fbm((in.wp + vec2(0.0, 2.0)) / 11.0) - fbm((in.wp - vec2(0.0, 2.0)) / 11.0);
-            detail = vec2(mx, mz) * 2.2 * detail_on;
-        }
+        let mx = fbm((in.wp + vec2(2.0, 0.0)) / 11.0) - fbm((in.wp - vec2(2.0, 0.0)) / 11.0);
+        let mz = fbm((in.wp + vec2(0.0, 2.0)) / 11.0) - fbm((in.wp - vec2(0.0, 2.0)) / 11.0);
+        detail = vec2(mx, mz) * 2.2 * detail_on;
     }
     let n = normalize(vec3(-grad.x * exag - detail.x, 1.0, -grad.y * exag - detail.y));
     let slope = length(grad);
@@ -223,7 +260,8 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let land = select(vec4(0.0), land_s, g.flags.z > 0.5 && lr.z > 0.5 && land_s.a > 0.5);
     let has_land = g.flags.z > 0.5 && lr.z > 0.5 && land_s.a > 0.5;
     var shadow = 1.0;
-    if (g.flags.x > 0.5 && sr.z > 0.5) {
+    // w stylu nasłonecznienia tekstura cieni niesie godziny słońca, nie cień chwili
+    if (g.flags.x > 0.5 && sr.z > 0.5 && style != 8) {
         shadow = shadow_s;
     }
     let ndl = max(dot(n, sun), 0.0);
@@ -236,6 +274,12 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let autumn = g.season.z;
     let noise_amt = g.season.w;
     var water = 0.0;
+    // tusz rysowany na wierzchu po cieniowaniu (kreski skał, ryciny, linie godzin) i jego barwa
+    var ink = 0.0;
+    var ink_col = vec3(0.0);
+    // lodowiec (styl szwajcarski) – niebieskie poziomice
+    var glacier = 0.0;
+    let paper_style = style == 5 || style == 6 || style == 7;
 
     if (style == 0 || style == 4) {
         // piętra roślinności zależne od wysokości, nachylenia i ekspozycji
@@ -313,6 +357,65 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     } else if (style == 3) {
         let sat = clamp(slope * 2.5, 0.0, 0.85);
         base = srgb(hsv2rgb(vec3(aspect / 360.0, sat, 0.93)));
+    } else if (style == 6) {
+        // szwajcarska: jasny papier, lasy szarozielone, skały szare z kreskami, lodowce błękitne
+        let paper = srgb(vec3(0.96, 0.96, 0.93));
+        let wood = srgb(vec3(0.74, 0.83, 0.66));
+        var c = mix(wood, paper, smoothstep(g.biome.x - 60.0, g.biome.x + 60.0, h));
+        var osm_rock = 0.0;
+        if (has_land) {
+            c = mix(paper, wood, smoothstep(0.3, 0.62, land.g));
+            c = mix(c, srgb(vec3(0.84, 0.88, 0.76)), smoothstep(0.3, 0.5, land.b) * (1.0 - smoothstep(0.7, 0.9, land.b)) * 0.8);
+            osm_rock = smoothstep(0.8, 1.0, land.b);
+            if (land.r > 0.5 && slope < 0.15) {
+                water = 1.0;
+            }
+        }
+        if (on_water) {
+            water = 1.0;
+        }
+        let rk = clamp(smoothstep(0.85, 1.25, slope) + smoothstep(g.biome.z, g.biome.z + 250.0, h) * smoothstep(0.4, 0.8, slope) + osm_rock, 0.0, 1.0);
+        c = mix(c, srgb(vec3(0.87, 0.86, 0.84)), rk);
+        // lodowce: wysoko ponad granicą skał, na niezbyt stromym terenie (brzeg nieregularny)
+        let gl_e = h + (fbm(wp / 300.0) - 0.5) * 220.0;
+        glacier = smoothstep(g.biome.z + 700.0, g.biome.z + 820.0, gl_e) * (1.0 - smoothstep(0.75, 1.05, slope));
+        c = mix(c, srgb(vec3(0.89, 0.94, 0.99)), glacier);
+        base = c;
+        // skały: gęste kreski spadku, grubsze na stromiznach
+        let strokes = hachure(wp, grad, g.style.y * 0.6, mix(0.25, 0.5, smoothstep(0.8, 1.6, slope)));
+        ink = strokes * rk * (1.0 - glacier) * 0.75;
+        ink_col = srgb(vec3(0.33, 0.32, 0.33));
+    } else if (style == 7) {
+        // rycina: biały papier z lekkim ziarnem, lasy ledwie zaznaczone, kreski spadku
+        var c = srgb(vec3(0.97, 0.96, 0.92)) * (0.97 + 0.04 * fbm(wp / 70.0));
+        if (has_land) {
+            c = mix(c, srgb(vec3(0.89, 0.91, 0.84)), smoothstep(0.3, 0.62, land.g) * 0.8);
+            if (land.r > 0.5 && slope < 0.15) {
+                water = 1.0;
+            }
+        }
+        if (on_water) {
+            water = 1.0;
+        }
+        base = c;
+        // kreski spadku (Lehmann): im stromiej, tym grubsze; przerwy na każdej warstwicy jak przy rysowaniu piórem
+        let lvl = g.style.y * 0.5;
+        let seg = fract(h / lvl);
+        let seg_fw = fwidth(h / lvl);
+        let gap = smoothstep(0.86 - seg_fw, 0.86 + seg_fw, seg) * (1.0 - smoothstep(0.98 - seg_fw, 0.98 + seg_fw, seg));
+        let cover = smoothstep(0.05, 1.2, slope) * 0.6;
+        ink = hachure(wp, grad, g.style.y * 0.7, cover) * (1.0 - gap * (1.0 - smoothstep(0.3, 0.7, seg_fw))) * 0.85;
+        ink_col = srgb(vec3(0.24, 0.19, 0.14));
+    } else if (style == 8) {
+        // nasłonecznienie: godziny słońca z tekstury cieni, odniesione do długości dnia
+        let hours = shadow_s * 24.0;
+        let hfw = max(fwidth(hours), 1e-3);
+        let r = clamp(hours / max(g.lens2.w, 0.5), 0.0, 1.0);
+        base = select(srgb(vec3(0.62, 0.62, 0.64)), insol_ramp(r), sr.z > 0.5);
+        // linie co godzinę (bez linii zera – cały dzień w cieniu to pole, nie kontur)
+        let hl = 1.0 - smoothstep(0.0, hfw * 1.3, abs(fract(hours + 0.5) - 0.5));
+        ink = hl * 0.45 * sr.z * smoothstep(0.4, 0.8, hours) * (1.0 - smoothstep(0.25, 0.5, hfw));
+        ink_col = vec3(1.0);
     } else {
         // mapa turystyczna: papier, lasy i skały delikatnie
         let paper = srgb(vec3(0.97, 0.95, 0.90));
@@ -339,6 +442,18 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         col = base * shade * mix(vec3(1.0), g.sun_color.rgb * 0.8 + g.sky_color.rgb * 0.35, 0.35);
     } else if (style == 0) {
         col = base * light;
+    } else if (style == 6) {
+        // cieniowanie szwajcarskie: światło z północnego zachodu, stoki w cieniu szaroniebieskie, oświetlone ciepłe
+        let nc = normalize(vec3(-(grad.x + detail.x) * 1.8, 1.0, -(grad.y + detail.y) * 1.8));
+        let l = max(dot(nc, normalize(vec3(-0.6, 0.75, -0.6))), 0.0) / 0.665;
+        let shade = mix(srgb(vec3(0.50, 0.56, 0.62)), vec3(1.0), clamp(l, 0.0, 1.0));
+        let warm = clamp(l - 1.0, 0.0, 0.5) * srgb(vec3(1.0, 0.96, 0.80)) * 0.35;
+        col = base * shade + warm * base;
+    } else if (style == 7) {
+        // rycina: tylko lekki ton cieniowania pod kreskami
+        let nc = normalize(vec3(-grad.x * 1.4, 1.0, -grad.y * 1.4));
+        let l = max(dot(nc, normalize(vec3(-0.6, 0.75, -0.6))), 0.0) / 0.665;
+        col = base * mix(0.9, 1.03, clamp(l, 0.0, 1.5) / 1.5);
     } else {
         // style analityczne: cieniowanie z wielu kierunków (czytelna rzeźba), bez kolorów pory dnia
         let nc = normalize(vec3(-(grad.x + detail.x) * 1.6, 1.0, -(grad.y + detail.y) * 1.6));
@@ -348,16 +463,20 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         let hs = h1 * 0.55 + h2 * 0.25 + h3 * 0.2;
         col = base * (0.42 + 0.7 * hs) * mix(0.75, 1.0, shadow);
     }
+    col = mix(col, ink_col, clamp(ink, 0.0, 1.0));
 
     if (water > 0.5 && !(wa.x > 0.0)) {
         // woda z samej maski (bez poziomu lustra) – jak dotąd
-        let wc = select(srgb(vec3(0.16, 0.56, 0.66)), srgb(vec3(0.62, 0.80, 0.93)), style == 5);
+        var wc = select(srgb(vec3(0.16, 0.56, 0.66)), srgb(vec3(0.62, 0.80, 0.93)), paper_style);
+        if (style == 7) {
+            wc = srgb(vec3(0.82, 0.88, 0.92));
+        }
         col = select(wc * (0.4 + 0.6 * light), wc, style != 0 && style != 4);
     }
-    if (wa.x > 0.0 && (style == 0 || style == 4 || style == 5)) {
+    if (wa.x > 0.0 && (style == 0 || style == 4 || paper_style)) {
         var wcol: vec3<f32>;
-        if (style == 5) {
-            wcol = srgb(vec3(0.62, 0.80, 0.93));
+        if (paper_style) {
+            wcol = select(srgb(vec3(0.62, 0.80, 0.93)), srgb(vec3(0.82, 0.88, 0.92)), style == 7);
         } else {
             // fale: dwie warstwy szumu przesuwane w czasie (normalne), słabsze z daleka
             let t = g.water.x;
@@ -403,7 +522,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         }
         // delikatnie przezroczysta: przy brzegu i na płyciźnie prześwituje dno, w głębi prawie pełny kolor
         let clear = 1.0 - exp(-depth / 7.0);
-        let opacity = select(mix(0.62, 0.9, clear), 1.0, style == 5);
+        let opacity = select(mix(0.62, 0.9, clear), 1.0, paper_style);
         col = mix(col, wcol, wet * opacity);
     }
 
@@ -444,6 +563,21 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
             let ring_w = max(fwidth(rd), 0.5) * 1.2;
             let ring = (1.0 - smoothstep(0.0, ring_w, abs(fract(rd / 1000.0 + 0.5) - 0.5) * 1000.0)) * 0.35;
             col = mix(col, vec3(1.0), ring);
+        } else if (lens_mode == 5) {
+            // czas dojścia z punktu: barwa – czas marszu, linie co pół godziny (gęściej z bliska)
+            let maxh = max(g.lens2.z, 0.25);
+            let reach = (1.0 - smoothstep(253.5 / 255.0, 254.5 / 255.0, vs_s)) * vr.z;
+            let hours = vs_s * 255.0 / 254.0 * maxh;
+            let lum = vec3(dot(col, vec3(0.3, 0.59, 0.11)));
+            let dim = mix(col, lum, 0.7) * vec3(0.42, 0.45, 0.55);
+            let tint = mix(col, iso_ramp(clamp(hours / maxh, 0.0, 1.0)) * (0.55 + 0.6 * lum), 0.62);
+            col = mix(dim, tint, reach);
+            let hfw = max(fwidth(hours), 1e-4);
+            let l30 = 1.0 - smoothstep(0.0, hfw * 1.4, abs(fract(hours * 2.0 + 0.5) - 0.5) / 2.0);
+            let l1 = 1.0 - smoothstep(0.0, hfw * 2.2, abs(fract(hours + 0.5) - 0.5));
+            let l15 = (1.0 - smoothstep(0.0, hfw * 1.2, abs(fract(hours * 4.0 + 0.5) - 0.5) / 4.0)) * (1.0 - smoothstep(0.02, 0.05, hfw));
+            let iso = max(max(l1 * 0.95, l30 * 0.6), l15 * 0.3) * reach * (1.0 - smoothstep(0.15, 0.35, hfw));
+            col = mix(col, vec3(1.0, 0.98, 0.92), iso);
         }
         // znacznik źródła soczewki
         let mk = 1.0 - smoothstep(0.0, 40.0 + in.dist * 0.004, rd);
@@ -467,8 +601,9 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     }
 
     // poziomice
-    if (g.style.z > 0.5) {
-        let interval = g.style.y;
+    let sketch = style == 7;
+    if (g.style.z > 0.5 || sketch) {
+        let interval = g.style.y * select(1.0, 0.5, sketch);
         let fw = max(fwidth(h), 0.001);
         let d = abs(fract(h / interval + 0.5) - 0.5) * interval;
         var line = 1.0 - smoothstep(0.0, fw * 1.2, d);
@@ -479,8 +614,14 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         // znikanie gdy zbyt gęsto
         line *= 1.0 - smoothstep(interval * 0.25, interval * 0.6, fw);
         let realistic = style == 0 || style == 4;
-        let cc = select(srgb(vec3(0.55, 0.33, 0.16)), vec3(0.96, 0.92, 0.82), realistic);
-        col = mix(col, cc, line * select(0.75, 0.55, realistic));
+        var cc = select(srgb(vec3(0.55, 0.33, 0.16)), vec3(0.96, 0.92, 0.82), realistic);
+        if (style == 6) {
+            cc = mix(srgb(vec3(0.60, 0.42, 0.24)), srgb(vec3(0.22, 0.48, 0.78)), glacier);
+        }
+        if (sketch) {
+            cc = srgb(vec3(0.24, 0.19, 0.14));
+        }
+        col = mix(col, cc, line * select(select(0.75, 0.55, realistic), 0.8, sketch));
     }
 
     // siatka UTM: linie co 100 m (z bliska), 1 km i 10 km (pogrubione), zgodne z mapami topograficznymi

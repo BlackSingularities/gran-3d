@@ -410,7 +410,10 @@ impl Atlas {
             chips.push(crate::i18n::tr("wypiekanie pokrycia terenu i poziomów wody…").into());
         }
         if self.shadow_busy {
-            chips.push(crate::i18n::tr("liczenie cieni…").into());
+            chips.push(if self.prefs.style == Style::Insolation { crate::i18n::tr("liczenie nasłonecznienia…") } else { crate::i18n::tr("liczenie cieni…") }.into());
+        }
+        if self.iso_busy {
+            chips.push(crate::i18n::tr("liczenie czasu dojścia…").into());
         }
         if self.routing {
             chips.push(crate::i18n::tr("wyznaczanie trasy…").into());
@@ -428,6 +431,7 @@ impl Atlas {
             Lens::Band => Some(crate::i18n::tr("soczewka: ta sama wysokość")),
             Lens::Rel => Some(crate::i18n::tr("soczewka: wysokość względna")),
             Lens::Vis => Some(crate::i18n::tr("soczewka: widoczność")),
+            Lens::Time => Some(crate::i18n::tr("soczewka: czas dojścia")),
             Lens::None => None,
         };
         if let Some(t) = lens_txt {
@@ -483,6 +487,10 @@ impl Atlas {
                     }
                     if item(ui, crate::i18n::tr("Co widać stąd?")) {
                         self.pin_lens(lon, lat, Lens::Vis);
+                        close = true;
+                    }
+                    if item(ui, crate::i18n::tr("Czas dojścia stąd")) {
+                        self.pin_lens(lon, lat, Lens::Time);
                         close = true;
                     }
                     if item(ui, crate::i18n::tr("Spacer stąd")) {

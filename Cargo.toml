@@ -1,6 +1,6 @@
 [package]
 name = "gran"
-version = "2.15.3"
+version = "2.16.0"
 edition = "2021"
 rust-version = "1.88"
 description = "GRAŃ — atlas szlaków górskich 3D dla Windows"

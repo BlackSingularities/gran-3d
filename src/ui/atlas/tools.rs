@@ -20,16 +20,19 @@ pub enum Lens {
     Band,
     Rel,
     Vis,
+    /// Czas dojścia pieszo z punktu (izochrony).
+    Time,
 }
 
 impl Lens {
-    pub const ALL: [Lens; 3] = [Lens::Band, Lens::Rel, Lens::Vis];
+    pub const ALL: [Lens; 4] = [Lens::Band, Lens::Rel, Lens::Vis, Lens::Time];
 
     pub fn icon(self) -> &'static str {
         match self {
             Lens::Band => theme::icon::WAVES,
             Lens::Rel => theme::icon::PLUS_MINUS,
             Lens::Vis => theme::icon::EYE,
+            Lens::Time => theme::icon::TIMER,
             Lens::None => theme::icon::CURSOR,
         }
     }
@@ -39,6 +42,7 @@ impl Lens {
             Lens::Band => crate::i18n::tr("Ta sama wysokość"),
             Lens::Rel => crate::i18n::tr("Wysokość względna"),
             Lens::Vis => crate::i18n::tr("Co widać stąd"),
+            Lens::Time => crate::i18n::tr("Czas dojścia"),
             Lens::None => crate::i18n::tr("Bez soczewki"),
         }
     }
@@ -48,6 +52,7 @@ impl Lens {
             Lens::Band => "H",
             Lens::Rel => "W",
             Lens::Vis => "O",
+            Lens::Time => "I",
             Lens::None => "",
         }
     }

@@ -913,3 +913,19 @@ metro	metro
 prom	ferry
 Nazwy pokazują się tylko dla miejsc, które widać – te za graniami są ukryte. Przystanki, stacje, parkingi, granie, doliny i źródła doczytują się razem ze szlakami okolicy; przystanki widać z bliska (do kilku kilometrów).	Names are shown only for places you can see – those behind ridges are hidden. Stops, stations, car parks, ridges, valleys and springs load together with the area's trails; stops appear from close up (within a few kilometres).
 W tej okolicy nie ma znakowanych szlaków w OpenStreetMap. Drogi, ulice, miejscowości i przystanki pokazują się niezależnie od szlaków.	There are no marked trails in OpenStreetMap in this area. Roads, streets, places and stops are shown regardless of trails.
+Szwajcarska	Swiss
+Rycina	Engraving
+Nasłonecznienie	Sunshine
+Jak na mapach szwajcarskich: cieniowanie od północnego zachodu, skały kreskami, lodowce i wody na niebiesko.	Like Swiss maps: hillshading from the north-west, rock drawn with strokes, glaciers and water in blue.
+Jak na dawnych rycinach: biały papier, gęste poziomice i kreski spadku – im stromiej, tym grubsze.	Like old engraved maps: white paper, dense contours and slope hachures – the steeper, the thicker.
+Godziny bezpośredniego słońca w wybranym dniu, z cieniami gór: granat – cały dzień w cieniu, żółć – słońce od wschodu do zachodu. Linie co godzinę. Dzień ustawisz w panelu pory dnia.	Hours of direct sunshine on the chosen day, with mountain shadows: navy – in shade all day, yellow – sun from sunrise to sunset. Lines every hour. Set the day in the time-of-day panel.
+Czas dojścia	Walking time
+soczewka: czas dojścia	lens: walking time
+Czas dojścia stąd	Walking time from here
+liczenie nasłonecznienia…	computing sunshine…
+liczenie czasu dojścia…	computing walking time…
+Dokąd dojdę stąd?	How far can I walk from here?
+liczę czas marszu…	computing walking times…
+km² w zasięgu {} h marszu	km² within a {} h walk
+Funkcja Toblera po modelu terenu, szlaki i drogi pełnym tempem, poza nimi wolniej, stoki ponad 40° pominięte. Tempo jak w planowaniu trasy. Linie co 30 min, pogrubione co godzinę. Bez przerw na odpoczynek – to analiza terenu, nie zachęta do schodzenia ze szlaków.	Tobler's function over the terrain model: trails and roads at full pace, slower off them, slopes over 40° excluded. Pace as in route planning. Lines every 30 min, bold every hour. No rest breaks – this is terrain analysis, not encouragement to leave the trails.
+W zasięgu ({})	Within reach ({})

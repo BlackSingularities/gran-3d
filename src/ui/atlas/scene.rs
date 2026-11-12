@@ -59,6 +59,8 @@ impl Atlas {
             Lens::Band => if self.prefs.band_tol > 0.0 { 2.0 } else { 1.0 },
             Lens::Rel => 3.0,
             Lens::Vis => 0.0,
+            // czas dojścia: tylko przypięty i policzony (bez przypięcia sam kursor)
+            Lens::Time => if self.lens_pin.is_some() && self.iso.is_some() { 5.0 } else { 0.0 },
         };
         let lens_src = self.lens_pin.or(self.hover);
         let lens = match (lens_src, lens_mode > 0.0) {
@@ -68,7 +70,7 @@ impl Atlas {
             }
             _ => [0.0, 0.0, 0.0, 0.0],
         };
-        let cursor = if self.lens == Lens::None {
+        let cursor = if self.lens == Lens::None || self.lens == Lens::Time && self.lens_pin.is_none() {
             self.hover.map(|(lon, lat, e)| {
                 let (x, z) = self.frame.to_local(lon, lat);
                 [x as f32, z as f32, e]
@@ -86,6 +88,9 @@ impl Atlas {
                 None => [0.0; 4],
             }
         };
+        // tekstura cieni: tylko gdy niesie to, czego chce styl (cień chwili albo nasłonecznienie dnia)
+        let insol = self.prefs.style == Style::Insolation;
+        let shadow_rect = self.shadow_rect.filter(|_| self.shadow_insol == insol);
         // piętra roślinności i śniegu: wyżej bliżej równika (Alpy ~1800 m, Himalaje ~4000 m), niżej na północy
         let lift = (49.5 - self.cam.lat.abs() as f32).clamp(-20.0, 25.0);
         let up = if lift > 0.0 { lift * 120.0 } else { lift * 60.0 };
@@ -136,8 +141,21 @@ impl Atlas {
             lens,
             band_tol: self.prefs.band_tol,
             rel_range: self.prefs.rel_range,
+            iso_hours: self.iso.as_ref().map_or(1.0, |i| i.hours),
+            day_len: if insol {
+                let t = sun::times(day, self.cam.lat, self.cam.lon);
+                if t.rise.is_finite() && t.set.is_finite() {
+                    (t.set - t.rise) as f32
+                } else if t.max_alt > 0.0 {
+                    24.0
+                } else {
+                    0.0
+                }
+            } else {
+                0.0
+            },
             cursor,
-            shadows: self.prefs.shadows && self.shadow_rect.is_some(),
+            shadows: self.prefs.shadows && shadow_rect.is_some(),
             viewshed: self.lens == Lens::Vis && self.vs_rect.is_some(),
             biome,
             render_scale: self.prefs.render_scale,
@@ -148,7 +166,7 @@ impl Atlas {
             max_dem: self.prefs.max_dem,
             max_img: self.prefs.max_img,
             prefetch: self.prefs.prefetch,
-            shadow_rect: to_rect(self.shadow_rect),
+            shadow_rect: to_rect(shadow_rect),
             vs_rect: to_rect(self.vs_rect),
             line_fade: (self.cam.distance as f32 * 3.0).clamp(15_000.0, 90_000.0),
             landcover: self.prefs.landcover && self.land_rect.is_some(),

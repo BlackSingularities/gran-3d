@@ -75,6 +75,47 @@ impl Atlas {
         });
     }
 
+    /// Czas dojścia pieszo z punktu: Dijkstra po siatce wysokości z funkcją Toblera; szlaki i drogi
+    /// z pełnym tempem, poza nimi wolniej, urwiska nieprzejezdne. Wynik w teksturze widoczności.
+    pub fn start_isochrones(&mut self, lon: f64, lat: f64) {
+        self.gen += 1;
+        let gen = self.gen;
+        self.iso_busy = true;
+        self.iso = None;
+        let (heights, tx, snap, roads) = (self.heights.clone(), self.tx.clone(), self.snap.clone(), self.world.roads());
+        let hours = self.prefs.iso_hours.clamp(0.5, 8.0);
+        let pace = self.prefs.pace as f32;
+        thread::spawn(move || {
+            // zasięg: po szlaku najwyżej ~5,5 km/h
+            let radius = (hours as f64 * 5_500.0 / pace.max(0.5) as f64).clamp(3_000.0, 48_000.0);
+            let g = Self::grid_around(&heights, lon, lat, radius, 1100.0);
+            let on = walk_mask(&g, &snap.graph, &roads);
+            let (sx, sy) = g.to_grid(lon, lat);
+            let max_s = hours * 3600.0;
+            let t = analysis::travel_time(&g, sx, sy, &on, 40.0, pace, max_s);
+            let mask: Vec<u8> = t.iter().map(|&s| if s.is_finite() { ((s / max_s).min(1.0) * 254.0).round() as u8 } else { 255 }).collect();
+            let reach = t.iter().filter(|s| s.is_finite()).count();
+            let mut pois: Vec<(usize, f32)> = snap
+                .pois
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| matches!(p.poi.kind, PoiKind::Peak | PoiKind::Hut | PoiKind::Shelter | PoiKind::Saddle | PoiKind::Lake))
+                .filter_map(|(i, p)| {
+                    let (px, py) = g.to_grid(p.poi.lon, p.poi.lat);
+                    if !g.inside(px, py) {
+                        return None;
+                    }
+                    let s = t[py.round() as usize * g.w + px.round() as usize];
+                    (s.is_finite() && haversine(lon, lat, p.poi.lon, p.poi.lat) > 50.0).then_some((i, s))
+                })
+                .collect();
+            pois.sort_by(|a, b| a.1.total_cmp(&b.1));
+            let info = IsoInfo { hours, area_km2: reach as f64 * (g.mpp as f64).powi(2) / 1e6, pois };
+            let rect = Self::world_rect(&g);
+            let _ = tx.send(JobResult::Iso(gen, Box::new((info, mask, g.w as u32, g.h as u32, rect))));
+        });
+    }
+
     pub(super) fn start_rel_stats(&mut self, lon: f64, lat: f64, e: f32) {
         self.gen += 1;
         let gen = self.gen;
@@ -111,16 +152,22 @@ impl Atlas {
         });
     }
 
+    /// Mapa cieni chwili – albo w stylu nasłonecznienia godziny słońca w ciągu wybranego dnia
+    /// (ta sama tekstura; `shadow_insol` mówi, co w niej jest).
     pub(super) fn maybe_shadows(&mut self) {
-        if !self.prefs.shadows || self.shadow_busy || self.panorama.is_some() && self.shadow_rect.is_some() {
+        let insol = self.prefs.style == Style::Insolation;
+        if !(self.prefs.shadows || insol) || self.shadow_busy || self.panorama.is_some() && self.shadow_rect.is_some() && self.shadow_insol == insol {
             return;
         }
         let (az, alt) = self.sun();
+        let (day, _) = self.when();
         let radius = (self.cam.distance * 1.6).clamp(6_000.0, 45_000.0);
-        // klucz: położenie (co ~1/4 promienia), promień (skokowo) i Słońce (co ~0,5°)
+        // klucz: położenie (co ~1/4 promienia), promień (skokowo) i Słońce (co ~0,5°);
+        // nasłonecznienie – dzień zamiast chwili (ujemny, żeby nie pomylić z cieniem)
         let q = radius / 4.0;
         let (x, y) = (lon_to_x(self.cam.lon) * world_m(self.cam.lat), lat_to_y(self.cam.lat) * world_m(self.cam.lat));
-        let key = ((x / q) as i64, (y / q) as i64, (radius.log2() * 2.0) as i64, ((az * 2.0) as i64) * 1000 + (alt * 2.0) as i64);
+        let when = if insol { -(day.y as i64 * 1000 + day.ordinal() as i64) - 1 } else { ((az * 2.0) as i64) * 1000 + (alt * 2.0) as i64 };
+        let key = ((x / q) as i64, (y / q) as i64, (radius.log2() * 2.0) as i64, when);
         if self.shadow_key == Some(key) {
             return;
         }
@@ -128,12 +175,24 @@ impl Atlas {
         self.shadow_busy = true;
         let sunv = sun::vector(az, alt);
         let (heights, tx, lon, lat) = (self.heights.clone(), self.tx.clone(), self.cam.lon, self.cam.lat);
-        let gen = self.gen;
         thread::spawn(move || {
-            let g = Self::grid_around(&heights, lon, lat, radius, 1400.0);
-            let m = analysis::shadows(&g, sunv);
+            let (m, g) = if insol {
+                // co pół godziny przez całą dobę: chwile ze Słońcem nad horyzontem (rzadsza siatka – to ~30 map cieni)
+                let suns: Vec<([f32; 3], f32)> = (0..48)
+                    .filter_map(|i| {
+                        let hour = (i as f64 + 0.5) * 0.5;
+                        let (az, alt) = sun::position(crate::tz::local_unix(day, hour, lon, lat), lat, lon);
+                        (alt > 0.0).then(|| (sun::vector(az, alt), 0.5))
+                    })
+                    .collect();
+                let g = Self::grid_around(&heights, lon, lat, radius, 900.0);
+                (analysis::insolation(&g, &suns), g)
+            } else {
+                let g = Self::grid_around(&heights, lon, lat, radius, 1400.0);
+                (analysis::shadows(&g, sunv), g)
+            };
             let rect = Self::world_rect(&g);
-            let _ = tx.send(JobResult::Shadow(gen, Box::new((m, g.w as u32, g.h as u32, rect))));
+            let _ = tx.send(JobResult::Shadow(insol, Box::new((m, g.w as u32, g.h as u32, rect))));
         });
     }
 
@@ -182,7 +241,7 @@ impl Atlas {
         let radius = (d * 2.4).clamp(3500.0, 60_000.0);
         let (tx, tz) = self.frame.to_local(self.cam.lon, self.cam.lat);
         let cell = radius / 4.0;
-        let paper = self.prefs.style == Style::Map;
+        let paper = self.prefs.style.paper();
         let key: RoadsKey = (
             (tx / cell).round() as i64,
             (tz / cell).round() as i64,
@@ -360,13 +419,28 @@ impl Atlas {
                         self.vs_rect = Some(rect);
                     }
                 }
-                JobResult::Shadow(_, b) => {
+                JobResult::Shadow(insol, b) => {
                     self.shadow_busy = false;
-                    let (mask, w, h, rect) = *b;
-                    if let Some(r) = &mut self.renderer {
-                        r.set_shadow(Some((&mask, w, h)));
+                    if insol != (self.prefs.style == Style::Insolation) {
+                        // styl zmienił się w trakcie liczenia: policz od nowa właściwy rodzaj
+                        self.shadow_key = None;
+                    } else {
+                        let (mask, w, h, rect) = *b;
+                        if let Some(r) = &mut self.renderer {
+                            r.set_shadow(Some((&mask, w, h)));
+                        }
+                        self.shadow_rect = Some(rect);
+                        self.shadow_insol = insol;
                     }
-                    self.shadow_rect = Some(rect);
+                }
+                JobResult::Iso(g, b) if g == self.gen => {
+                    let (info, mask, w, h, rect) = *b;
+                    self.iso_busy = false;
+                    if let Some(r) = &mut self.renderer {
+                        r.set_viewshed(Some((&mask, w, h)));
+                    }
+                    self.vs_rect = Some(rect);
+                    self.iso = Some(info);
                 }
                 JobResult::Rel(g, info) if g == self.gen => self.rel = Some(info),
                 JobResult::Los(g, r, d) if g == self.gen => self.los = Some((r, d)),
@@ -433,6 +507,7 @@ impl Atlas {
         match mode {
             Lens::Vis => self.start_viewshed(lon, lat),
             Lens::Rel => self.start_rel_stats(lon, lat, e),
+            Lens::Time => self.start_isochrones(lon, lat),
             _ => {}
         }
         self.prefs.panel_open = true;
@@ -447,6 +522,8 @@ impl Atlas {
         }
         self.vs = None;
         self.vs_busy = false;
+        self.iso = None;
+        self.iso_busy = false;
         self.rel = None;
         self.vs_rect = None;
         self.live_rect = None;
@@ -457,6 +534,43 @@ impl Atlas {
     }
 
     // ------------------------------------------------------------------ wejście
+}
+
+/// Komórki siatki na szlakach i drogach dostępnych pieszo (bez autostrad, dróg ekspresowych i torów) –
+/// tam czas dojścia liczy się pełnym tempem.
+fn walk_mask(g: &Grid, graph: &crate::graph::TrailGraph, roads: &[Arc<Vec<crate::roads::Road>>]) -> Vec<bool> {
+    use crate::roads::Class;
+    let mut m = vec![false; g.w * g.h];
+    let (w, h) = (g.w as f64, g.h as f64);
+    let mut seg = |a: (f64, f64), b: (f64, f64)| {
+        if a.0.max(b.0) < -1.0 || a.1.max(b.1) < -1.0 || a.0.min(b.0) > w || a.1.min(b.1) > h {
+            return;
+        }
+        let n = ((b.0 - a.0).abs().max((b.1 - a.1).abs()) * 2.0).ceil().clamp(1.0, 100_000.0) as usize;
+        for i in 0..=n {
+            let f = i as f64 / n as f64;
+            let (x, y) = ((a.0 + (b.0 - a.0) * f).round(), (a.1 + (b.1 - a.1) * f).round());
+            if x >= 0.0 && y >= 0.0 && x < w && y < h {
+                m[y as usize * g.w + x as usize] = true;
+            }
+        }
+    };
+    for e in &graph.edges {
+        for i in 1..e.lon.len().min(e.lat.len()) {
+            seg(g.to_grid(e.lon[i - 1], e.lat[i - 1]), g.to_grid(e.lon[i], e.lat[i]));
+        }
+    }
+    for sector in roads {
+        for r in sector.iter() {
+            if matches!(r.class, Class::Motorway | Class::Trunk | Class::Rail | Class::Tram) {
+                continue;
+            }
+            for p in r.line.windows(2) {
+                seg(g.to_grid(p[0].0, p[0].1), g.to_grid(p[1].0, p[1].1));
+            }
+        }
+    }
+    m
 }
 
 /// Wygląd drogi danego rodzaju: barwa, krycie, szerokość (px) i czy ma ciemną obwódkę.

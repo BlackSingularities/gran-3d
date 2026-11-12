@@ -283,6 +283,69 @@ pub fn shadows(g: &Grid, sun: [f32; 3]) -> Vec<u8> {
     out
 }
 
+/// Nasłonecznienie: godziny bezpośredniego słońca w ciągu dnia z cieniami rzucanymi przez rzeźbę.
+/// `suns` – chwile dnia ze Słońcem nad horyzontem: wektor do Słońca i czas, który reprezentuje (h).
+/// Wynik: godziny / 24 jako 0..255 (ta sama tekstura co cienie).
+pub fn insolation(g: &Grid, suns: &[([f32; 3], f32)]) -> Vec<u8> {
+    let mut acc = vec![0f32; g.w * g.h];
+    for (sun, dt) in suns {
+        let m = shadows(g, *sun);
+        acc.par_iter_mut().zip(m.par_iter()).for_each(|(a, &v)| *a += v as f32 / 255.0 * dt);
+    }
+    acc.iter().map(|h| (h / 24.0 * 255.0).round().clamp(0.0, 255.0) as u8).collect()
+}
+
+/// Czas dojścia pieszo z punktu (`sx`, `sy`) po siatce wysokości (Dijkstra, 16 kierunków, funkcja Toblera).
+/// `on_trail` – komórki szlaków i dróg (pełne tempo); poza nimi tempo jak w terenie bez ścieżki (×0,6)
+/// i stoki ponad `max_slope_deg` nieprzejezdne. `pace` – mnożnik czasu (1 – zwykłe tempo).
+/// Wynik w sekundach, `f32::INFINITY` – nieosiągalne w `max_s`.
+pub fn travel_time(g: &Grid, sx: f64, sy: f64, on_trail: &[bool], max_slope_deg: f32, pace: f32, max_s: f32) -> Vec<f32> {
+    let (w, h) = (g.w, g.h);
+    let mut cost = vec![f32::INFINITY; w * h];
+    let (ix, iy) = (sx.round(), sy.round());
+    if ix < 0.0 || iy < 0.0 || ix >= w as f64 || iy >= h as f64 {
+        return cost;
+    }
+    let s = iy as usize * w + ix as usize;
+    let max_tan = max_slope_deg.to_radians().tan();
+    let mpp = g.mpp;
+    let mut heap = BinaryHeap::new();
+    cost[s] = 0.0;
+    heap.push(Item(0.0, s as u32));
+    const DX: [i32; 16] = [1, -1, 0, 0, 1, 1, -1, -1, 2, 2, -2, -2, 1, 1, -1, -1];
+    const DY: [i32; 16] = [0, 0, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 2, -2, 2, -2];
+    while let Some(Item(c, u)) = heap.pop() {
+        let u = u as usize;
+        if c > cost[u] {
+            continue;
+        }
+        let (ux, uy) = ((u % w) as i32, (u / w) as i32);
+        let hu = g.data[u];
+        for k in 0..16 {
+            let (vx, vy) = (ux + DX[k], uy + DY[k]);
+            if vx < 0 || vy < 0 || vx >= w as i32 || vy >= h as i32 {
+                continue;
+            }
+            let v = vy as usize * w + vx as usize;
+            let d = (DX[k] as f32).hypot(DY[k] as f32) * mpp;
+            let dh = g.data[v] - hu;
+            // szlak: obie komórki na szlaku (skok o 2 tylko przez środek na szlaku)
+            let mid = if k >= 8 { Some(((uy + DY[k] / 2) as usize) * w + (ux + DX[k] / 2) as usize) } else { None };
+            let trail = on_trail[u] && on_trail[v] && mid.is_none_or(|m| on_trail[m]);
+            if !trail && dh.abs() / d > max_tan {
+                continue;
+            }
+            let f = if trail { 1.0 } else { 1.0 / 0.6 };
+            let nc = c + tobler(d, dh) * f * pace;
+            if nc < cost[v] && nc <= max_s {
+                cost[v] = nc;
+                heap.push(Item(nc, v as u32));
+            }
+        }
+    }
+    cost
+}
+
 /// Odsetek terenu wyżej i niżej od poziomu `ref_e` w promieniu `r_px` pikseli od punktu.
 pub fn relative_stats(g: &Grid, cx: f64, cy: f64, ref_e: f32, r_px: f64) -> (f64, f64) {
     let (mut above, mut below, mut total) = (0usize, 0usize, 0usize);
@@ -448,5 +511,33 @@ mod tests {
         let s = shadows(&g, [0.97, 0.24, 0.0]);
         assert!(s[50 * 101 + 10] < 128, "{}", s[50 * 101 + 10]);
         assert!(s[50 * 101 + 80] > 128);
+    }
+
+    #[test]
+    fn insolation_sums_hours_on_flat_ground() {
+        let mut g = cone();
+        g.data.iter_mut().for_each(|v| *v = 0.0);
+        let suns = [([0.0, 1.0, 0.0], 6.0), ([0.7, 0.7, 0.0], 6.0)];
+        let m = insolation(&g, &suns);
+        let hours = m[50 * 101 + 50] as f32 / 255.0 * 24.0;
+        assert!((hours - 12.0).abs() < 0.2, "{hours}");
+    }
+
+    #[test]
+    fn travel_time_grows_with_distance_and_trails_are_faster() {
+        let mut g = cone();
+        g.data.iter_mut().for_each(|v| *v = 500.0);
+        let off = vec![false; g.w * g.h];
+        let t = travel_time(&g, 50.0, 50.0, &off, 40.0, 1.0, 1e9);
+        assert_eq!(t[50 * 101 + 50], 0.0);
+        assert!(t[50 * 101 + 60] < t[50 * 101 + 80]);
+        // 30 px × 30 m = 900 m po płaskim bez ścieżki: ok. 900 m / (5 km/h × 0,6) ≈ 1080 s
+        assert!((t[50 * 101 + 80] - 1080.0).abs() < 120.0, "{}", t[50 * 101 + 80]);
+        let on = vec![true; g.w * g.h];
+        let t2 = travel_time(&g, 50.0, 50.0, &on, 40.0, 1.0, 1e9);
+        assert!(t2[50 * 101 + 80] < t[50 * 101 + 80] * 0.7);
+        // limit czasu: dalej nieosiągalne
+        let t3 = travel_time(&g, 50.0, 50.0, &off, 40.0, 1.0, 300.0);
+        assert!(t3[50 * 101 + 95].is_infinite());
     }
 }

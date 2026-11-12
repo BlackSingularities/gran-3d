@@ -307,6 +307,7 @@ impl Action {
             Action::Lens(Lens::Band) => k(K::H),
             Action::Lens(Lens::Rel) => k(K::W),
             Action::Lens(Lens::Vis) => k(K::O),
+            Action::Lens(Lens::Time) => k(K::I),
             Action::Lens(Lens::None) => None,
             Action::Flight => k(K::F),
             Action::North => k(K::N),
@@ -353,7 +354,6 @@ impl Action {
             (K::Plus, false, _) => return Some(Action::ExagUp),
             (K::Plus, true, _) => return Some(Action::ZoomIn),
             (K::Delete, false, _) => return Some(Action::DropLast),
-            (K::I, false, false) => return Some(Action::Lens(Lens::Band)),
             (K::P, true, true) => return Some(Action::Palette),
             _ => {}
         }
