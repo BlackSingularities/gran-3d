@@ -32,62 +32,105 @@ pub(super) fn stat_glyph(k: &str) -> &'static str {
     }
 }
 
-/// Kafel: ikona, podpis, wartość. Rysowany ręcznie, więc zawsze mieści się w swojej szerokości.
-pub(super) fn stat_tile(ui: &mut egui::Ui, w: f32, k: &str, v: &str) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 54.0), egui::Sense::hover());
-    let p = ui.painter().with_clip_rect(rect);
-    p.rect_filled(rect, 10.0, theme::INK_2);
-    p.text(rect.left_center() + egui::vec2(11.0, 0.0), egui::Align2::LEFT_CENTER, stat_glyph(k), egui::FontId::proportional(19.0), theme::BRASS);
-    let x = rect.left() + 38.0;
-    p.text(egui::pos2(x, rect.top() + 9.0), egui::Align2::LEFT_TOP, crate::i18n::tr(k), egui::FontId::proportional(11.5), theme::paper_3());
-    let room = rect.width() - 44.0;
-    let mut g = p.layout_no_wrap(v.to_string(), egui::FontId::proportional(16.0), theme::PAPER);
+/// Tło i krawędź kart z danymi w panelu.
+pub(super) const CARD_FILL: Color32 = Color32::from_rgba_premultiplied(10, 10, 10, 10);
+pub(super) const CARD_EDGE: Color32 = Color32::from_rgba_premultiplied(22, 22, 22, 22);
+
+/// Komórka danych: ikona i podpis w jednym wierszu, pod nimi wartość. Rysowana ręcznie w swoim polu.
+fn stat_cell(p: &egui::Painter, cell: egui::Rect, k: &str, v: &str) {
+    let p = p.with_clip_rect(cell.shrink2(egui::vec2(6.0, 0.0)));
+    let x = cell.left() + 14.0;
+    p.text(egui::pos2(x, cell.top() + 9.0), egui::Align2::LEFT_TOP, stat_glyph(k), egui::FontId::proportional(13.5), theme::BRASS);
+    p.text(egui::pos2(x + 20.0, cell.top() + 9.5), egui::Align2::LEFT_TOP, crate::i18n::tr(k), egui::FontId::proportional(11.5), theme::paper_3());
+    let room = cell.width() - 26.0;
+    let mut g = p.layout_no_wrap(v.to_string(), egui::FontId::proportional(16.5), theme::PAPER);
     if g.size().x > room {
-        g = p.layout_no_wrap(v.to_string(), egui::FontId::proportional(12.0), theme::PAPER);
+        g = p.layout_no_wrap(v.to_string(), egui::FontId::proportional(13.0), theme::PAPER);
     }
-    p.galley(egui::pos2(x, rect.bottom() - 9.0 - g.size().y), g, theme::PAPER);
+    p.galley(egui::pos2(x, cell.bottom() - 8.0 - g.size().y), g, theme::PAPER);
 }
 
 /// Dane bez teł: ikona, podpis i wartość w dwóch kolumnach.
 pub(super) fn plain_stats(ui: &mut egui::Ui, items: &[(&str, String)]) {
-    let w = (ui.available_width() - 12.0) / 2.0;
+    let w = (ui.available_width() / 2.0).floor();
     for row in items.chunks(2) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 12.0;
-            for (k, v) in row {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 40.0), egui::Sense::hover());
-                let p = ui.painter().with_clip_rect(rect);
-                p.text(rect.left_center() + egui::vec2(9.0, 0.0), egui::Align2::CENTER_CENTER, stat_glyph(k), egui::FontId::proportional(17.0), theme::BRASS);
-                p.text(egui::pos2(rect.left() + 26.0, rect.top() + 3.0), egui::Align2::LEFT_TOP, crate::i18n::tr(k), egui::FontId::proportional(11.0), theme::paper_3());
-                p.text(egui::pos2(rect.left() + 26.0, rect.bottom() - 3.0), egui::Align2::LEFT_BOTTOM, v, egui::FontId::proportional(15.0), theme::PAPER);
-            }
-        });
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(w * 2.0, 48.0), egui::Sense::hover());
+        let p = ui.painter().with_clip_rect(rect);
+        for (c, (k, v)) in row.iter().enumerate() {
+            stat_cell(&p, egui::Rect::from_min_size(egui::pos2(rect.left() + c as f32 * w - 8.0, rect.top()), egui::vec2(w, 48.0)), k, v);
+        }
     }
 }
 
+/// Karta danych: komórki w dwóch kolumnach, wiersze rozdzielone cienką linią.
 pub(super) fn grid2(ui: &mut egui::Ui, items: Vec<(&str, String)>) {
-    let gap = 8.0;
-    let w = (ui.available_width() - gap) / 2.0;
-    for row in items.chunks(2) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            // ostatni samotny kafel na całą szerokość
-            let tw = if row.len() == 1 { w * 2.0 + gap } else { w };
-            for (k, v) in row {
-                stat_tile(ui, tw, k, v);
-            }
-        });
+    if items.is_empty() {
+        return;
     }
+    const H: f32 = 52.0;
+    let rows = items.len().div_ceil(2);
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, rows as f32 * H), egui::Sense::hover());
+    let p = ui.painter().with_clip_rect(rect);
+    p.rect_filled(rect, 12.0, CARD_FILL);
+    p.rect_stroke(rect, 12.0, egui::Stroke::new(1.0, CARD_EDGE), egui::StrokeKind::Inside);
+    for (r, row) in items.chunks(2).enumerate() {
+        let top = rect.top() + r as f32 * H;
+        if r > 0 {
+            p.line_segment([egui::pos2(rect.left() + 14.0, top), egui::pos2(rect.right() - 14.0, top)], egui::Stroke::new(1.0, CARD_EDGE));
+        }
+        // ostatnia samotna komórka na całą szerokość
+        let cw = if row.len() == 1 { w } else { w / 2.0 };
+        for (c, (k, v)) in row.iter().enumerate() {
+            stat_cell(&p, egui::Rect::from_min_size(egui::pos2(rect.left() + c as f32 * cw, top), egui::vec2(cw, H)), k, v);
+        }
+    }
+}
+
+/// Wiersz nagłówka sekcji: ikona, tytuł i cienka linia do prawej krawędzi (albo do strzałki zwijania).
+fn section_row(ui: &mut egui::Ui, glyph: &str, title: &str, fold: Option<bool>) -> egui::Response {
+    ui.add_space(10.0);
+    let sense = if fold.is_some() { egui::Sense::click() } else { egui::Sense::hover() };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), sense);
+    let p = ui.painter().with_clip_rect(rect);
+    if fold.is_some() {
+        theme::focus_ring(ui, &resp, rect, 8.0);
+        if resp.hovered() {
+            p.rect_filled(rect, 8.0, Color32::from_white_alpha(10));
+        }
+    }
+    let y = rect.center().y;
+    let g = p.text(egui::pos2(rect.left() + 2.0, y), egui::Align2::LEFT_CENTER, glyph, egui::FontId::proportional(15.0), theme::BRASS);
+    let t = p.text(egui::pos2(g.right() + 7.0, y), egui::Align2::LEFT_CENTER, crate::i18n::tr(title), egui::FontId::proportional(13.0), theme::PAPER);
+    let mut end = rect.right();
+    if let Some(open) = fold {
+        let caret = if open { theme::icon::CARET_UP } else { theme::icon::CARET_DOWN };
+        p.text(egui::pos2(rect.right() - 6.0, y), egui::Align2::RIGHT_CENTER, caret, egui::FontId::proportional(13.0), theme::paper_3());
+        end = rect.right() - 28.0;
+    }
+    if t.right() + 10.0 < end {
+        p.line_segment([egui::pos2(t.right() + 10.0, y), egui::pos2(end, y)], egui::Stroke::new(1.0, Color32::from_white_alpha(18)));
+    }
+    resp
 }
 
 /// Nagłówek sekcji z ikoną.
 pub(super) fn section(ui: &mut egui::Ui, glyph: &str, title: &str) {
-    ui.add_space(10.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        ui.label(RichText::new(glyph).size(14.0).color(theme::BRASS));
-        ui.label(theme::kicker(title));
-    });
+    section_row(ui, glyph, title, None);
+}
+
+/// Zwijana sekcja: klik w nagłówek chowa albo pokazuje treść (stan pamiętany między uruchomieniami).
+/// Zwraca, czy sekcja jest rozwinięta.
+pub(super) fn fold(ui: &mut egui::Ui, key: &'static str, glyph: &str, title: &str, default_open: bool) -> bool {
+    let id = egui::Id::new(("sekcja-panelu", key));
+    let mut open = ui.data_mut(|d| *d.get_persisted_mut_or(id, default_open));
+    let resp = section_row(ui, glyph, title, Some(open));
+    if resp.clicked() {
+        open = !open;
+        ui.data_mut(|d| d.insert_persisted(id, open));
+    }
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    open
 }
 
 /// Profil wysokości jako mały wykres z wypełnieniem.
@@ -126,7 +169,8 @@ pub(super) fn variant_card(ui: &mut egui::Ui, r: &Route, title: &str, sub: &str,
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 78.0), egui::Sense::click());
     theme::focus_ring(ui, &resp, rect, 12.0);
     let p = ui.painter().with_clip_rect(rect);
-    p.rect_filled(rect, 12.0, if sel { theme::BRASS_DIM } else if resp.hovered() { theme::INK_3 } else { theme::INK_2 });
+    p.rect_filled(rect, 12.0, if sel { Color32::from_rgba_unmultiplied(122, 176, 255, 40) } else if resp.hovered() { Color32::from_white_alpha(18) } else { CARD_FILL });
+    p.rect_stroke(rect, 12.0, if sel { egui::Stroke::new(1.5, theme::BRASS) } else { egui::Stroke::new(1.0, CARD_EDGE) }, egui::StrokeKind::Inside);
     let inner = rect.shrink2(egui::vec2(12.0, 9.0));
     let time = fmt::time(r.stats.time);
     p.text(inner.right_top(), egui::Align2::RIGHT_TOP, &time, egui::FontId::proportional(15.0), theme::PAPER);
@@ -184,21 +228,54 @@ pub(super) fn big(ui: &mut egui::Ui, v: String, sub: &str, color: Color32) {
     });
 }
 
+/// Wiersz listy: nazwa po lewej, wartość po prawej, przed nią drobny dopisek; klikalny w całości.
 pub(super) fn row(ui: &mut egui::Ui, name: &str, right: &str, sub: &str) -> bool {
-    let r = ui
-        .horizontal(|ui| {
-            ui.set_width(ui.available_width());
-            let l = ui.add(egui::Label::new(RichText::new(name).strong()).sense(egui::Sense::click()));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(right).monospace().color(theme::paper_2()));
-                if !sub.is_empty() {
-                    ui.label(RichText::new(sub).small().color(theme::paper_3()));
-                }
-            });
-            l.clicked()
-        })
-        .inner;
-    r
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::click());
+    theme::focus_ring(ui, &resp, rect, 8.0);
+    let p = ui.painter().with_clip_rect(rect);
+    if resp.hovered() {
+        p.rect_filled(rect, 8.0, Color32::from_white_alpha(14));
+    }
+    let y = rect.center().y;
+    let rg = p.layout_no_wrap(right.to_string(), egui::FontId::proportional(13.5), theme::paper_2());
+    let mut limit = rect.right() - 8.0 - rg.size().x;
+    p.galley(egui::pos2(limit, y - rg.size().y / 2.0), rg, theme::paper_2());
+    if !sub.is_empty() {
+        let sg = p.layout_no_wrap(sub.to_string(), egui::FontId::proportional(11.5), theme::paper_3());
+        limit -= 10.0 + sg.size().x;
+        p.galley(egui::pos2(limit, y - sg.size().y / 2.0), sg, theme::paper_3());
+    }
+    let name_clip = egui::Rect::from_min_max(rect.min, egui::pos2((limit - 10.0).max(rect.left()), rect.bottom()));
+    p.with_clip_rect(name_clip).text(egui::pos2(rect.left() + 8.0, y), egui::Align2::LEFT_CENTER, name, egui::FontId::proportional(14.0), theme::PAPER);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+}
+
+/// Wiersz z ikoną i dwiema liniami: nazwa i dopisek po lewej, wartość i jej dopisek po prawej.
+pub(super) fn rich_row(ui: &mut egui::Ui, glyph: &str, glyph_color: Color32, name: &str, sub: &str, right: &str, right_sub: &str) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 42.0), egui::Sense::click());
+    theme::focus_ring(ui, &resp, rect, 10.0);
+    let p = ui.painter().with_clip_rect(rect);
+    if resp.hovered() {
+        p.rect_filled(rect, 10.0, Color32::from_white_alpha(14));
+    }
+    let icon_c = egui::pos2(rect.left() + 19.0, rect.center().y);
+    p.circle_filled(icon_c, 14.0, glyph_color.gamma_multiply(0.14));
+    p.text(icon_c, egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(15.0), glyph_color);
+    let rg = p.layout_no_wrap(right.to_string(), egui::FontId::proportional(13.5), theme::PAPER);
+    let sg = p.layout_no_wrap(right_sub.to_string(), egui::FontId::proportional(11.5), theme::paper_3());
+    let rw = rg.size().x.max(sg.size().x);
+    p.galley(egui::pos2(rect.right() - 8.0 - rg.size().x, rect.top() + 5.0), rg, theme::PAPER);
+    p.galley(egui::pos2(rect.right() - 8.0 - sg.size().x, rect.bottom() - 6.0 - sg.size().y), sg, theme::paper_3());
+    let left = rect.left() + 42.0;
+    let text_clip = egui::Rect::from_min_max(egui::pos2(left, rect.top()), egui::pos2((rect.right() - 18.0 - rw).max(left), rect.bottom()));
+    let pt = p.with_clip_rect(text_clip);
+    if sub.is_empty() {
+        pt.text(egui::pos2(left, rect.center().y), egui::Align2::LEFT_CENTER, name, egui::FontId::proportional(14.0), theme::PAPER);
+    } else {
+        pt.text(egui::pos2(left, rect.top() + 4.0), egui::Align2::LEFT_TOP, name, egui::FontId::proportional(14.0), theme::PAPER);
+        pt.text(egui::pos2(left, rect.bottom() - 5.0), egui::Align2::LEFT_BOTTOM, sub, egui::FontId::proportional(11.5), theme::paper_3());
+    }
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// Ikona i barwa rodzaju punktu.
@@ -229,8 +306,7 @@ pub(super) fn kind_style(k: PoiKind) -> (&'static str, Color32) {
 pub(super) fn header(a: &mut Atlas, ui: &mut egui::Ui, glyph: &str, color: Color32, kicker: &str, title: &str, sub: &str) {
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(egui::vec2(46.0, 46.0), egui::Sense::hover());
-        ui.painter().circle_filled(r.center(), 22.0, Color32::from_white_alpha(14));
-        ui.painter().circle_stroke(r.center(), 22.0, egui::Stroke::new(1.5, color.gamma_multiply(0.7)));
+        ui.painter().rect_filled(r.shrink(1.0), 14.0, color.gamma_multiply(0.16));
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(22.0), color);
         ui.vertical(|ui| {
             ui.set_width(ui.available_width() - 30.0);
@@ -247,26 +323,6 @@ pub(super) fn header(a: &mut Atlas, ui: &mut egui::Ui, glyph: &str, color: Color
         });
     });
     ui.add_space(6.0);
-}
-
-/// Rząd dużych wartości z ikonami (podsumowanie trasy).
-pub(super) fn summary(ui: &mut egui::Ui, items: &[(&str, String, Color32)]) {
-    let n = items.len().max(1) as f32;
-    let w = (ui.available_width() - 6.0 * (n - 1.0)) / n;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        for (g, v, c) in items {
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 52.0), egui::Sense::hover());
-            let p = ui.painter().with_clip_rect(rect);
-            p.rect_filled(rect, 10.0, theme::INK_2);
-            p.text(rect.center_top() + egui::vec2(0.0, 14.0), egui::Align2::CENTER_CENTER, *g, egui::FontId::proportional(14.0), theme::BRASS);
-            let mut gal = p.layout_no_wrap(v.clone(), egui::FontId::proportional(17.0), *c);
-            if gal.size().x > w - 6.0 {
-                gal = p.layout_no_wrap(v.clone(), egui::FontId::proportional(13.0), *c);
-            }
-            p.galley(egui::pos2(rect.center().x - gal.size().x / 2.0, rect.bottom() - 8.0 - gal.size().y), gal, *c);
-        }
-    });
 }
 
 #[allow(dead_code)]

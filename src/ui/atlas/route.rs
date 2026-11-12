@@ -86,6 +86,32 @@ impl Atlas {
         }
     }
 
+    /// Zamiana kolejności dwóch punktów trasy (przesuwanie punktu wyżej albo niżej na liście).
+    pub fn swap_waypoints(&mut self, i: usize, j: usize) {
+        if i != j && i < self.waypoints.len() && j < self.waypoints.len() {
+            self.waypoints.swap(i, j);
+            self.route_dirty = true;
+        }
+    }
+
+    /// Pętla: trasa kończy się tam, gdzie się zaczyna.
+    pub fn close_loop(&mut self) {
+        if let Some(w) = self.waypoints.first().cloned() {
+            self.waypoints.push(w);
+            self.route_dirty = true;
+        }
+    }
+
+    /// Tam i z powrotem: po dojściu do celu powrót przez te same punkty do startu.
+    pub fn there_and_back(&mut self) {
+        let n = self.waypoints.len();
+        if n >= 2 {
+            let back: Vec<Waypoint> = self.waypoints[..n - 1].iter().rev().cloned().collect();
+            self.waypoints.extend(back);
+            self.route_dirty = true;
+        }
+    }
+
     pub fn mark_route_dirty(&mut self) {
         self.route_dirty = true;
     }

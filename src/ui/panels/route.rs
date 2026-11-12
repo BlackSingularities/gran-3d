@@ -23,8 +23,12 @@ pub(super) fn daylight(a: &Atlas, ui: &mut egui::Ui, r: &Route) {
     theme::para(ui, crate::i18n::tr("Wyjście to pora ustawiona na zegarze u góry; zmienisz ją w menu Słońce."));
 }
 
-/// Szczyty, przełęcze i schroniska mijane po drodze, z czasem dojścia.
-pub(super) fn on_route(a: &mut Atlas, ui: &mut egui::Ui, r: &Route) {
+/// Barwy podejść i zejść w danych trasy.
+const UP_COLOR: Color32 = Color32::from_rgb(240, 160, 110);
+const DOWN_COLOR: Color32 = Color32::from_rgb(130, 190, 240);
+
+/// Szczyty, przełęcze i schroniska przy śladzie trasy: (indeks punktu śladu, indeks miejsca), w kolejności marszu.
+fn passed_pois(a: &Atlas, r: &Route) -> Vec<(usize, usize)> {
     let tr = &r.track;
     let mut hits: Vec<(usize, usize)> = Vec::new();
     for (pi, p) in a.snap.pois.iter().enumerate().filter(|(_, p)| matches!(p.poi.kind, PoiKind::Peak | PoiKind::Saddle | PoiKind::Hut | PoiKind::Shelter)).take(800) {
@@ -35,24 +39,33 @@ pub(super) fn on_route(a: &mut Atlas, ui: &mut egui::Ui, r: &Route) {
             }
         }
     }
+    hits.sort();
+    hits
+}
+
+/// Szczyty, przełęcze i schroniska mijane po drodze: dystans, wysokość i godzina dojścia.
+/// Najechanie na wiersz pokazuje to miejsce na trasie (mapa i profil), klik przenosi widok.
+pub(super) fn on_route(a: &mut Atlas, ui: &mut egui::Ui, r: &Route) {
+    let hits = passed_pois(a, r);
     if hits.is_empty() {
         return;
     }
-    hits.sort();
-    section(ui, theme::icon::MAP_PIN, &tf!("Po drodze ({})", hits.len()));
-    for (i, pi) in hits.into_iter().take(12) {
+    if !fold(ui, "po-drodze", theme::icon::MAP_PIN, &tf!("Po drodze ({})", hits.len()), true) {
+        return;
+    }
+    let tr = &r.track;
+    let (_, start) = a.when();
+    for (i, pi) in hits.into_iter().take(16) {
         let q = a.snap.pois[pi].clone();
-        let glyph = match q.poi.kind {
-            PoiKind::Peak => theme::icon::MOUNTAINS,
-            PoiKind::Saddle => theme::icon::ARROWS_VERTICAL,
-            _ => theme::icon::HOUSE,
-        };
-        let eta = tr.t.get(i).map(|t| fmt::time(*t as f64)).unwrap_or_default();
-        let clicked = ui.horizontal(|ui| {
-            ui.label(RichText::new(glyph).size(15.0).color(theme::paper_3()));
-            row(ui, &q.poi.name, &eta, &fmt::ele(q.ele as f64))
-        }).inner;
-        if clicked {
+        let (glyph, color) = kind_style(q.poi.kind);
+        let t = tr.t.get(i).copied().unwrap_or(0.0) as f64;
+        let d = tr.d2.get(i).copied().unwrap_or(0.0);
+        let sub = format!("{} · {}", fmt::dist(d as f64), fmt::ele(q.ele as f64));
+        let resp = rich_row(ui, glyph, color, &q.poi.name, &sub, &fmt::hour((start + t).rem_euclid(24.0)), &tf!("po {}", fmt::time(t)));
+        if resp.hovered() {
+            a.panel_cursor = Some(d);
+        }
+        if resp.clicked() {
             a.fly_to(q.poi.lon, q.poi.lat, None);
         }
     }
@@ -62,6 +75,7 @@ pub(super) fn time_model(a: &mut Atlas, ui: &mut egui::Ui) {
     let (mut m, mut pace) = metrics::model();
     let before = (m, pace);
     ui.horizontal(|ui| {
+        ui.label(RichText::new(crate::i18n::tr("Model")).color(theme::paper_3()));
         ui.selectable_value(&mut m, TimeModel::Pttk, crate::i18n::tr("reguła PTTK"));
         ui.selectable_value(&mut m, TimeModel::Din, "DIN 33466");
     });
@@ -79,74 +93,322 @@ pub(super) fn time_model(a: &mut Atlas, ui: &mut egui::Ui) {
     }
 }
 
+/// Karta trasy: czas z godzinami wyjścia i dojścia, trudność, dystans i przewyższenia oraz mały profil.
+/// Kursor nad profilem pokazuje to miejsce na mapie; punkty pośrednie są na nim zaznaczone kropkami.
+fn route_hero(a: &mut Atlas, ui: &mut egui::Ui, r: &Route) {
+    let s = r.stats;
+    let (_, start) = a.when();
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 172.0), egui::Sense::hover());
+    let p = ui.painter().with_clip_rect(rect);
+    p.rect_filled(rect, 14.0, CARD_FILL);
+    p.rect_stroke(rect, 14.0, egui::Stroke::new(1.0, CARD_EDGE), egui::StrokeKind::Inside);
+    let inner = rect.shrink2(egui::vec2(14.0, 12.0));
+    // czas dużym pismem, pod nim godziny wyjścia i dojścia
+    p.text(inner.left_top(), egui::Align2::LEFT_TOP, fmt::time(s.time), egui::FontId::proportional(28.0), theme::PAPER);
+    let hours = format!("{}  {} → {}", theme::icon::CLOCK, fmt::hour(start), fmt::hour((start + s.time).rem_euclid(24.0)));
+    p.text(inner.left_top() + egui::vec2(0.0, 37.0), egui::Align2::LEFT_TOP, hours, egui::FontId::proportional(12.0), theme::paper_3());
+    // trudność w prawym górnym rogu
+    let dc = DIFF_COLORS[s.difficulty.min(3)];
+    let dg = p.layout_no_wrap(crate::i18n::tr(DIFFICULTY[s.difficulty.min(3)]).to_string(), egui::FontId::proportional(12.0), dc);
+    let pill = egui::Rect::from_min_size(egui::pos2(inner.right() - dg.size().x - 18.0, inner.top() + 3.0), dg.size() + egui::vec2(18.0, 8.0));
+    p.rect_filled(pill, 10.0, dc.gamma_multiply(0.16));
+    p.galley(pill.min + egui::vec2(9.0, 4.0), dg, dc);
+    // dystans, podejścia, zejścia
+    let y = inner.top() + 72.0;
+    let cw = inner.width() / 3.0;
+    let cells = [
+        (theme::icon::RULER, fmt::dist(s.len2), theme::BRASS),
+        (theme::icon::TREND_UP, fmt::ele(s.up), UP_COLOR),
+        (theme::icon::TREND_DOWN, fmt::ele(s.down), DOWN_COLOR),
+    ];
+    for (k, (g, v, c)) in cells.into_iter().enumerate() {
+        let x = inner.left() + k as f32 * cw;
+        p.text(egui::pos2(x, y), egui::Align2::LEFT_CENTER, g, egui::FontId::proportional(15.0), c);
+        p.text(egui::pos2(x + 22.0, y), egui::Align2::LEFT_CENTER, v, egui::FontId::proportional(15.5), theme::PAPER);
+    }
+    // mały profil wysokości w osi dystansu
+    let tr = &r.track;
+    if tr.len() < 2 {
+        return;
+    }
+    let plot = egui::Rect::from_min_max(egui::pos2(inner.left(), y + 22.0), inner.right_bottom());
+    let total = tr.d2.last().copied().unwrap_or(1.0).max(1.0);
+    let (lo, hi) = tr.e.iter().fold((f32::MAX, f32::MIN), |(l, h), &v| (l.min(v), h.max(v)));
+    let span = (hi - lo).max(1.0);
+    let px = |d: f32| plot.left() + d / total * plot.width();
+    let py = |e: f32| plot.bottom() - (e - lo) / span * (plot.height() - 6.0);
+    let ele = |d: f32| {
+        let (i, f) = tr.at_dist(d);
+        tr.lerp(i, f).2
+    };
+    let n = (plot.width() / 2.0).max(2.0) as usize;
+    let pts: Vec<egui::Pos2> = (0..=n)
+        .map(|k| {
+            let d = total * k as f32 / n as f32;
+            egui::pos2(px(d), py(ele(d)))
+        })
+        .collect();
+    for q in &pts {
+        p.line_segment([*q, egui::pos2(q.x, plot.bottom())], egui::Stroke::new(2.0, theme::BRASS.gamma_multiply(0.2)));
+    }
+    p.add(egui::Shape::line(pts, egui::Stroke::new(1.8, theme::BRASS)));
+    // punkty pośrednie trasy
+    for &li in r.leg_idx.iter().filter(|&&li| li > 0 && li + 1 < tr.len()) {
+        p.circle(egui::pos2(px(tr.d2[li]), py(tr.e[li])), 3.5, theme::PAPER, egui::Stroke::new(1.5, theme::INK_0));
+    }
+    let hover = resp.hover_pos().filter(|q| plot.contains(*q)).map(|q| ((q.x - plot.left()) / plot.width() * total).clamp(0.0, total));
+    if hover.is_some() {
+        a.panel_cursor = hover;
+    }
+    if let Some(d) = hover.or(a.profile_cursor) {
+        let d = d.clamp(0.0, total);
+        let e = ele(d);
+        let x = px(d);
+        p.line_segment([egui::pos2(x, plot.top()), egui::pos2(x, plot.bottom())], egui::Stroke::new(1.0, theme::PAPER.gamma_multiply(0.5)));
+        p.circle(egui::pos2(x, py(e)), 4.5, theme::BRASS, egui::Stroke::new(2.0, theme::INK_0));
+        if hover.is_some() {
+            let (i, f) = tr.at_dist(d);
+            let j = (i + 1).min(tr.len() - 1);
+            let t = (tr.t[i] + (tr.t[j] - tr.t[i]) * f) as f64;
+            let txt = format!("{} · {} · {}", fmt::dist(d as f64), fmt::ele(e as f64), fmt::hour((start + t).rem_euclid(24.0)));
+            let g = p.layout_no_wrap(txt, egui::FontId::proportional(11.5), theme::PAPER);
+            let gx = (x + 8.0).min(plot.right() - g.size().x - 5.0).max(plot.left() + 5.0);
+            let at = egui::pos2(gx, plot.top());
+            p.rect_filled(egui::Rect::from_min_size(at, g.size()).expand2(egui::vec2(5.0, 2.0)), 6.0, theme::POPUP_FILL);
+            p.galley(at, g, theme::PAPER);
+        }
+    }
+}
+
+/// Zmiana na liście punktów trasy wybrana w tej klatce.
+enum WaypointEdit {
+    Remove(usize),
+    Swap(usize, usize),
+    Show(usize),
+}
+
+/// Lista punktów trasy: znaczniki jak na mapie, nazwy, godziny dojścia, zmiana kolejności
+/// i dane odcinków między kolejnymi punktami.
+fn waypoint_list(a: &mut Atlas, ui: &mut egui::Ui) {
+    use crate::i18n::tr;
+    let wps = a.waypoints.clone();
+    let n = wps.len();
+    // odcinki między punktami – gdy wyznaczona trasa odpowiada bieżącym punktom
+    let route = a
+        .routes
+        .get(a.route_sel)
+        .filter(|r| r.leg_idx.len() == n && r.track.len() >= 2 && r.leg_idx.iter().all(|&i| i < r.track.len()))
+        .cloned();
+    let (_, start) = a.when();
+    let mut edit: Option<WaypointEdit> = None;
+    let mut hover_d: Option<f32> = None;
+    for (i, w) in wps.iter().enumerate() {
+        if i > 0 {
+            // odcinek od poprzedniego punktu: kropki łączące znaczniki i dane odcinka
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 20.0), egui::Sense::hover());
+            let p = ui.painter().with_clip_rect(rect);
+            for k in 0..3 {
+                p.circle_filled(egui::pos2(rect.left() + 13.0, rect.top() + 4.0 + k as f32 * 6.0), 1.5, theme::paper_3());
+            }
+            if let Some(r) = &route {
+                let st = profile::segment(r, r.track.d2[r.leg_idx[i - 1]], r.track.d2[r.leg_idx[i]]);
+                let txt = format!("{} · ↑ {} · ↓ {} · {}", fmt::dist(st.dist), fmt::ele(st.up), fmt::ele(st.down), fmt::time(st.time));
+                p.text(egui::pos2(rect.left() + 34.0, rect.center().y), egui::Align2::LEFT_CENTER, txt, egui::FontId::proportional(11.5), theme::paper_3());
+            }
+        }
+        let row = ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            let (fill, tag) = if i == 0 {
+                (Color32::from_rgb(90, 200, 110), "A".to_string())
+            } else if i == n - 1 {
+                (theme::SIGNAL, "B".to_string())
+            } else {
+                (theme::BRASS, i.to_string())
+            };
+            let (badge, _) = ui.allocate_exact_size(egui::vec2(26.0, 26.0), egui::Sense::hover());
+            ui.painter().circle_filled(badge.center(), 11.0, fill);
+            ui.painter().text(badge.center(), egui::Align2::CENTER_CENTER, tag, egui::FontId::proportional(12.0), Color32::from_rgb(20, 16, 8));
+            ui.add_space(4.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button(theme::icon::X).on_hover_text(tr("Usuń punkt")).clicked() {
+                    edit = Some(WaypointEdit::Remove(i));
+                }
+                if ui.add_enabled(i + 1 < n, egui::Button::new(theme::icon::ARROW_DOWN).small()).on_hover_text(tr("Przesuń niżej")).clicked() {
+                    edit = Some(WaypointEdit::Swap(i, i + 1));
+                }
+                if ui.add_enabled(i > 0, egui::Button::new(theme::icon::ARROW_UP).small()).on_hover_text(tr("Przesuń wyżej")).clicked() {
+                    edit = Some(WaypointEdit::Swap(i, i.saturating_sub(1)));
+                }
+                // godzina dojścia (gdy trasa wyznaczona) i wysokość
+                let info = match &route {
+                    Some(r) => format!("{} · {}", fmt::hour((start + r.track.t[r.leg_idx[i]] as f64).rem_euclid(24.0)), fmt::ele(w.e as f64)),
+                    None => fmt::ele(w.e as f64),
+                };
+                ui.label(RichText::new(info).small().color(theme::paper_3()));
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    let name = w.name.clone().unwrap_or_else(|| fmt::coords(w.lon, w.lat));
+                    if ui.add(egui::Label::new(RichText::new(name).strong()).truncate().sense(egui::Sense::click())).on_hover_text(tr("Pokaż na mapie")).clicked() {
+                        edit = Some(WaypointEdit::Show(i));
+                    }
+                });
+            });
+        });
+        if let Some(r) = &route {
+            if ui.rect_contains_pointer(row.response.rect) {
+                hover_d = Some(r.track.d2[r.leg_idx[i]]);
+            }
+        }
+    }
+    if hover_d.is_some() {
+        a.panel_cursor = hover_d;
+    }
+    match edit {
+        Some(WaypointEdit::Remove(i)) => a.remove_waypoint(i),
+        Some(WaypointEdit::Swap(i, j)) => a.swap_waypoints(i, j),
+        Some(WaypointEdit::Show(i)) => a.fly_to(wps[i].lon, wps[i].lat, None),
+        None => {}
+    }
+}
+
+/// Działania na trasie jako kafelki: widok, profil, przelot, zapis, eksport i udostępnianie.
+fn route_actions(a: &mut Atlas, ui: &mut egui::Ui) {
+    use crate::i18n::tr;
+    let flying = a.flight.is_some();
+    let mut act: Option<u8> = None;
+    ui.scope(|ui| {
+        theme::tile_grid(ui, 3, |ui, w| {
+            if theme::action(ui, theme::icon::ARROWS_OUT, "Pokaż całą", w).clicked() {
+                act = Some(0);
+            }
+            if theme::action(ui, theme::icon::CHART_LINE, "Profil", w).on_hover_text(tr("Profil wysokości na dole okna")).clicked() {
+                act = Some(1);
+            }
+            if theme::action(ui, theme::icon::AIRPLANE_TILT, if flying { "Zatrzymaj" } else { "Przelot" }, w).on_hover_text("F").clicked() {
+                act = Some(2);
+            }
+            if theme::action(ui, theme::icon::BOOKMARKS, "Zapisz", w).on_hover_text(tr("Zapisz w bibliotece (Ctrl+S)")).clicked() {
+                act = Some(3);
+            }
+            if theme::action(ui, theme::icon::EXPORT, "Eksport", w).on_hover_text(tr("Eksport (GPX, KML, GeoJSON)")).clicked() {
+                act = Some(4);
+            }
+            if theme::action(ui, theme::icon::WATCH, "Na zegarek", w).on_hover_text(tr("Garmin, Suunto, Wahoo, Coros: ślad z planowanym czasem i punktami trasy")).clicked() {
+                act = Some(5);
+            }
+            if theme::action(ui, theme::icon::LINK, "Kopiuj link", w).on_hover_text(tr("Link gran:// z widokiem i punktami trasy")).clicked() {
+                act = Some(6);
+            }
+            if theme::action(ui, theme::icon::ARROW_SQUARE_OUT, "Mapy.com", w).on_hover_text(tr("Ta sama trasa w planerze Mapy.com (także w aplikacji na telefonie)")).clicked() {
+                act = Some(7);
+            }
+            if theme::action(ui, theme::icon::FILE_ARROW_UP, "Wczytaj ślad", w).on_hover_text(tr("Wczytaj ślad (GPX, KML, GeoJSON)…")).clicked() {
+                act = Some(8);
+            }
+        });
+    });
+    match act {
+        Some(0) => {
+            if let Some(r) = a.current_route().cloned() {
+                a.fit_route(&r);
+            }
+        }
+        Some(1) => a.prefs.profile_open = !a.prefs.profile_open,
+        Some(2) => a.toggle_flight(),
+        Some(3) => a.save_route_to_library(),
+        Some(4) => a.export_route(),
+        Some(5) => a.export_route_as("fit"),
+        Some(6) => {
+            let l = a.share_link();
+            ui.ctx().copy_text(l);
+            a.notify(tr("Skopiowano link z trasą."));
+        }
+        Some(7) => a.open_in_mapy(),
+        Some(8) => {
+            if let Some(p) = pick_track_file() {
+                a.import_track(&p);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
-    ui.label(theme::kicker(crate::i18n::tr("Planowanie trasy")));
-    ui.heading(if a.route_mode == RouteMode::Trails { crate::i18n::tr("Trasa szlakami") } else { crate::i18n::tr("Trasa przez teren") });
+    use crate::i18n::tr;
+    let n = a.waypoints.len();
+    // nazwa trasy („start – cel”) albo zachęta do rozpoczęcia
+    let title = if a.current_route().is_some() { a.route_name() } else { tr("Nowa trasa").to_string() };
+    ui.add(egui::Label::new(RichText::new(title).size(21.0).strong()).truncate());
+    // sposób wyznaczania: dwa równe przyciski
     let before = a.route_mode;
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut a.route_mode, RouteMode::Trails, theme::ic(theme::icon::SIGNPOST, "Szlakami"));
-        ui.selectable_value(&mut a.route_mode, RouteMode::Terrain, theme::ic(theme::icon::MOUNTAINS, "Przez teren"))
-            .on_hover_text(crate::i18n::tr("A* po modelu terenu z funkcją Toblera i limitem nachylenia – analiza rzeźby, nie zachęta do schodzenia ze szlaków w parkach narodowych."));
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let w = ((ui.available_width() - 6.0) / 2.0).floor();
+        if ui.add_sized([w, 34.0], egui::Button::new(theme::ic(theme::icon::SIGNPOST, "Szlakami")).selected(a.route_mode == RouteMode::Trails)).clicked() {
+            a.route_mode = RouteMode::Trails;
+        }
+        if ui
+            .add_sized([w, 34.0], egui::Button::new(theme::ic(theme::icon::MOUNTAINS, "Przez teren")).selected(a.route_mode == RouteMode::Terrain))
+            .on_hover_text(tr("A* po modelu terenu z funkcją Toblera i limitem nachylenia – analiza rzeźby, nie zachęta do schodzenia ze szlaków w parkach narodowych."))
+            .clicked()
+        {
+            a.route_mode = RouteMode::Terrain;
+        }
     });
     if before != a.route_mode {
         a.mark_route_dirty();
     }
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        ui.label(theme::kicker(crate::i18n::tr("Punkty")));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if !a.waypoints.is_empty() {
-                if ui.small_button(crate::i18n::tr("Wyczyść")).clicked() {
-                    a.clear_route();
-                }
-                if ui.small_button(crate::i18n::tr("Odwróć")).clicked() {
-                    a.reverse_route();
-                }
-            }
-            if ui.add_enabled(a.can_redo(), egui::Button::new(theme::icon::ARROW_CLOCKWISE).small()).on_hover_text(crate::i18n::tr("Ponów (Ctrl+Y)")).clicked() {
-                a.redo_route();
-            }
-            if ui.add_enabled(a.can_undo(), egui::Button::new(theme::icon::ARROW_COUNTER_CLOCKWISE).small()).on_hover_text(crate::i18n::tr("Cofnij (Ctrl+Z)")).clicked() {
-                a.undo_route();
-            }
-        });
-    });
-    if a.waypoints.is_empty() {
-        theme::para(ui, crate::i18n::tr("Klikaj na mapie, żeby dodać punkty trasy (start, przez, cel). Punkty można przeciągać; prawy przycisk daje więcej opcji."));
-    }
-    let mut remove = None;
-    let n = a.waypoints.len();
-    for (i, w) in a.waypoints.iter().enumerate() {
-        ui.horizontal(|ui| {
-            let tag = if i == 0 { "A".to_string() } else if i == n - 1 { "B".to_string() } else { i.to_string() };
-            let (badge, _) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
-            ui.painter().circle_filled(badge.center(), 11.0, theme::BRASS_DIM);
-            ui.painter().text(badge.center(), egui::Align2::CENTER_CENTER, tag, egui::FontId::proportional(12.0), theme::BRASS);
-            ui.label(w.name.clone().unwrap_or_else(|| fmt::coords(w.lon, w.lat)));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button(theme::icon::X).clicked() {
-                    remove = Some(i);
-                }
-                ui.label(RichText::new(fmt::ele(w.e as f64)).monospace().small().color(theme::paper_3()));
-            });
-        });
-    }
-    if let Some(i) = remove {
-        a.remove_waypoint(i);
-    }
-    closures_warning(ui, &a.route_closures());
-    section(ui, theme::icon::CLOCK, crate::i18n::tr("Czas przejścia"));
-    time_model(a, ui);
     if a.routing {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.label(RichText::new(crate::i18n::tr("wyznaczam trasę…")).color(theme::paper_3()));
+            ui.label(RichText::new(tr("wyznaczam trasę…")).color(theme::paper_3()));
         });
     }
     if let Some(e) = &a.route_error {
-        ui.label(RichText::new(e).color(theme::WARN));
+        ui.add(egui::Label::new(RichText::new(e).color(theme::WARN)).wrap());
     }
-    if !a.routes.is_empty() {
+    let current = a.current_route().cloned();
+    if let Some(r) = &current {
+        ui.add_space(2.0);
+        route_hero(a, ui, r);
+    }
+
+    // punkty trasy
+    section(ui, theme::icon::MAP_PIN, &tf!("Punkty ({})", n));
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        if ui.add_enabled(a.can_undo(), egui::Button::new(theme::icon::ARROW_COUNTER_CLOCKWISE).small()).on_hover_text(tr("Cofnij (Ctrl+Z)")).clicked() {
+            a.undo_route();
+        }
+        if ui.add_enabled(a.can_redo(), egui::Button::new(theme::icon::ARROW_CLOCKWISE).small()).on_hover_text(tr("Ponów (Ctrl+Y)")).clicked() {
+            a.redo_route();
+        }
+        if n >= 2 {
+            if ui.small_button(theme::ic(theme::icon::ARROWS_DOWN_UP, "Odwróć")).on_hover_text(tr("Odwróć kierunek trasy")).clicked() {
+                a.reverse_route();
+            }
+            let closed = a.waypoints.first().zip(a.waypoints.last()).is_some_and(|(f, l)| haversine(f.lon, f.lat, l.lon, l.lat) < 30.0);
+            if !closed {
+                if ui.small_button(theme::ic(theme::icon::REPEAT, "Pętla")).on_hover_text(tr("Dodaje powrót do punktu startu")).clicked() {
+                    a.close_loop();
+                }
+                if ui.small_button(theme::ic(theme::icon::ARROW_U_DOWN_LEFT, "Tam i z powrotem")).on_hover_text(tr("Powrót do startu przez te same punkty")).clicked() {
+                    a.there_and_back();
+                }
+            }
+        }
+        if n > 0 && ui.small_button(theme::ic(theme::icon::TRASH, "Wyczyść")).clicked() {
+            a.clear_route();
+        }
+    });
+    if a.waypoints.is_empty() {
+        theme::para(ui, tr("Klikaj na mapie, żeby dodać punkty trasy (start, przez, cel). Punkty można przeciągać; prawy przycisk daje więcej opcji."));
+    } else {
+        waypoint_list(a, ui);
+    }
+    closures_warning(ui, &a.route_closures());
+
+    // warianty
+    if a.routes.len() > 1 {
         section(ui, theme::icon::ARROWS_SPLIT, &tf!("Warianty ({})", a.routes.len()));
         let base_t = a.routes[0].stats.time;
         let routes = a.routes.clone();
@@ -159,100 +421,59 @@ pub fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
             }
         }
     }
-    if let Some(r) = a.current_route().cloned() {
+
+    let Some(r) = current else {
+        ui.add_space(8.0);
+        if theme::row_button(ui, theme::icon::FILE_ARROW_UP, tr("Wczytaj ślad (GPX, KML, GeoJSON)…"), false).clicked() {
+            if let Some(p) = pick_track_file() {
+                a.import_track(&p);
+            }
+        }
+        return;
+    };
+    section(ui, theme::icon::LIGHTNING, tr("Działania"));
+    route_actions(a, ui);
+
+    if fold(ui, "czas-przejscia", theme::icon::CLOCK, tr("Czas przejścia"), true) {
+        time_model(a, ui);
+    }
+    daylight(a, ui, &r);
+
+    if fold(ui, "dane-trasy", theme::icon::CHART_LINE, tr("Dane trasy"), true) {
         let s = r.stats;
-        section(ui, theme::icon::CHART_LINE, crate::i18n::tr("Szczegóły"));
-        // najważniejsze liczby dużym pismem, w jednym rzędzie
-        summary(ui, &[
-            (theme::icon::CLOCK, fmt::time(s.time), theme::PAPER),
-            (theme::icon::RULER, fmt::dist(s.len2), theme::PAPER),
-            (theme::icon::TREND_UP, fmt::ele(s.up), Color32::from_rgb(240, 160, 110)),
-            (theme::icon::TREND_DOWN, fmt::ele(s.down), Color32::from_rgb(130, 190, 240)),
-        ]);
-        ui.add_space(4.0);
-        pill(ui, crate::i18n::tr(DIFFICULTY[s.difficulty.min(3)]), DIFF_COLORS[s.difficulty.min(3)]);
-        ui.add_space(2.0);
         let mut items = vec![
-            (crate::i18n::tr("Najwyżej"), fmt::ele(s.max_ele)),
-            (crate::i18n::tr("Najniżej"), fmt::ele(s.min_ele)),
-            (crate::i18n::tr("Po powierzchni"), fmt::dist(s.len3)),
-            (crate::i18n::tr("Linia prosta"), fmt::dist(s.straight)),
-            (crate::i18n::tr("Maks. nachylenie"), format!("{}°", s.max_slope.round())),
-            (crate::i18n::tr("Śr. tempo"), tf!("{} km/h", fmt::dec(s.len3 / 1000.0 / s.time.max(0.01), 1))),
-            (crate::i18n::tr("Krętość"), format!("×{}", fmt::dec(s.len2 / s.straight.max(1.0), 2))),
+            (tr("Najwyżej"), fmt::ele(s.max_ele)),
+            (tr("Najniżej"), fmt::ele(s.min_ele)),
+            (tr("Po powierzchni"), fmt::dist(s.len3)),
+            (tr("Linia prosta"), fmt::dist(s.straight)),
+            (tr("Maks. nachylenie"), format!("{}°", s.max_slope.round())),
+            (tr("Śr. tempo"), tf!("{} km/h", fmt::dec(s.len3 / 1000.0 / s.time.max(0.01), 1))),
+            (tr("Krętość"), format!("×{}", fmt::dec(s.len2 / s.straight.max(1.0), 2))),
         ];
         if r.kind == RouteKind::Trail {
-            items.push((crate::i18n::tr("Punkty GOT"), fmt::int(s.got)));
-            items.push((crate::i18n::tr("Skala SAC"), crate::i18n::tr(SAC_LABEL[s.sac_max.min(6) as usize]).split(' ').next().unwrap_or("—").to_string()));
+            items.push((tr("Punkty GOT"), fmt::int(s.got)));
+            items.push((tr("Skala SAC"), tr(SAC_LABEL[s.sac_max.min(6) as usize]).split(' ').next().unwrap_or("—").to_string()));
         }
         grid2(ui, items);
-        section(ui, theme::icon::ANGLE, crate::i18n::tr("Stromizna trasy"));
+        ui.add_space(6.0);
+        ui.label(theme::kicker(tr("Stromizna trasy")));
         slope_bar(ui, &r);
-        daylight(a, ui, &r);
-        on_route(a, ui, &r);
-        if !r.route_refs.is_empty() {
-            section(ui, theme::icon::SIGNPOST, crate::i18n::tr("Szlaki na trasie"));
-            for &ri in r.route_refs.iter().take(10) {
-                if let Some(info) = a.snap.graph.routes.get(ri as usize) {
-                    ui.horizontal(|ui| {
-                        let c = crate::metrics::TrailColor::parse(&info.color).rgb();
-                        let (rect, _) = ui.allocate_exact_size(egui::vec2(20.0, 6.0), egui::Sense::hover());
-                        ui.painter().rect_filled(rect, 3.0, Color32::from_rgb(c[0], c[1], c[2]));
-                        ui.label(RichText::new(&info.name).small());
-                    });
-                }
+    }
+    on_route(a, ui, &r);
+    if !r.route_refs.is_empty() && fold(ui, "szlaki-na-trasie", theme::icon::SIGNPOST, tr("Szlaki na trasie"), true) {
+        for &ri in r.route_refs.iter().take(10) {
+            if let Some(info) = a.snap.graph.routes.get(ri as usize) {
+                ui.horizontal(|ui| {
+                    let c = crate::metrics::TrailColor::parse(&info.color).rgb();
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(20.0, 6.0), egui::Sense::hover());
+                    ui.painter().rect_filled(rect, 3.0, Color32::from_rgb(c[0], c[1], c[2]));
+                    ui.label(RichText::new(&info.name).small());
+                });
             }
         }
     }
-    if a.current_route().is_some() {
-        compare_section(a, ui);
-        section(ui, theme::icon::LIGHTNING, crate::i18n::tr("Działania"));
-
-        if theme::row_button(ui, theme::icon::ARROWS_OUT, crate::i18n::tr("Pokaż całą"), false).clicked() {
-            if let Some(r) = a.current_route().cloned() {
-                a.fit_route(&r);
-            }
-        }
-        let profile_open = a.prefs.profile_open;
-        if theme::row_button(ui, theme::icon::CHART_LINE, crate::i18n::tr("Profil wysokości"), profile_open).clicked() {
-            a.prefs.profile_open = !profile_open;
-        }
-        if theme::row_button(ui, theme::icon::LINK, crate::i18n::tr("Kopiuj link"), false).on_hover_text(crate::i18n::tr("Link gran:// z widokiem i punktami trasy")).clicked() {
-            let l = a.share_link();
-            ui.ctx().copy_text(l);
-            a.notify(crate::i18n::tr("Skopiowano link z trasą."));
-        }
-        if theme::row_button(ui, theme::icon::BOOKMARKS, crate::i18n::tr("Zapisz w bibliotece"), false).on_hover_text("Ctrl+S").clicked() {
-            a.save_route_to_library();
-        }
-        if theme::row_button(ui, theme::icon::EXPORT, crate::i18n::tr("Eksport (GPX, KML, GeoJSON)"), false).on_hover_text("G").clicked() {
-            a.export_route();
-        }
-        if theme::row_button(ui, theme::icon::WATCH, crate::i18n::tr("Kurs na zegarek (FIT)"), false)
-            .on_hover_text(crate::i18n::tr("Garmin, Suunto, Wahoo, Coros: ślad z planowanym czasem i punktami trasy"))
-            .clicked()
-        {
-            a.export_route_as("fit");
-        }
-        if a.waypoints.len() >= 2
-            && theme::row_button(ui, theme::icon::ARROW_SQUARE_OUT, crate::i18n::tr("Otwórz w Mapy.com"), false)
-                .on_hover_text(crate::i18n::tr("Ta sama trasa w planerze Mapy.com (także w aplikacji na telefonie)"))
-                .clicked()
-        {
-            a.open_in_mapy();
-        }
-        let flying = a.flight.is_some();
-        if theme::row_button(ui, theme::icon::AIRPLANE_TILT, if flying { crate::i18n::tr("Zatrzymaj przelot") } else { crate::i18n::tr("Przelot") }, flying).on_hover_text("F").clicked() {
-            a.toggle_flight();
-        }
-        access_section(a, ui);
-    }
-    ui.add_space(8.0);
-    if theme::row_button(ui, theme::icon::FILE_ARROW_UP, crate::i18n::tr("Wczytaj ślad (GPX, KML, GeoJSON)…"), false).clicked() {
-        if let Some(p) = pick_track_file() {
-            a.import_track(&p);
-        }
-    }
+    compare_section(a, ui);
+    access_section(a, ui);
 }
 
 /// Ostrzeżenie o zamkniętych odcinkach (z OSM) na trasie albo szlaku.

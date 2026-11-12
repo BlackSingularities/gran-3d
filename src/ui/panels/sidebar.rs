@@ -16,6 +16,8 @@ pub fn right_inset(a: &Atlas) -> f32 {
 
 /// Szczegóły w prawym panelu bocznym (zwęża widok mapy); wywoływać przed panelem środkowym.
 pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
+    // wskazanie z panelu żyje jedną klatkę: ustawia je na nowo to, nad czym jest kursor
+    a.panel_cursor = None;
     if !sidebar_open(a) {
         // schowany panel: uchwyt przy prawej krawędzi
         let alpha = controls_alpha(a, ctx);

@@ -5,7 +5,11 @@ use super::*;
 impl Atlas {
     /// Etykiety, znaczniki, kompas, podziałka, odczyt kursora i menu kontekstowe.
     pub(super) fn overlays(&mut self, ui: &mut egui::Ui, rect: Rect, view: &View) {
-        let p = ui.painter_at(rect);
+        let p_full = ui.painter_at(rect);
+        // część mapy niezasłonięta panelem bocznym: nazwy i znaczniki nie są rysowane pod panelem
+        let side = if crate::ui::panels::controls_alpha(self, ui.ctx()) > 0.05 { crate::ui::panels::right_inset(self) } else { 0.0 };
+        let visible = Rect::from_min_max(rect.min, Pos2::new((rect.right() - side).max(rect.left()), rect.bottom()));
+        let p = ui.painter_at(visible);
         let at = |s: [f32; 2]| Pos2::new(s[0] + rect.left(), s[1] + rect.top());
         // etykiety punktów z rozrzedzaniem i zasłanianiem przez teren
         if self.prefs.labels {
@@ -43,7 +47,7 @@ impl Atlas {
                 }
                 let pos = self.local(poi.poi.lon, poi.poi.lat, poi.dem);
                 let Some(s) = view.project(pos) else { continue };
-                if !rect.shrink(4.0).contains(at(s)) {
+                if !visible.shrink(4.0).contains(at(s)) {
                     continue;
                 }
                 let is_place = poi.poi.kind == PoiKind::Place;
@@ -85,7 +89,7 @@ impl Atlas {
                 let pos = self.local(poi.poi.lon, poi.poi.lat, poi.dem);
                 let Some(s) = view.project(pos) else { continue };
                 let sp = at(s);
-                if !rect.shrink(4.0).contains(sp) {
+                if !visible.shrink(4.0).contains(sp) {
                     continue;
                 }
                 let dist = pos.distance(view.eye);
@@ -115,6 +119,10 @@ impl Atlas {
                 let lr = Rect::from_min_size(sp + Vec2::new(7.0, -galley.size().y - 3.0), galley.size()).expand(2.0);
                 // w panoramie pod nazwą jest jeszcze odległość – miejsce zajmuje też ona
                 let busy = if self.panorama.is_some() { Rect::from_min_max(lr.min, lr.max + Vec2::new(0.0, 13.0)) } else { lr };
+                // napis, który wchodziłby pod panel boczny, nie jest pokazywany wcale (zamiast uciętego)
+                if side > 0.0 && lr.right() > visible.right() - 2.0 {
+                    continue;
+                }
                 if !is_sel && taken.iter().any(|t| t.intersects(busy)) {
                     continue;
                 }
@@ -216,7 +224,7 @@ impl Atlas {
             _ => {}
         }
         // kursor profilu na trasie
-        if let (Some(d), Some(r)) = (self.profile_cursor, self.current_route()) {
+        if let (Some(d), Some(r)) = (self.profile_cursor.or(self.panel_cursor), self.current_route()) {
             let (i, f) = r.track.at_dist(d);
             let (lon, lat, e) = r.track.lerp(i, f);
             if let Some(s) = view.project(self.local(lon, lat, e)) {
@@ -233,6 +241,8 @@ impl Atlas {
             }
         }
 
+        // reszta nakładek (kompas, podziałka, pasek stanu) – na całej szerokości
+        let p = p_full;
         // kompas (chowa się razem z kontrolkami)
         let alpha = crate::ui::panels::controls_alpha(self, ui.ctx());
         let mut pc = p.clone();
@@ -351,12 +361,17 @@ impl Atlas {
         let bar = Rect::from_min_max(rect.left_bottom() - Vec2::new(0.0, 24.0), rect.right_bottom());
         self.glass.push((bar, 1.0));
         p.rect_filled(bar, 0.0, theme::glass_fill());
-        p.text(bar.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, info, FontId::monospace(11.5), theme::paper_2());
-        let attr = match self.prefs.style {
-            Style::Satellite => crate::i18n::tr("Zdjęcia © Esri, Maxar, Earthstar Geographics · teren © Mapterhorn · © OpenStreetMap"),
-            _ => crate::i18n::tr("Teren © Mapterhorn (ÚGKK SR, GUGiK, ČÚZK), AWS Open Data · © OpenStreetMap"),
-        };
-        p.text(bar.right_center() - Vec2::new(12.0, 0.0), Align2::RIGHT_CENTER, attr, FontId::proportional(10.5), theme::paper_3());
+        // cały pasek jednym pismem i jedną barwą: odczyt kursora, stan wczytywania, źródła danych
+        let bar_font = FontId::proportional(11.5);
+        let bar_color = theme::paper_2();
+        // źródła danych przy prawej krawędzi; pozostałe napisy nie wchodzą na siebie
+        let attr_g = p.layout_no_wrap(attr_text(self.prefs.style).to_string(), bar_font.clone(), bar_color);
+        let attr_left = bar.right() - 12.0 - attr_g.size().x;
+        p.galley(Pos2::new(attr_left, bar.center().y - attr_g.size().y / 2.0), attr_g, bar_color);
+        let info_g = p.layout_no_wrap(info, bar_font.clone(), bar_color);
+        let info_right = bar.left() + 12.0 + info_g.size().x;
+        p.with_clip_rect(Rect::from_min_max(bar.min, Pos2::new((attr_left - 16.0).max(bar.left()), bar.bottom())))
+            .galley(Pos2::new(bar.left() + 12.0, bar.center().y - info_g.size().y / 2.0), info_g, bar_color);
 
         // stan wczytywania i tryby
         let mut chips: Vec<String> = Vec::new();
@@ -406,11 +421,14 @@ impl Atlas {
         // statusy na środku dolnego paska (nad odczytem kursora i atrybucją)
         if !chips.is_empty() {
             // zwykły tekst na pasku, bez tła i obwódki; klik otwiera szczegóły wczytywania
-            let g = p.layout_no_wrap(chips.join("  ·  "), FontId::proportional(11.5), theme::paper_2());
-            let r = Rect::from_center_size(bar.center(), g.size() + Vec2::new(8.0, 4.0));
-            let resp = ui.interact(r, ui.id().with("stan-wczytywania"), Sense::click());
-            let color = if resp.hovered() { theme::PAPER } else { theme::paper_2() };
-            p.galley(bar.center() - g.size() / 2.0, g, color);
+            let g = p.layout_no_wrap(chips.join("  ·  "), bar_font, bar_color);
+            // na środku paska, a gdy brakuje miejsca – między odczytem kursora a źródłami danych
+            let (lo, hi) = (info_right + 16.0, attr_left - 16.0);
+            let left = (bar.center().x - g.size().x / 2.0).min(hi - g.size().x).max(lo);
+            let r = Rect::from_min_size(Pos2::new(left, bar.center().y - g.size().y / 2.0), g.size());
+            let resp = ui.interact(r.expand2(Vec2::new(4.0, 2.0)), ui.id().with("stan-wczytywania"), Sense::click());
+            let color = if resp.hovered() { theme::PAPER } else { bar_color };
+            p.with_clip_rect(Rect::from_min_max(Pos2::new(lo.min(hi), bar.top()), Pos2::new(hi.max(lo), bar.bottom()))).galley_with_override_text_color(r.min, g, color);
             if resp.on_hover_text(crate::i18n::tr("Kliknij, żeby zobaczyć szczegóły wczytywania")).clicked() {
                 self.load_details = !self.load_details;
             }
@@ -562,6 +580,14 @@ impl Atlas {
             }
         }
         false
+    }
+}
+
+/// Źródła danych widocznego stylu mapy (prawa strona paska stanu).
+fn attr_text(style: Style) -> &'static str {
+    match style {
+        Style::Satellite => crate::i18n::tr("Zdjęcia © Esri, Maxar, Earthstar Geographics · teren © Mapterhorn · © OpenStreetMap"),
+        _ => crate::i18n::tr("Teren © Mapterhorn (ÚGKK SR, GUGiK, ČÚZK), AWS Open Data · © OpenStreetMap"),
     }
 }
 

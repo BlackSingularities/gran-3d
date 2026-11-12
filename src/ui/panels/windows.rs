@@ -87,7 +87,7 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
                 }
             }
             marks.sort_by(|x, y| x.dist.total_cmp(&y.dist));
-            let cursor = a.flight.as_ref().map(|f| f.dist).or(a.profile_cursor);
+            let cursor = a.flight.as_ref().map(|f| f.dist).or(a.profile_cursor).or(a.panel_cursor);
             let compare = a.compare.as_ref().map(|c| &c.1);
             let h = profile::show(ui, &route, &others, &marks, cursor, None, &mut a.profile_sel, compare);
             a.profile_cursor = h.or(a.flight.as_ref().map(|f| f.dist));
