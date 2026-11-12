@@ -277,7 +277,14 @@ impl Atlas {
                     }
                     let scrub = rock > 0.3 && rock < 0.55;
                     let roll = hash(gx, gz, 3);
-                    let keep = if forest > 0.4 { roll < 0.85 * forest } else if scrub { roll < 0.35 } else { false };
+                    // zarośla rosną kępami (~60 m): w kępie gęsto, poza nią prawie nic – bez pojedynczych kropek
+                    let keep = if forest > 0.4 {
+                        roll < 0.85 * forest
+                    } else if scrub {
+                        roll < if hash(gx.div_euclid(4), gz.div_euclid(4), 9) < 0.55 { 0.9 } else { 0.04 }
+                    } else {
+                        false
+                    };
                     if !keep {
                         continue;
                     }

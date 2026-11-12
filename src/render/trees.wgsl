@@ -52,8 +52,8 @@ fn profile(kind: u32, s: u32) -> vec4<f32> {
         vec4(0.14, 1.00, 0.50, 0.42), vec4(0.40, 0.74, 0.76, 0.26), vec4(0.66, 0.46, 1.00, 0.00),
         // buk: kulista korona na pniu
         vec4(0.30, 0.34, 0.50, 1.00), vec4(0.50, 1.00, 0.82, 0.76), vec4(0.82, 0.76, 1.00, 0.00),
-        // kosodrzewina: niska kopuła przy ziemi
-        vec4(0.00, 1.00, 0.45, 0.92), vec4(0.45, 0.92, 0.85, 0.52), vec4(0.85, 0.52, 1.00, 0.00),
+        // kosodrzewina i zarośla: niski, szeroki, rozłożysty płat przy ziemi
+        vec4(0.00, 1.00, 0.50, 0.88), vec4(0.50, 0.88, 0.88, 0.50), vec4(0.88, 0.50, 1.00, 0.00),
         // sosna: wysoki goły pień, spłaszczona korona u góry
         vec4(0.56, 0.30, 0.68, 1.00), vec4(0.68, 1.00, 0.88, 0.72), vec4(0.88, 0.72, 1.00, 0.00),
         // modrzew: smukły, luźniejsze piętra
@@ -176,7 +176,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Inst) -> VOut {
 
     // śnieg na gałęziach powyżej granicy śniegu (gdy śnieg jest włączony); pień bez śniegu
     var snow = 0.0;
-    if (g.season.y > 0.5 && !is_trunk) {
+    // na zdjęciach satelitarnych teren nie jest bielony, więc drzewa też nie
+    if (g.season.y > 0.5 && !is_trunk && g.style.x < 3.5) {
         snow = smoothstep(g.season.x - 60.0, g.season.x + 120.0, inst.pos.y);
     }
 

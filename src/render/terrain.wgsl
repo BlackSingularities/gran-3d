@@ -90,6 +90,7 @@ struct VOut {
     @location(2) img_uv: vec2<f32>,
     @location(3) dist: f32,
     @location(4) h: f32,
+    @location(5) rel_y: f32, // wysokość wierzchołka względem oka (z krzywizną Ziemi)
 };
 
 @vertex
@@ -113,6 +114,7 @@ fn vs_main(@location(0) uv: vec2<f32>, @location(1) skirt: f32) -> VOut {
     o.img_uv = tile.img.xy + uv * tile.img.z;
     o.dist = length(rel);
     o.h = h;
+    o.rel_y = rel.y;
     return o;
 }
 
@@ -488,7 +490,9 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (g.style.w > 0.5) {
         let planar = g.grid_q2.w > 0.5;
         let rxz = wp - g.eye.xz;
-        let ry = h * exag - g.eye.y - dot(rxz, rxz) / (2.0 * EARTH_R) * 0.87;
+        // wysokość z siatki wierzchołków (nie z tekstury wysokości): dokładnie ten punkt, który widać,
+        // więc linie nie drgają na drobnej rzeźbie
+        let ry = in.rel_y;
         let gp = select(wp, g.eye.xz + rxz * (g.grid_q2.z / min(ry, -0.001)), planar);
         let g_on = select(1.0, 0.0, planar && ry > -0.001);
         let d = gp - g.grid_origin.xy;
