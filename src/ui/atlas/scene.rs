@@ -3,6 +3,38 @@
 use super::*;
 
 impl Atlas {
+    /// Poziom płaszczyzny siatki UTM: najniższy teren w oknie ±0,3° wokół komórki 0,1°, w której jest środek
+    /// widoku. Zależy od okolicy, nie od kamery, więc przy obracaniu, pochylaniu i zbliżaniu siatka stoi w miejscu;
+    /// po przejściu do innej okolicy poziom zmienia się płynnie.
+    fn grid_base_level(&self, lon: f64, lat: f64) -> Option<f32> {
+        let mut st = self.grid_base.borrow_mut();
+        let key = ((lon * 10.0).floor() as i64, (lat * 10.0).floor() as i64);
+        let now = Instant::now();
+        if st.0 != key || now.duration_since(st.1) > Duration::from_secs(2) {
+            let (clon, clat) = ((key.0 as f64 + 0.5) / 10.0, (key.1 as f64 + 0.5) / 10.0);
+            let mut min: Option<f32> = None;
+            for iy in -12..=12 {
+                for ix in -12..=12 {
+                    let la = (clat + iy as f64 * 0.025).clamp(-85.0, 85.0);
+                    if let Some(h) = self.heights.sample_cached(clon + ix as f64 * 0.025, la) {
+                        min = Some(min.map_or(h, |m| m.min(h)));
+                    }
+                }
+            }
+            if min.is_some() {
+                st.2 = min.map(|m| m.max(0.0));
+            }
+            st.0 = key;
+            st.1 = now;
+        }
+        let target = st.2?;
+        let dt = now.duration_since(st.4).as_secs_f32();
+        // po dłuższej przerwie (siatka była wyłączona) od razu na miejsce, inaczej płynnie
+        st.3 = if dt > 1.0 { target } else { st.3 + (target - st.3) * (1.0 - (-dt * 3.0).exp()) };
+        st.4 = now;
+        Some(st.3)
+    }
+
     pub(super) fn scene(&self, view: &View) -> Scene {
         let (az, alt) = self.sun();
         let sv = sun::vector(az, alt);
@@ -73,12 +105,14 @@ impl Atlas {
             None
         }
         .map(|(zone, mut f)| {
-            // proste linie: płaszczyzna siatki na wysokości środka widoku (względem oka);
-            // w spacerze i gdy oko jest poniżej środka siatka zostaje na terenie
-            let dy = view.target.y - view.eye.y;
-            if self.panorama.is_none() && dy < -1.0 {
-                f[3][2] = dy as f32;
-                f[3][3] = 1.0;
+            // proste linie: płaszczyzna siatki leży na dnie terenu w okolicy (stały poziom, niezależny od
+            // kamery), a wyższy teren ją „przepuszcza”; w spacerze i gdy oko jest pod nią siatka zostaje na terenie
+            if let (None, Some(base)) = (self.panorama, self.grid_base_level(gc.lon, gc.lat)) {
+                let dy = base as f64 * view.exag - view.eye.y;
+                if dy < -1.0 {
+                    f[3][2] = dy as f32;
+                    f[3][3] = 1.0;
+                }
             }
             (zone, f)
         });

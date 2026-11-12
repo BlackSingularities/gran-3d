@@ -208,6 +208,8 @@ pub struct Atlas {
     walk_vy: f64,
     /// Pamięć zasłaniania etykiet: położenie oka, czas, wyniki dla punktów.
     occl_cache: std::cell::RefCell<((i64, i64, i64, i64), Instant, std::collections::HashMap<(i64, i64), bool>)>,
+    /// Poziom płaszczyzny siatki UTM (dno terenu w okolicy): komórka okolicy, czas odświeżenia, cel, bieżąca wysokość, poprzednia klatka.
+    grid_base: std::cell::RefCell<((i64, i64), Instant, Option<f32>, f32, Instant)>,
     gen: u64,
     tx: std::sync::mpsc::Sender<JobResult>,
     rx: Receiver<JobResult>,
@@ -351,6 +353,7 @@ impl Atlas {
             walk_up: 0.0,
             walk_vy: 0.0,
             occl_cache: std::cell::RefCell::new(((0, 0, 0, 0), Instant::now(), Default::default())),
+            grid_base: std::cell::RefCell::new(((i64::MAX, 0), Instant::now(), None, 0.0, Instant::now())),
             gen: 0,
             tx,
             rx,
