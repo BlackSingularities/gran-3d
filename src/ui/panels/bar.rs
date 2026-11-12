@@ -270,5 +270,8 @@ pub(super) fn style_glyph(st: Style) -> &'static str {
         Style::Hypso => theme::icon::CHART_BAR,
         Style::Slope => theme::icon::ANGLE,
         Style::Aspect => theme::icon::COMPASS,
+        Style::Swiss => theme::icon::FLAG_BANNER,
+        Style::Sketch => theme::icon::FEATHER,
+        Style::Insolation => theme::icon::SUN_DIM,
     }
 }

@@ -10,10 +10,16 @@ pub enum Style {
     Aspect,
     Satellite,
     Map,
+    /// Mapa w manierze szwajcarskiej: szarozielone cieniowanie, skały kreskami, niebieskie lodowce.
+    Swiss,
+    /// Rycina: biały papier, gęste poziomice i kreskowanie stoków.
+    Sketch,
+    /// Nasłonecznienie: godziny bezpośredniego słońca w wybranym dniu (z cieniami gór).
+    Insolation,
 }
 
 impl Style {
-    pub const ALL: [Style; 6] = [Style::Terrain, Style::Satellite, Style::Map, Style::Hypso, Style::Slope, Style::Aspect];
+    pub const ALL: [Style; 9] = [Style::Terrain, Style::Satellite, Style::Map, Style::Swiss, Style::Sketch, Style::Hypso, Style::Slope, Style::Aspect, Style::Insolation];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -23,6 +29,9 @@ impl Style {
             Style::Aspect => crate::i18n::tr("Ekspozycja"),
             Style::Satellite => crate::i18n::tr("Satelita"),
             Style::Map => crate::i18n::tr("Mapa"),
+            Style::Swiss => crate::i18n::tr("Szwajcarska"),
+            Style::Sketch => crate::i18n::tr("Rycina"),
+            Style::Insolation => crate::i18n::tr("Nasłonecznienie"),
         }
     }
 
@@ -38,7 +47,20 @@ impl Style {
             Style::Aspect => 3,
             Style::Satellite => 4,
             Style::Map => 5,
+            Style::Swiss => 6,
+            Style::Sketch => 7,
+            Style::Insolation => 8,
         }
+    }
+
+    /// Style rysowane jak mapa papierowa (jasne tło, drogi w barwach mapy, woda błękitna).
+    pub fn paper(self) -> bool {
+        matches!(self, Style::Map | Style::Swiss | Style::Sketch)
+    }
+
+    /// Style analityczne: bez wody, lasów i drzew.
+    pub fn analytic(self) -> bool {
+        matches!(self, Style::Hypso | Style::Slope | Style::Aspect | Style::Insolation)
     }
 }
 
@@ -115,6 +137,8 @@ pub struct Prefs {
     pub band_tol: f32,
     pub rel_range: f32,
     pub vs_eye: f32,
+    /// Soczewka „Czas dojścia”: najdłuższy pokazywany czas marszu (h).
+    pub iso_hours: f32,
     pub camera: (f64, f64, f64, f64, f64, f64),
     pub panel_open: bool,
     pub profile_open: bool,
@@ -286,6 +310,7 @@ impl Default for Prefs {
             band_tol: 20.0,
             rel_range: 400.0,
             vs_eye: 1.7,
+            iso_hours: 3.0,
             camera: (c.lon, c.lat, c.height, c.heading, c.pitch, c.distance),
             panel_open: false,
             profile_open: true,

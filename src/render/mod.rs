@@ -121,6 +121,10 @@ pub struct Scene {
     pub lens: [f32; 4],
     pub band_tol: f32,
     pub rel_range: f32,
+    /// Soczewka „Czas dojścia”: najdłuższy czas w teksturze widoczności (h).
+    pub iso_hours: f32,
+    /// Długość dnia (h) – skala barw stylu nasłonecznienia.
+    pub day_len: f32,
     pub cursor: Option<[f32; 3]>,
     pub shadows: bool,
     pub viewshed: bool,
@@ -913,7 +917,7 @@ impl Renderer {
             style: [scene.style as f32, scene.contour_interval, scene.contours as u8 as f32, scene.km_grid as u8 as f32],
             season: [scene.snowline, scene.snow as u8 as f32, scene.autumn, 1.0],
             lens: [scene.lens[0], scene.lens[1], scene.lens[2], lens_mode],
-            lens2: [scene.band_tol, scene.rel_range, 0.0, 0.0],
+            lens2: [scene.band_tol, scene.rel_range, scene.iso_hours, scene.day_len],
             cursor: match scene.cursor {
                 Some(c) => [c[0], c[1], c[2], 1.0],
                 None => [0.0; 4],

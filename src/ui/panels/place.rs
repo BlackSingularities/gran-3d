@@ -86,7 +86,7 @@ pub(super) fn region_info(a: &mut Atlas, ui: &mut egui::Ui) {
 pub(super) fn point_buttons(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f64) {
     section(ui, theme::icon::LIGHTNING, crate::i18n::tr("Działania"));
     let mut act: Option<u8> = None;
-    let items: [(&str, &str); 9] = [
+    let items: [(&str, &str); 10] = [
         (theme::icon::FLAG, "Trasa stąd"),
         (theme::icon::MAP_PIN, "Trasa tutaj"),
         (theme::icon::PERSON_SIMPLE_WALK, "Spacer stąd"),
@@ -96,6 +96,7 @@ pub(super) fn point_buttons(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f64
         (theme::icon::WAVES, "Ta sama wysokość"),
         (theme::icon::STAR, "Do ulubionych"),
         (theme::icon::COPY, "Współrzędne"),
+        (theme::icon::TIMER, "Czas dojścia stąd"),
     ];
     theme::tile_grid(ui, 3, |ui, w| {
         for (k, (g, t)) in items.iter().enumerate() {
@@ -124,6 +125,7 @@ pub(super) fn point_buttons(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f64
         Some(4) => a.pin_lens(lon, lat, Lens::Vis),
         Some(5) => a.pin_lens(lon, lat, Lens::Rel),
         Some(6) => a.pin_lens(lon, lat, Lens::Band),
+        Some(9) => a.pin_lens(lon, lat, Lens::Time),
         Some(7) => {
             let name = a.selection_name();
             a.save_place(lon, lat, name);

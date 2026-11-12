@@ -72,6 +72,16 @@ pub struct VsInfo {
     pub eye: f32,
 }
 
+/// Wynik czasu dojścia z punktu.
+pub struct IsoInfo {
+    /// Najdłuższy liczony czas (h).
+    pub hours: f32,
+    /// Obszar osiągalny w tym czasie (km²).
+    pub area_km2: f64,
+    /// Osiągalne szczyty, schroniska, przełęcze i stawy (indeks w migawce, czas w s), od najbliższych.
+    pub pois: Vec<(usize, f32)>,
+}
+
 /// Wynik statystyk wysokości względnej.
 pub struct RelInfo {
     pub above: f64,
@@ -118,7 +128,10 @@ enum JobResult {
     RouteFail(u64, String),
     Viewshed(u64, Box<(VsInfo, Vec<u8>, u32, u32, [f64; 4])>),
     LiveVs(u64, Box<(Vec<u8>, u32, u32, [f64; 4])>),
-    Shadow(u64, Box<(Vec<u8>, u32, u32, [f64; 4])>),
+    /// Mapa cieni (`false`) albo nasłonecznienia (`true`), bok, prostokąt świata.
+    Shadow(bool, Box<(Vec<u8>, u32, u32, [f64; 4])>),
+    /// Czas dojścia z przypiętego punktu: maska 0..254 / 255, bok, prostokąt świata.
+    Iso(u64, Box<(IsoInfo, Vec<u8>, u32, u32, [f64; 4])>),
     Rel(u64, RelInfo),
     Los(u64, Option<f64>, f64),
     Land(Option<Box<(Vec<u8>, u32, [f64; 4], Option<(Vec<f32>, [f64; 4])>)>>),
@@ -180,6 +193,7 @@ pub struct Atlas {
     pub vs: Option<VsInfo>,
     pub vs_busy: bool,
     pub rel: Option<RelInfo>,
+    pub iso: Option<IsoInfo>,
     live_vs: Option<(f64, f64)>,
     live_vs_busy: bool,
     /// Siatka wysokości do widoczności na żywo: środek i dane.
@@ -188,6 +202,10 @@ pub struct Atlas {
     shadow_key: Option<(i64, i64, i64, i64)>,
     shadow_busy: bool,
     shadow_rect: Option<[f64; 4]>,
+    /// Tekstura cieni niesie nasłonecznienie dnia, nie cień chwili.
+    shadow_insol: bool,
+    /// Czas dojścia jest liczony w tle.
+    pub iso_busy: bool,
     vs_rect: Option<[f64; 4]>,
     live_rect: Option<[f64; 4]>,
     land_key: Option<(SectorId, u64, (i64, i64))>,
@@ -336,6 +354,9 @@ impl Atlas {
             shadow_key: None,
             shadow_busy: false,
             shadow_rect: None,
+            shadow_insol: false,
+            iso_busy: false,
+            iso: None,
             vs_rect: None,
             live_rect: None,
             land_key: None,

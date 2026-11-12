@@ -17,6 +17,9 @@ pub(super) fn style_tab(a: &mut Atlas, ui: &mut egui::Ui) {
         Style::Aspect => Some(crate::i18n::tr("Barwa – kierunek, w który opada stok; nasycenie – nachylenie.")),
         Style::Hypso => Some(crate::i18n::tr("Barwy wysokości: niziny zielone, piętro hal brązowe, najwyżej biel.")),
         Style::Satellite => Some(crate::i18n::tr("Zdjęcia lotnicze i satelitarne z całego świata (Esri). Ortofoto krajowe włączysz w ustawieniach.")),
+        Style::Swiss => Some(crate::i18n::tr("Jak na mapach szwajcarskich: cieniowanie od północnego zachodu, skały kreskami, lodowce i wody na niebiesko.")),
+        Style::Sketch => Some(crate::i18n::tr("Jak na dawnych rycinach: biały papier, gęste poziomice i kreski spadku – im stromiej, tym grubsze.")),
+        Style::Insolation => Some(crate::i18n::tr("Godziny bezpośredniego słońca w wybranym dniu, z cieniami gór: granat – cały dzień w cieniu, żółć – słońce od wschodu do zachodu. Linie co godzinę. Dzień ustawisz w panelu pory dnia.")),
         _ => None,
     };
     if let Some(l) = legend {
@@ -31,7 +34,7 @@ pub(super) fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     // co naprawdę zmienia obraz w danym stylu: śnieg tylko w barwach terenu (na zdjęciu jest
     // zdjęcie), pokrycie (woda, lasy, drzewa) w stylach Teren, Satelita i Mapa – nie w analitycznych
     let snow_off = (a.prefs.style != Style::Terrain).then_some(crate::i18n::tr("widać tylko w stylu Teren (zdjęcie satelitarne ma własny śnieg)"));
-    let land_off = matches!(a.prefs.style, Style::Hypso | Style::Slope | Style::Aspect).then_some(crate::i18n::tr("w stylach analitycznych nie ma wody, lasów ani drzew"));
+    let land_off = a.prefs.style.analytic().then_some(crate::i18n::tr("w stylach analitycznych nie ma wody, lasów ani drzew"));
     fn grid(ui: &mut egui::Ui, items: Vec<(&str, &str, &mut bool, Option<&str>)>) {
         theme::tile_grid(ui, 4, |ui, w| {
             for (g, t, v, off) in items {

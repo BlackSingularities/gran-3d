@@ -642,6 +642,39 @@ pub(super) fn lens_info(a: &mut Atlas, ui: &mut egui::Ui) {
                 }
             }
         }
+        Lens::Time => {
+            ui.label(theme::kicker(crate::i18n::tr("Czas dojścia")));
+            ui.heading(crate::i18n::tr("Dokąd dojdę stąd?"));
+            ui.label(RichText::new(format!("{} · {}", fmt::coords(lon, lat), fmt::ele(e as f64))).monospace().small().color(theme::paper_3()));
+            let before = a.prefs.iso_hours;
+            ui.horizontal(|ui| {
+                for v in [1.0f32, 2.0, 3.0, 5.0, 8.0] {
+                    ui.selectable_value(&mut a.prefs.iso_hours, v, format!("{} h", v as u32));
+                }
+            });
+            if before != a.prefs.iso_hours {
+                a.start_isochrones(lon, lat);
+            }
+            if a.iso_busy {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(RichText::new(crate::i18n::tr("liczę czas marszu…")).color(theme::paper_3()));
+                });
+            }
+            if let Some(iso) = &a.iso {
+                big(ui, fmt::dec(iso.area_km2, 1), &tf!("km² w zasięgu {} h marszu", fmt::dec(iso.hours as f64, 0)), theme::TEAL);
+                theme::para(ui, crate::i18n::tr("Funkcja Toblera po modelu terenu, szlaki i drogi pełnym tempem, poza nimi wolniej, stoki ponad 40° pominięte. Tempo jak w planowaniu trasy. Linie co 30 min, pogrubione co godzinę. Bez przerw na odpoczynek – to analiza terenu, nie zachęta do schodzenia ze szlaków."));
+                ui.add_space(6.0);
+                ui.label(theme::kicker(&tf!("W zasięgu ({})", iso.pois.len())));
+                let list: Vec<(usize, f32)> = iso.pois.iter().take(40).copied().collect();
+                for (i, s) in list {
+                    let Some(p) = a.snap.pois.get(i).cloned() else { continue };
+                    if row(ui, &p.poi.name, &fmt::time(s as f64 / 3600.0), &fmt::ele(p.ele as f64)) {
+                        a.selection = Selection::Poi(i);
+                    }
+                }
+            }
+        }
         Lens::Rel => {
             ui.label(theme::kicker(crate::i18n::tr("Wysokość względna")));
             ui.heading(crate::i18n::tr("Co jest wyżej?"));
