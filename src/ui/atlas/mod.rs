@@ -124,7 +124,12 @@ enum JobResult {
     Land(Option<Box<(Vec<u8>, u32, [f64; 4], Option<(Vec<f32>, [f64; 4])>)>>),
     /// Drzewa: klucz, instancje (najpierw bliskie), liczba bliskich.
     Trees(TreesKey, Vec<TreeInst>, usize),
+    /// Linie dróg i ulic wokół kamery: klucz i odcinki.
+    Roads(RoadsKey, Vec<LineInst>),
 }
+
+/// Kratka położenia celu kamery, przedział oddalenia, wersja dróg, wersja ramki, styl papierowy, skala pikseli.
+type RoadsKey = (i64, i64, i64, u64, u64, bool, u32);
 
 /// Położenie (co 200 m), oko (co 150 m), wersja pokrycia i ramki – po zmianie drzewa liczone od nowa.
 type TreesKey = (i64, i64, i64, i64, u64, u64);
@@ -255,6 +260,11 @@ pub struct Atlas {
     pub compare: Option<(String, Route)>,
     last_want: Instant,
     pub status_line: String,
+    /// Drogi i ulice: gotowe linie, klucz ostatniego zlecenia, wersja dla renderera.
+    road_lines: Vec<LineInst>,
+    roads_key: Option<RoadsKey>,
+    roads_job: bool,
+    roads_ver: u64,
 }
 
 /// Stan planowania do historii: punkty i tryb wyznaczania.
@@ -379,6 +389,10 @@ impl Atlas {
             compare: None,
             last_want: Instant::now() - Duration::from_secs(10),
             status_line: String::new(),
+            road_lines: Vec::new(),
+            roads_key: None,
+            roads_job: false,
+            roads_ver: 0,
         }
     }
 

@@ -134,6 +134,8 @@ pub struct Prefs {
     pub closures: bool,
     /// Trasy narciarskie i wyciągi.
     pub pistes: bool,
+    /// Drogi, ulice i tory.
+    pub roads: bool,
     /// Wysoki kontrast interfejsu.
     pub high_contrast: bool,
     /// Skala interfejsu (0,75–2).
@@ -160,11 +162,11 @@ pub struct Names {
     pub villages: bool,
     pub water: bool,
     pub parking: bool,
-    pub bus: bool,
+    /// Komunikacja publiczna: przystanki autobusowe i tramwajowe, stacje, dworce, przystanie.
+    pub transit: bool,
     pub cableways: bool,
     pub shrines: bool,
     pub webcams: bool,
-    pub stations: bool,
     /// Wysokość przy nazwach szczytów i przełęczy.
     pub elevation: bool,
 }
@@ -188,11 +190,10 @@ impl Default for Names {
             villages: true,
             water: true,
             parking: false,
-            bus: false,
+            transit: true,
             cableways: true,
             shrines: false,
             webcams: true,
-            stations: true,
             elevation: true,
         }
     }
@@ -215,11 +216,10 @@ impl Names {
             PoiKind::Locality => self.localities,
             PoiKind::DrinkingWater => self.water,
             PoiKind::Parking => self.parking,
-            PoiKind::BusStop => self.bus,
+            PoiKind::BusStop | PoiKind::Station => self.transit,
             PoiKind::Cableway => self.cableways,
             PoiKind::Shrine => self.shrines,
             PoiKind::Webcam => self.webcams,
-            PoiKind::Station => self.stations,
             PoiKind::Place => {
                 if matches!(p.place.as_str(), "city" | "town") {
                     self.towns
@@ -250,8 +250,7 @@ impl Names {
             (i::HOUSE, "Wsie", &mut self.villages),
             (i::DROP, "Woda pitna", &mut self.water),
             (i::CAR, "Parkingi", &mut self.parking),
-            (i::BUS, "Przystanki", &mut self.bus),
-            (i::TRAIN, "Stacje kolejowe", &mut self.stations),
+            (i::BUS, "Przystanki i stacje", &mut self.transit),
             (i::ARROW_UP_RIGHT, "Kolejki linowe", &mut self.cableways),
             (i::CROSS, "Kapliczki", &mut self.shrines),
             (i::CAMERA, "Kamery", &mut self.webcams),
@@ -298,6 +297,7 @@ impl Default for Prefs {
             coord_format: crate::coords::CoordFormat::default(),
             closures: true,
             pistes: false,
+            roads: true,
             high_contrast: false,
             ui_scale: 1.0,
         }

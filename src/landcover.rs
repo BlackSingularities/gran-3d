@@ -1,5 +1,7 @@
 //! Pokrycie terenu z OpenStreetMap (wody, lasy, piargi i skały, zarośla) wypiekane do maski rastrowej
-//! sektora: R – woda, G – las, B – skały (255) / zarośla (110). Zapis: `land\9_x_y.png` w folderze danych.
+//! sektora: R – woda, G – las z rodzajem drzew (zob. `FOREST_*`), B – skały (255) / zarośla (110).
+//! Zapis: `land\9_x_y_t.png` w folderze danych (starsze maski `9_x_y.png` – bez rodzaju drzew – służą,
+//! dopóki nowa się nie pobierze).
 
 use std::path::{Path, PathBuf};
 
@@ -9,8 +11,55 @@ use crate::osm::{self, SectorId, SECTOR_Z};
 /// Rozdzielczość maski sektora (~25 m na piksel w Karpatach).
 pub const SIZE: u32 = 2048;
 
+/// Las w kanale G maski: rodzaj drzew z OSM (`leaf_type`, dawniej `wood`). Wszystkie wartości znaczą
+/// „las”; 255 to las bez podanego rodzaju (tak wyglądają też maski sprzed tej zmiany).
+pub const FOREST_UNKNOWN: u8 = 255;
+pub const FOREST_NEEDLE: u8 = 230;
+pub const FOREST_MIXED: u8 = 205;
+pub const FOREST_BROAD: u8 = 180;
+
+/// Rodzaj lasu odczytany z maski.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Forest {
+    Unknown,
+    Needle,
+    Mixed,
+    Broad,
+}
+
+/// Rodzaj lasu z wartości kanału G (tolerancja na wygładzanie przy zmniejszaniu maski; wartości
+/// z rozmytego skraju lasu dają „nieznany”).
+pub fn forest_kind(g: u8) -> Forest {
+    match g {
+        218..=242 => Forest::Needle,
+        193..=217 => Forest::Mixed,
+        168..=192 => Forest::Broad,
+        _ => Forest::Unknown,
+    }
+}
+
+/// Wartość kanału G dla lasu o danych znacznikach OSM.
+fn forest_value(leaf_type: &str, wood: &str) -> u8 {
+    match (leaf_type, wood) {
+        ("needleleaved", _) | ("", "coniferous") => FOREST_NEEDLE,
+        ("broadleaved", _) | ("", "deciduous") => FOREST_BROAD,
+        ("mixed", _) | ("", "mixed") => FOREST_MIXED,
+        _ => FOREST_UNKNOWN,
+    }
+}
+
 pub fn path(root: &Path, id: SectorId) -> PathBuf {
+    root.join("land").join(format!("{}_{}_{}_t.png", SECTOR_Z, id.x, id.y))
+}
+
+/// Maska sprzed rozróżniania rodzajów drzew.
+fn legacy_path(root: &Path, id: SectorId) -> PathBuf {
     root.join("land").join(format!("{}_{}_{}.png", SECTOR_Z, id.x, id.y))
+}
+
+/// Maska sektora: nowa, a gdy jej jeszcze nie ma – starsza.
+fn open(root: &Path, id: SectorId) -> Option<image::RgbImage> {
+    image::open(path(root, id)).or_else(|_| image::open(legacy_path(root, id))).ok().map(|i| i.to_rgb8())
 }
 
 pub fn exists(root: &Path, id: SectorId) -> bool {
@@ -64,7 +113,11 @@ fn fill(img: &mut [u8], rings: &[Vec<(f64, f64)>], ch: usize, val: u8) {
             let xb = ((xs[k + 1] - 0.5).floor() as isize).min(s as isize - 1);
             for x in xa.max(0)..=xb {
                 let i = (y * s + x as usize) * 3 + ch;
-                if img[i] < val {
+                let cur = img[i];
+                // las: podany rodzaj drzew wygrywa z lasem bez rodzaju (duże wielokąty „las” często
+                // przykrywają mniejsze, opisane dokładniej); poza tym większa wartość
+                let set = if ch == 1 { cur == 0 || (cur == FOREST_UNKNOWN && val != FOREST_UNKNOWN) || (cur != FOREST_UNKNOWN && val != FOREST_UNKNOWN && val > cur) } else { cur < val };
+                if set {
                     img[i] = val;
                 }
             }
@@ -104,7 +157,7 @@ pub fn fetch(id: SectorId) -> Result<Vec<u8>, String> {
                 let (ch, val) = if nat == "water" || tag("waterway") == "riverbank" {
                     (0, 255)
                 } else if tag("landuse") == "forest" || nat == "wood" {
-                    (1, 255)
+                    (1, forest_value(tag("leaf_type"), tag("wood")))
                 } else if nat == "scrub" {
                     (2, 110)
                 } else if matches!(nat, "scree" | "bare_rock" | "shingle") {
@@ -158,7 +211,10 @@ pub fn save(root: &Path, id: SectorId, rgb: &[u8]) -> Result<(), String> {
     let img = image::RgbImage::from_raw(SIZE, SIZE, rgb.to_vec()).ok_or(crate::i18n::tr("rozmiar maski"))?;
     let tmp = p.with_extension("tmp.png");
     img.save(&tmp).map_err(|e| e.to_string())?;
-    std::fs::rename(tmp, p).map_err(|e| e.to_string())
+    std::fs::rename(tmp, p).map_err(|e| e.to_string())?;
+    // starsza maska tego sektora nie jest już potrzebna
+    let _ = std::fs::remove_file(legacy_path(root, id));
+    Ok(())
 }
 
 /// Mozaika 3×3 sektorów wokół `center`, każdy zmniejszony do `cell` px (RGBA).
@@ -175,8 +231,8 @@ pub fn mosaic(root: &Path, center: SectorId, cell: u32) -> Option<(Vec<u8>, u32,
                 continue;
             }
             let id = SectorId { x: (center.x as i64 + dx).rem_euclid(n) as u32, y: y as u32 };
-            let Ok(img) = image::open(path(root, id)) else { continue };
-            let img = image::imageops::resize(&img.to_rgb8(), cell, cell, image::imageops::FilterType::Triangle);
+            let Some(img) = open(root, id) else { continue };
+            let img = image::imageops::resize(&img, cell, cell, image::imageops::FilterType::Triangle);
             any = true;
             let (ox, oy) = (((dx + 1) as u32) * cell, ((dy + 1) as u32) * cell);
             for (x, yy, p) in img.enumerate_pixels() {
@@ -235,7 +291,7 @@ pub fn water_window(
                     return None;
                 }
                 let id = SectorId { x: sx.rem_euclid(ns as i64) as u32, y: sy as u32 };
-                image::open(path(root, id)).ok().map(|i| i.to_rgb8())
+                open(root, id)
             });
             if let Some(img) = m {
                 let w = img.get_pixel(gx.rem_euclid(side) as u32, gy.rem_euclid(side) as u32)[0] > 127;
@@ -325,5 +381,25 @@ mod tests {
         assert_eq!(at(20, 20), 255);
         assert_eq!(at(60, 60), 0);
         assert_eq!(at(200, 200), 0);
+    }
+
+    #[test]
+    fn typed_forest_wins_over_untyped() {
+        let sq = |a: f64, b: f64| vec![(a, a), (b, a), (b, b), (a, b), (a, a)];
+        let mut img = vec![0u8; (SIZE * SIZE * 3) as usize];
+        // duży las bez rodzaju, w nim mniejszy iglasty i liściasty – w obu kolejnościach rysowania
+        fill(&mut img, &[sq(10.0, 200.0)], 1, FOREST_UNKNOWN);
+        fill(&mut img, &[sq(20.0, 60.0)], 1, FOREST_NEEDLE);
+        fill(&mut img, &[sq(100.0, 140.0)], 1, FOREST_BROAD);
+        fill(&mut img, &[sq(10.0, 200.0)], 1, FOREST_UNKNOWN);
+        let at = |x: usize, y: usize| img[(y * SIZE as usize + x) * 3 + 1];
+        assert_eq!(forest_kind(at(40, 40)), Forest::Needle);
+        assert_eq!(forest_kind(at(120, 120)), Forest::Broad);
+        assert_eq!(forest_kind(at(180, 180)), Forest::Unknown);
+        assert_eq!(at(180, 180), FOREST_UNKNOWN);
+        assert_eq!(forest_value("needleleaved", ""), FOREST_NEEDLE);
+        assert_eq!(forest_value("", "deciduous"), FOREST_BROAD);
+        assert_eq!(forest_value("mixed", "coniferous"), FOREST_MIXED);
+        assert_eq!(forest_value("", ""), FOREST_UNKNOWN);
     }
 }

@@ -117,6 +117,13 @@ pub struct World {
     land_version: Arc<AtomicU64>,
     /// Pobieranie i wypiekanie maski pokrycia terenu w toku.
     land_busy: Arc<std::sync::atomic::AtomicBool>,
+    /// Drogi i ulice wczytanych sektorów okolicy.
+    roads: Arc<RwLock<HashMap<SectorId, Arc<Vec<crate::roads::Road>>>>>,
+    /// Rośnie przy każdej zmianie zestawu dróg.
+    roads_version: Arc<AtomicU64>,
+    /// Warstwa dróg włączona (ustawia interfejs) – bez niej nic się nie pobiera.
+    roads_on: Arc<std::sync::atomic::AtomicBool>,
+    roads_busy: Arc<std::sync::atomic::AtomicBool>,
 }
 
 
@@ -129,6 +136,10 @@ impl World {
             version: Arc::default(),
             land_version: Arc::default(),
             land_busy: Arc::default(),
+            roads: Arc::default(),
+            roads_version: Arc::default(),
+            roads_on: Arc::default(),
+            roads_busy: Arc::default(),
         };
         let me = w.clone();
         let c = ctx.clone();
@@ -142,6 +153,12 @@ impl World {
             .name("pokrycie".into())
             .spawn(move || me.run_land(ctx))
             .expect("wątek pokrycia terenu");
+        let me = w.clone();
+        let c3 = c2.clone();
+        thread::Builder::new()
+            .name("drogi".into())
+            .spawn(move || me.run_roads(c3))
+            .expect("wątek dróg");
         // szlaki dwóch sektorów naraz, z różnych serwerów Overpass
         for k in 0..TRAIL_WORKERS {
             let me = w.clone();
@@ -203,6 +220,91 @@ impl World {
                     failed.insert(id, Instant::now());
                 }
             }
+        }
+    }
+
+    /// Włącza albo wyłącza warstwę dróg (wyłączona nic nie pobiera i zwalnia pamięć).
+    pub fn set_roads(&self, on: bool) {
+        self.roads_on.store(on, Ordering::Relaxed);
+    }
+
+    pub fn roads_busy(&self) -> bool {
+        self.roads_busy.load(Ordering::Relaxed)
+    }
+
+    pub fn roads_version(&self) -> u64 {
+        self.roads_version.load(Ordering::Relaxed)
+    }
+
+    /// Drogi wczytanych sektorów okolicy.
+    pub fn roads(&self) -> Vec<Arc<Vec<crate::roads::Road>>> {
+        self.roads.read().unwrap().values().cloned().collect()
+    }
+
+    /// Drogi sektorów okolicy: z dysku od razu, z sieci tylko dla najbliższych kamerze
+    /// (pierwsze na liście), po jednym naraz.
+    fn run_roads(&self, ctx: eframe::egui::Context) {
+        /// Tyle najbliższych sektorów pobiera drogi z sieci (reszta tylko z dysku).
+        const FETCH: usize = 4;
+        let mut failed: HashMap<SectorId, Instant> = HashMap::new();
+        let mut idle = false;
+        loop {
+            thread::sleep(if idle { Duration::from_secs(2) } else { Duration::from_millis(150) });
+            idle = true;
+            if !self.roads_on.load(Ordering::Relaxed) {
+                let mut m = self.roads.write().unwrap();
+                if !m.is_empty() {
+                    m.clear();
+                    self.roads_version.fetch_add(1, Ordering::Relaxed);
+                }
+                continue;
+            }
+            let wanted: Vec<SectorId> = self.state.0.lock().unwrap().wanted.clone();
+            // poza okolicą – z pamięci
+            {
+                let mut m = self.roads.write().unwrap();
+                let before = m.len();
+                m.retain(|id, _| wanted.contains(id));
+                if m.len() != before {
+                    self.roads_version.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            let root = self.heights.store().root().to_path_buf();
+            let next = {
+                let m = self.roads.read().unwrap();
+                wanted.iter().enumerate().find(|(k, id)| {
+                    !m.contains_key(id)
+                        && (crate::roads::exists(&root, **id) || (*k < FETCH && failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(120))))
+                }).map(|(_, id)| *id)
+            };
+            let Some(id) = next else { continue };
+            idle = false;
+            let roads = match crate::roads::load(&root, id) {
+                Some(r) => Ok(r),
+                None => {
+                    self.roads_busy.store(true, Ordering::Relaxed);
+                    ctx.request_repaint();
+                    let r = crate::roads::fetch(id).inspect(|r| {
+                        if let Err(e) = crate::roads::save(&root, id, r) {
+                            log::error!("zapis dróg: {e}");
+                        }
+                    });
+                    self.roads_busy.store(false, Ordering::Relaxed);
+                    r
+                }
+            };
+            match roads {
+                Ok(r) => {
+                    log::info!("drogi {}/{}: {} odcinków", id.x, id.y, r.len());
+                    self.roads.write().unwrap().insert(id, Arc::new(r));
+                    self.roads_version.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(e) => {
+                    log::warn!("drogi {}/{}: {e}", id.x, id.y);
+                    failed.insert(id, Instant::now());
+                }
+            }
+            ctx.request_repaint();
         }
     }
 
@@ -316,6 +418,8 @@ impl World {
         s.partial.clear();
         s.failed.clear();
         s.trails_failed.clear();
+        self.roads.write().unwrap().clear();
+        self.roads_version.fetch_add(1, Ordering::Relaxed);
         s.data_gen += 1;
         s.changed = true;
         cv.notify_all();
@@ -661,6 +765,11 @@ fn prominence(pois: &mut [PoiView], height: &(dyn Fn(f64, f64) -> f32 + Sync)) {
             PoiKind::Waterfall | PoiKind::Cableway => 2.0,
             PoiKind::Locality | PoiKind::Viewpoint => 1.5,
             PoiKind::Cave | PoiKind::Shelter | PoiKind::Webcam => 1.2,
+            // stacje i dworce widać z daleka, przystanki dopiero z bliska (inaczej miasto to sama chmura nazw)
+            PoiKind::Station => {
+                if p.poi.info.iter().any(|(k, v)| k == "transport" && v.contains("train")) { 2.4 } else { 1.2 }
+            }
+            PoiKind::BusStop => 0.32,
             PoiKind::Place => {
                 let base = match p.poi.place.as_str() {
                     "city" => 16.0,

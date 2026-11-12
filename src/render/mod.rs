@@ -79,7 +79,7 @@ pub struct TreeInst {
 }
 
 /// Wierzchołki bryły bliskiego drzewa i dalekiej piramidki (zob. trees.wgsl).
-const TREE_NEAR_VERTS: u32 = 66;
+const TREE_NEAR_VERTS: u32 = 132;
 const TREE_FAR_VERTS: u32 = 12;
 
 /// Odcinek linii: końce w ramce (y – wysokość rzeczywista), kolor liniowy RGBA, grubość i przesunięcie (px).
@@ -233,6 +233,8 @@ pub struct Renderer {
     index_count: u32,
     targets: Option<Targets>,
     static_lines: (wgpu::Buffer, u32, u64),
+    /// Drogi i ulice (pod szlakami): bufor, liczba odcinków, wersja.
+    road_lines: (wgpu::Buffer, u32, u64),
     /// Drzewa: bufor instancji, liczba bliskich (szczegółowych), liczba wszystkich, wersja.
     trees: (wgpu::Buffer, u32, u32, u64),
     trees_pipe: wgpu::RenderPipeline,
@@ -605,6 +607,7 @@ impl Renderer {
         let ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("indeksy"), contents: bytemuck::cast_slice(&idx), usage: wgpu::BufferUsages::INDEX });
         let line_buf = |n: u64| buf("linie", n * std::mem::size_of::<LineInst>() as u64, wgpu::BufferUsages::VERTEX);
         let static_lines = (line_buf(1), 0, u64::MAX);
+        let road_lines = (line_buf(1), 0, u64::MAX);
         let trees = (line_buf(1), 0, 0, u64::MAX);
         let dyn_lines = (line_buf(1024), 0);
         let empty_land = tiles::make_texture(&device, &queue, wgpu::TextureFormat::Rgba8Unorm, 1, 1, &[vec![0, 0, 0, 0]], 4).create_view(&Default::default());
@@ -652,6 +655,7 @@ impl Renderer {
             index_count: idx.len() as u32,
             targets: None,
             static_lines,
+            road_lines,
             trees,
             trees_pipe,
             dyn_lines,
@@ -847,6 +851,21 @@ impl Renderer {
         self.static_lines.2
     }
 
+    /// Drogi i ulice – wysyłane tylko po zmianie (`version`); rysowane pod szlakami.
+    pub fn set_road_lines(&mut self, version: u64, lines: &[LineInst]) {
+        if self.road_lines.2 == version {
+            return;
+        }
+        Self::upload_lines(&self.device, &self.queue, &mut self.road_lines.0, lines);
+        self.dirty = true;
+        self.road_lines.1 = lines.len() as u32;
+        self.road_lines.2 = version;
+    }
+
+    pub fn road_version(&self) -> u64 {
+        self.road_lines.2
+    }
+
     /// Klatka 3D do bufora poza ekranem; zwraca wywołanie zwrotne do wklejenia w egui.
     /// `glass` – prostokąty pod szkłem interfejsu we współrzędnych 0–1 widoku i siła rozmycia.
     /// `pick_at` – punkt widoku (logiczny), pod którym odczytać głębię; wynik w `self.pick`
@@ -955,7 +974,7 @@ impl Renderer {
             bytemuck::bytes_of(&gk).hash(&mut h);
             tbytes.hash(&mut h);
             bytemuck::cast_slice::<LineInst, u8>(dyn_lines).hash(&mut h);
-            (n, size, scene.trees, self.static_lines.1, self.trees.2).hash(&mut h);
+            (n, size, scene.trees, self.static_lines.1, self.trees.2, self.road_lines.1, self.road_lines.2).hash(&mut h);
             for d in draw.iter().take(n) {
                 (d.dem, d.img.map(|x| x.0)).hash(&mut h);
             }
@@ -1016,6 +1035,10 @@ impl Renderer {
             pass.set_pipeline(&self.lines);
             pass.set_bind_group(0, &self.globals_bind, &[]);
             pass.set_bind_group(1, &self.line_params_bind, &[]);
+            if self.road_lines.1 > 0 {
+                pass.set_vertex_buffer(0, self.road_lines.0.slice(..));
+                pass.draw(0..6, 0..self.road_lines.1);
+            }
             if self.static_lines.1 > 0 {
                 pass.set_vertex_buffer(0, self.static_lines.0.slice(..));
                 pass.draw(0..6, 0..self.static_lines.1);

@@ -255,7 +255,7 @@ pub(super) fn style_button(a: &mut Atlas, ui: &mut egui::Ui) {
 /// Warstwy: osobny przycisk z liczbą włączonych.
 pub(super) fn layers_button(a: &mut Atlas, ui: &mut egui::Ui) {
     let p = &a.prefs;
-    let n = [p.labels, p.trails, p.chains, p.boundaries, p.contours, p.km_grid, p.shadows, p.detail, p.snow, p.landcover].iter().filter(|v| **v).count();
+    let n = [p.labels, p.trails, p.roads, p.chains, p.boundaries, p.contours, p.km_grid, p.shadows, p.detail, p.snow, p.landcover].iter().filter(|v| **v).count();
     let shown = bar_menu(ui, theme::icon::STACK, theme::BRASS, crate::i18n::tr("Warstwy"), &tf!("włączone: {}", n), 118.0, crate::i18n::tr("Warstwy na mapie"), 380.0, |ui| layers_tab(a, ui));
     if let Some(r) = shown {
         a.glass.push((r, 1.0));

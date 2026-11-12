@@ -120,8 +120,21 @@ pub enum PoiKind {
     Shrine,
     /// Kamera internetowa.
     Webcam,
-    /// Stacja albo przystanek kolejowy.
+    /// Stacja albo przystanek kolejowy, stacja metra, dworzec autobusowy, przystań promowa.
     Station,
+}
+
+impl PoiKind {
+    /// Komunikacja publiczna: przystanki (autobus, tramwaj) i stacje – jedna warstwa nazw.
+    pub fn is_transit(self) -> bool {
+        matches!(self, PoiKind::BusStop | PoiKind::Station)
+    }
+}
+
+/// Nazwa obiektu z OSM w języku programu (`name:pl`, `name:en`…), a gdy jej brak – nazwa miejscowa.
+pub fn local_name<'a>(get: &dyn Fn(&str) -> &'a str) -> &'a str {
+    let own = get(&format!("name:{}", crate::i18n::current()));
+    if own.is_empty() { get("name") } else { own }
 }
 
 impl PoiKind {
@@ -146,7 +159,7 @@ impl PoiKind {
             PoiKind::Cableway => crate::i18n::tr("Kolejka linowa"),
             PoiKind::Shrine => crate::i18n::tr("Kapliczka"),
             PoiKind::Webcam => crate::i18n::tr("Kamera internetowa"),
-            PoiKind::Station => crate::i18n::tr("Stacja kolejowa"),
+            PoiKind::Station => crate::i18n::tr("Stacja / dworzec"),
         }
     }
 }
@@ -290,7 +303,7 @@ pub enum BoundaryKind {
 }
 
 /// Bieżąca wersja dodatkowych danych sektora.
-pub const EXTRA_VER: u32 = 2;
+pub const EXTRA_VER: u32 = 3;
 
 pub fn load(root: &Path, id: SectorId) -> Option<SectorData> {
     let b = std::fs::read(id.path(root)).ok()?;
@@ -433,7 +446,7 @@ const VECTOR_Z: u8 = 12;
 const VECTOR_LAYERS: [&str; 4] = ["mountain_peak", "place", "poi", "water_name"];
 
 /// Adres kafli: bieżąca wersja danych z opisu zestawu.
-fn vector_url() -> Result<String, String> {
+pub(crate) fn vector_url() -> Result<String, String> {
     static URL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
     if let Some(u) = URL.lock().unwrap().clone() {
         return Ok(u);
@@ -525,7 +538,9 @@ fn vector_poi(p: &crate::mvt::Point, lon: f64, lat: f64) -> Option<Poi> {
         },
         _ => return None,
     };
-    let name = p.text("name").filter(|n| !n.is_empty())?;
+    // nazwa w języku programu, gdy kafel ją ma (np. „Monachium”, „Munich”); inaczej miejscowa
+    let own = format!("name:{}", crate::i18n::current());
+    let name = p.text(&own).filter(|n| !n.is_empty()).or_else(|| p.text("name").filter(|n| !n.is_empty()))?;
     Some(Poi {
         kind,
         name: name.to_string(),
@@ -605,7 +620,7 @@ pub fn fetch_extra(id: SectorId, worker: usize) -> Result<Extra, String> {
     let b = id.bbox();
     let bb = format!("{:.6},{:.6},{:.6},{:.6}", b.s, b.w, b.n, b.e);
     let points_q = format!(
-        "[out:json][timeout:90];(nwr[\"natural\"~\"^(valley|ridge|arete|spring|water)$\"][\"name\"]({bb});node[\"place\"=\"locality\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb});nwr[\"tourism\"~\"^(alpine_hut|wilderness_hut)$\"]({bb});nwr[\"amenity\"=\"shelter\"][\"name\"]({bb});node[\"amenity\"=\"drinking_water\"]({bb});nwr[\"amenity\"=\"parking\"][\"access\"!~\"^(private|no)$\"]({bb});node[\"highway\"=\"bus_stop\"][\"name\"]({bb});node[\"aerialway\"=\"station\"]({bb});node[\"railway\"~\"^(station|halt)$\"][\"name\"]({bb});node[\"historic\"~\"^(wayside_shrine|wayside_cross)$\"]({bb});nwr[\"building\"=\"chapel\"]({bb});nwr[\"contact:webcam\"]({bb});nwr[\"webcam\"]({bb}););out center tags;(way[\"safety_rope\"]({bb});way[\"via_ferrata_scale\"]({bb}););out tags geom;"
+        "[out:json][timeout:90];(nwr[\"natural\"~\"^(valley|ridge|arete|spring|water)$\"][\"name\"]({bb});node[\"place\"=\"locality\"][\"name\"]({bb});node[\"waterway\"=\"waterfall\"][\"name\"]({bb});nwr[\"tourism\"~\"^(alpine_hut|wilderness_hut)$\"]({bb});nwr[\"amenity\"=\"shelter\"][\"name\"]({bb});node[\"amenity\"=\"drinking_water\"]({bb});nwr[\"amenity\"=\"parking\"][\"access\"!~\"^(private|no)$\"]({bb});node[\"highway\"=\"bus_stop\"][\"name\"]({bb});node[\"railway\"=\"tram_stop\"][\"name\"]({bb});nwr[\"amenity\"~\"^(bus_station|ferry_terminal)$\"][\"name\"]({bb});node[\"aerialway\"=\"station\"]({bb});node[\"railway\"~\"^(station|halt)$\"][\"name\"]({bb});node[\"historic\"~\"^(wayside_shrine|wayside_cross)$\"]({bb});nwr[\"building\"=\"chapel\"]({bb});nwr[\"contact:webcam\"]({bb});nwr[\"webcam\"]({bb}););out center tags;(way[\"safety_rope\"]({bb});way[\"via_ferrata_scale\"]({bb}););out tags geom;"
     );
     let bounds_q = format!(
         "[out:json][timeout:90];(relation[\"boundary\"=\"national_park\"]({bb});way[\"boundary\"=\"national_park\"]({bb});relation[\"leisure\"=\"nature_reserve\"]({bb});way[\"leisure\"=\"nature_reserve\"]({bb});relation[\"boundary\"=\"protected_area\"][\"protect_class\"~\"^(1|1a|1b|2|4)$\"]({bb});relation[\"boundary\"=\"administrative\"][\"admin_level\"=\"2\"]({bb}););out tags geom({bb});"
@@ -632,7 +647,7 @@ pub fn fetch_extra(id: SectorId, worker: usize) -> Result<Extra, String> {
                 } else {
                     BoundaryKind::Reserve
                 };
-                let name = if tag("name:pl").is_empty() { tag("name") } else { tag("name:pl") }.to_string();
+                let name = local_name(&tag).to_string();
                 let mut lines = geometry_lines(&el["geometry"]);
                 for m in el["members"].as_array().into_iter().flatten() {
                     lines.extend(geometry_lines(&m["geometry"]));
@@ -672,7 +687,7 @@ pub fn parse_ways(j: &serde_json::Value) -> (Vec<Closure>, Vec<Piste>) {
         if lines.is_empty() {
             continue;
         }
-        let name = if tag("name:pl").is_empty() { tag("name") } else { tag("name:pl") }.to_string();
+        let name = local_name(&tag).to_string();
         let pt = tag("piste:type");
         if !pt.is_empty() {
             let pname = if tag("piste:name").is_empty() { name.clone() } else { tag("piste:name").to_string() };
@@ -706,7 +721,9 @@ pub fn parse_ways(j: &serde_json::Value) -> (Vec<Closure>, Vec<Piste>) {
 /// Dołączenie dodatkowych danych do sektora: nowe punkty, informacje do istniejących (np. schronisk
 /// z kafli wektorowych), łańcuchy i granice.
 pub fn apply_extra(d: &mut SectorData, x: Extra) {
-    for p in x.pois {
+    // przystanki zapisane w starszej wersji danych są zastępowane nowym, pełnym zestawem
+    d.pois.retain(|p| !p.kind.is_transit());
+    for p in merge_stops(x.pois) {
         let same = d.pois.iter_mut().find(|q| {
             q.kind == p.kind && (q.name == p.name || p.kind == PoiKind::Hut) && (q.lon - p.lon).abs() < 0.004 && (q.lat - p.lat).abs() < 0.004
         });
@@ -730,6 +747,54 @@ pub fn apply_extra(d: &mut SectorData, x: Extra) {
     d.closures = x.closures;
     d.pistes = x.pistes;
     d.extra_ver = EXTRA_VER;
+}
+
+/// Przystanki: słupki obu kierunków, perony i przystanki tramwajowe o tej samej nazwie w promieniu
+/// ~250 m to dla mapy jeden punkt (w jego środku); łączy się też opis środków transportu.
+fn merge_stops(pois: Vec<Poi>) -> Vec<Poi> {
+    let mut out: Vec<Poi> = Vec::with_capacity(pois.len());
+    // (rodzaj, nazwa, kratka ~250 m) → indeks w `out`, liczba złączonych
+    let mut seen: HashMap<(bool, String, i64, i64), (usize, f64)> = HashMap::new();
+    for p in pois {
+        if !p.kind.is_transit() {
+            out.push(p);
+            continue;
+        }
+        let kx = p.lat.to_radians().cos().max(0.1);
+        let cell = ((p.lon * kx / 0.0035).round() as i64, (p.lat / 0.0035).round() as i64);
+        // ta sama nazwa w tej albo sąsiedniej kratce
+        let hit = (-1..=1)
+            .flat_map(|dx| (-1..=1).map(move |dy| (dx, dy)))
+            .find_map(|(dx, dy)| seen.get(&(p.kind == PoiKind::Station, p.name.clone(), cell.0 + dx, cell.1 + dy)).copied());
+        match hit {
+            Some((i, n)) => {
+                let q = &mut out[i];
+                q.lon = (q.lon * n + p.lon) / (n + 1.0);
+                q.lat = (q.lat * n + p.lat) / (n + 1.0);
+                for (k, v) in p.info {
+                    match q.info.iter_mut().find(|(qk, _)| *qk == k) {
+                        // autobus i tramwaj na jednym przystanku: „bus;tram”
+                        Some((_, qv)) if k == "transport" => {
+                            if !qv.split(';').any(|m| m == v) {
+                                qv.push(';');
+                                qv.push_str(&v);
+                            }
+                        }
+                        Some(_) => {}
+                        None => q.info.push((k, v)),
+                    }
+                }
+                for key in seen.values_mut().filter(|e| e.0 == i) {
+                    key.1 = n + 1.0;
+                }
+            }
+            None => {
+                seen.insert((p.kind == PoiKind::Station, p.name.clone(), cell.0, cell.1), (out.len(), 1.0));
+                out.push(p);
+            }
+        }
+    }
+    out
 }
 
 /// Sektor z samymi punktami – do czasu pobrania szlaków.
@@ -901,7 +966,9 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
             PoiKind::DrinkingWater
         } else if get("amenity") == "parking" {
             PoiKind::Parking
-        } else if get("highway") == "bus_stop" || get("public_transport") == "platform" {
+        } else if matches!(get("amenity"), "bus_station" | "ferry_terminal") {
+            PoiKind::Station
+        } else if get("highway") == "bus_stop" || get("railway") == "tram_stop" || get("public_transport") == "platform" {
             PoiKind::BusStop
         } else if get("aerialway") == "station" {
             PoiKind::Cableway
@@ -916,11 +983,7 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
         } else {
             continue;
         };
-        let name = if !get("name:pl").is_empty() {
-            get("name:pl")
-        } else {
-            get("name")
-        };
+        let name = local_name(&get);
         // punkty usługowe często bez nazwy – podpisujemy je rodzajem
         let unnamed_ok = matches!(kind, PoiKind::Hut | PoiKind::DrinkingWater | PoiKind::Parking | PoiKind::Shrine | PoiKind::Cableway | PoiKind::Webcam);
         // wiata z peronem nie jest przystankiem kolejowym
@@ -930,6 +993,24 @@ fn parse(id: SectorId, tj: &serde_json::Value, pj: &serde_json::Value) -> Sector
         }
         let name = if name.is_empty() && kind != PoiKind::Hut { kind.label() } else { name };
         let mut info: Vec<(String, String)> = Vec::new();
+        // środek transportu przy przystankach i stacjach (do opisu w szczegółach)
+        if kind.is_transit() {
+            let mode = if get("railway") == "tram_stop" || get("tram") == "yes" {
+                "tram"
+            } else if get("station") == "subway" || get("subway") == "yes" {
+                "subway"
+            } else if get("amenity") == "ferry_terminal" {
+                "ferry"
+            } else if kind == PoiKind::BusStop || get("amenity") == "bus_station" {
+                "bus"
+            } else {
+                "train"
+            };
+            info.push(("transport".to_string(), mode.to_string()));
+            if !get("network").is_empty() {
+                info.push(("network".to_string(), get("network").to_string()));
+            }
+        }
         for (k, keys) in [
             ("hours", &["opening_hours"][..]),
             ("phone", &["phone", "contact:phone"][..]),
@@ -1018,7 +1099,8 @@ pub fn geocode(q: &str) -> Result<Vec<Place>, String> {
         *l = Some(std::time::Instant::now());
     }
     let url = format!(
-        "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=pl&q={}",
+        "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language={}&q={}",
+        crate::i18n::current(),
         urlencode(q)
     );
     let body = agent()

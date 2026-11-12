@@ -270,7 +270,8 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
             // rzeczywiste lasy, kosodrzewina, piargi i wody z OSM zamiast przybliżenia z wysokości
             let below = 1.0 - smoothstep(forest_line - 60.0, forest_line + 60.0, e);
             let forest_c = mix(beech, spruce, forest_mix);
-            c = mix(c, mix(meadow_low, forest_c, land.g), below * 0.85);
+            // kanał G niesie też rodzaj drzew (0,7–1,0): każda z tych wartości to pełny las
+            c = mix(c, mix(meadow_low, forest_c, smoothstep(0.3, 0.62, land.g)), below * 0.85);
             let scrub = smoothstep(0.3, 0.5, land.b) * (1.0 - smoothstep(0.7, 0.9, land.b));
             c = mix(c, pine, scrub * 0.9);
             c = mix(c, rock, smoothstep(0.8, 1.0, land.b) * 0.9);
@@ -316,7 +317,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         let wood = srgb(vec3(0.80, 0.89, 0.70));
         var c = mix(wood, paper, smoothstep(g.biome.x - 60.0, g.biome.x + 60.0, h));
         if (has_land) {
-            c = mix(paper, wood, land.g);
+            c = mix(paper, wood, smoothstep(0.3, 0.62, land.g));
             if (land.r > 0.5 && slope < 0.15) {
                 water = 1.0;
             }

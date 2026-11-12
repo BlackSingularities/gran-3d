@@ -307,6 +307,98 @@ pub fn relative_stats(g: &Grid, cx: f64, cy: f64, ref_e: f32, r_px: f64) -> (f64
     (above as f64 / t, below as f64 / t)
 }
 
+/// Gatunek drzewa rysowanego w lesie (numer = rodzaj bryły w `trees.wgsl`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TreeSpecies {
+    Spruce = 0,
+    Beech = 1,
+    DwarfPine = 2,
+    Pine = 3,
+    Larch = 4,
+    Birch = 5,
+    Umbrella = 6,
+}
+
+impl TreeSpecies {
+    /// Typowa wysokość i promień korony (m).
+    pub fn size(self) -> (f32, f32) {
+        match self {
+            TreeSpecies::Spruce => (24.0, 3.5),
+            TreeSpecies::Beech => (20.0, 5.2),
+            TreeSpecies::DwarfPine => (2.2, 1.7),
+            TreeSpecies::Pine => (21.0, 3.8),
+            TreeSpecies::Larch => (23.0, 3.1),
+            TreeSpecies::Birch => (16.0, 2.9),
+            TreeSpecies::Umbrella => (14.0, 6.2),
+        }
+    }
+}
+
+/// Przybliżona górna granica lasu (m n.p.m.) na danej szerokości geograficznej: około 3900 m
+/// w strefie międzyzwrotnikowej, 2100 m w Alpach, 1900 m w Karpatach, kilkaset metrów w Skandynawii.
+pub fn treeline(lat: f64) -> f64 {
+    (3900.0 - 95.0 * (lat.abs() - 28.0).max(0.0)).clamp(250.0, 3900.0)
+}
+
+/// Gatunek drzewa w punkcie lasu. `forest` – rodzaj lasu z OSM, `scrub` – zarośla (kosodrzewina),
+/// `ele` – wysokość terenu, `lat` – szerokość geograficzna; `pick` i `roll` – losowania 0..1
+/// (pierwsze wspólne dla kępy drzew, drugie osobne dla drzewa).
+pub fn tree_species(forest: crate::landcover::Forest, scrub: bool, ele: f64, lat: f64, pick: f64, roll: f64) -> TreeSpecies {
+    use crate::landcover::Forest;
+    let line = treeline(lat);
+    if scrub || ele > line {
+        return TreeSpecies::DwarfPine;
+    }
+    // 0 – niziny, 1 – górna granica lasu
+    let zone = (ele / line).clamp(0.0, 1.0);
+    let tropics = lat.abs() < 23.5;
+    let boreal = lat.abs() > 57.0;
+    let needle = |p: f64| {
+        if zone > 0.72 {
+            // regiel górny: świerki, przy granicy lasu modrzewie
+            if p < 0.78 { TreeSpecies::Spruce } else { TreeSpecies::Larch }
+        } else if zone < 0.3 {
+            // niziny i pogórza: bory sosnowe
+            if p < 0.65 { TreeSpecies::Pine } else { TreeSpecies::Spruce }
+        } else if p < 0.72 {
+            TreeSpecies::Spruce
+        } else if p < 0.86 {
+            TreeSpecies::Pine
+        } else {
+            TreeSpecies::Larch
+        }
+    };
+    let birch_share = if boreal { 0.7 } else { 0.22 };
+    let broad = |p: f64| {
+        if tropics && zone < 0.6 {
+            if p < 0.55 { TreeSpecies::Umbrella } else { TreeSpecies::Beech }
+        } else if p < birch_share {
+            TreeSpecies::Birch
+        } else {
+            TreeSpecies::Beech
+        }
+    };
+    // udział drzew liściastych, gdy OSM nie podaje rodzaju: maleje z wysokością; w tropikach duży, w tajdze mały
+    let broad_share = if tropics {
+        0.9
+    } else if boreal {
+        0.25
+    } else {
+        (0.72 - zone * 1.05).clamp(0.04, 0.62)
+    };
+    match forest {
+        Forest::Needle => needle(pick),
+        Forest::Broad => broad(pick),
+        Forest::Mixed => {
+            if roll < 0.5 { needle(pick) } else { broad(pick) }
+        }
+        Forest::Unknown => {
+            if pick < broad_share { broad(roll) } else { needle(roll) }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

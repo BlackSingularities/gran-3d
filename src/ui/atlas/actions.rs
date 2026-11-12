@@ -72,10 +72,11 @@ pub enum Layer {
     Snow,
     Closures,
     Pistes,
+    Roads,
 }
 
 impl Layer {
-    pub const ALL: [Layer; 12] = [
+    pub const ALL: [Layer; 13] = [
         Layer::Trails,
         Layer::Labels,
         Layer::Contours,
@@ -88,6 +89,7 @@ impl Layer {
         Layer::Snow,
         Layer::Closures,
         Layer::Pistes,
+        Layer::Roads,
     ];
 
     pub fn flag(self, p: &mut Prefs) -> &mut bool {
@@ -104,6 +106,7 @@ impl Layer {
             Layer::Snow => &mut p.snow,
             Layer::Closures => &mut p.closures,
             Layer::Pistes => &mut p.pistes,
+            Layer::Roads => &mut p.roads,
         }
     }
 
@@ -121,6 +124,7 @@ impl Layer {
             Layer::Snow => p.snow,
             Layer::Closures => p.closures,
             Layer::Pistes => p.pistes,
+            Layer::Roads => p.roads,
         }
     }
 
@@ -140,6 +144,7 @@ impl Layer {
             Layer::Snow => (i::SNOWFLAKE, "Śnieg", None),
             Layer::Closures => (i::PROHIBIT, "Zamknięte szlaki", k(K::Z)),
             Layer::Pistes => (i::PERSON_SIMPLE_SKI, "Trasy narciarskie", k(K::J)),
+            Layer::Roads => (i::ROAD_HORIZON, "Drogi i ulice", None),
         }
     }
 }

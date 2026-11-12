@@ -26,7 +26,7 @@ pub(super) fn stat_glyph(k: &str) -> &'static str {
         "Mieszkańcy" => i::USERS,
         "Różnica wysokości" => i::ARROWS_VERTICAL,
         "Szerokość" | "Długość" => i::MAP_PIN,
-        "Trasy PTTK i inne" => i::SIGNPOST,
+        "Trasy PTTK i inne" | "Znakowane trasy" => i::SIGNPOST,
         "Punkty" | "Sektory" => i::STACK,
         _ => i::INFO,
     }

@@ -129,8 +129,22 @@ impl Atlas {
             if v.eye.y < min_y && self.panorama.is_none() {
                 let need = (min_y - v.target.y) / self.cam.distance.max(1.0);
                 if need > 0.0 {
-                    self.cam.pitch = self.cam.pitch.max(need.clamp(-1.0, 1.0).asin().to_degrees());
+                    // najwyżej 89°: przy 90° widok traci „górę” i mapa przewraca się do góry nogami
+                    self.cam.pitch = self.cam.pitch.max(need.clamp(-1.0, 1.0).asin().to_degrees()).min(89.0);
                 }
+                // gdy samo nachylenie nie wystarcza (oko nadal pod terenem), cały widok idzie w górę:
+                // przez „podłogę” nie da się przejść
+                let v = self.cam.view(self.frame, exag, size, ground_eye);
+                if v.eye.y < min_y {
+                    self.cam.height += (min_y - v.eye.y) / exag.max(0.01);
+                }
+            }
+            // nachylenie zawsze w dozwolonym zakresie, także po obrocie wokół chwyconego punktu i przelotach
+            if self.panorama.is_none() && self.cam.pitch.is_finite() {
+                self.cam.pitch = self.cam.pitch.clamp(0.5, 89.0);
+            }
+            if !self.cam.distance.is_finite() || self.cam.distance < self.min_dist() {
+                self.cam.distance = self.min_dist();
             }
         }
         let view = self.cam.view(self.frame, exag, size, ground_eye);
@@ -150,6 +164,7 @@ impl Atlas {
         self.maybe_shadows();
         self.maybe_landcover();
         self.maybe_trees(&view);
+        self.maybe_roads(ctx.pixels_per_point());
         if self.lens == Lens::Vis && self.lens_pin.is_none() {
             if let Some((lon, lat, _)) = self.hover {
                 let moved = self.live_vs.is_none_or(|(a, b)| haversine(a, b, lon, lat) > 60.0);
@@ -193,6 +208,9 @@ impl Atlas {
                     tl.extend(closure_lines(&self.snap, &self.frame, ppp, (day.m, day.d)));
                 }
                 r.set_static_lines(key, &tl);
+            }
+            if r.road_version() != self.roads_ver {
+                r.set_road_lines(self.roads_ver, &self.road_lines);
             }
             if r.trees_version() != self.trees_ver {
                 r.set_trees(self.trees_ver, &self.trees, self.trees_near);
