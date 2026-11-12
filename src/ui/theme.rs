@@ -93,12 +93,39 @@ pub fn apply(ctx: &egui::Context) {
         s.spacing.item_spacing = egui::vec2(8.0, 6.0);
         s.spacing.button_padding = egui::vec2(12.0, 7.0);
         s.spacing.slider_width = 170.0;
+        s.spacing.scroll = scroll_style();
         s.text_styles.insert(TextStyle::Heading, FontId::new(21.0, FontFamily::Proportional));
         s.text_styles.insert(TextStyle::Body, FontId::new(14.0, FontFamily::Proportional));
         s.text_styles.insert(TextStyle::Button, FontId::new(14.0, FontFamily::Proportional));
         s.text_styles.insert(TextStyle::Small, FontId::new(12.0, FontFamily::Proportional));
         s.text_styles.insert(TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace));
     });
+}
+
+/// Miejsce zajmowane przez pasek przewijania obok treści (treść nigdy nie leży pod paskiem).
+pub const SCROLL_GUTTER: f32 = 12.0;
+
+/// Pasek przewijania w całym programie: cienka, półprzezroczysta jasna kreska we własnym pasie
+/// obok treści; po najechaniu kursorem na listę wyraźniejsza, po najechaniu na pasek – szersza
+/// i z delikatnym torem.
+fn scroll_style() -> egui::style::ScrollStyle {
+    egui::style::ScrollStyle {
+        floating: true,
+        bar_width: 8.0,
+        floating_width: 4.0,
+        floating_allocated_width: SCROLL_GUTTER,
+        handle_min_length: 36.0,
+        bar_inner_margin: 2.0,
+        bar_outer_margin: 0.0,
+        foreground_color: true,
+        dormant_background_opacity: 0.0,
+        active_background_opacity: 0.0,
+        interact_background_opacity: 0.12,
+        dormant_handle_opacity: 0.22,
+        active_handle_opacity: 0.45,
+        interact_handle_opacity: 0.85,
+        ..egui::style::ScrollStyle::floating()
+    }
 }
 
 /// Wygląd kontrolek egui (zwykły albo wysoki kontrast).
@@ -156,6 +183,24 @@ fn visuals() -> Visuals {
     v
 }
 
+/// Logo programu (ikona aplikacji) jako tekstura; wczytywane raz i pamiętane w kontekście.
+pub fn logo(ctx: &egui::Context) -> egui::TextureHandle {
+    let id = egui::Id::new("logo-grani");
+    if let Some(t) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return t;
+    }
+    let img = match image::load_from_memory(include_bytes!("../../assets/icon.png")) {
+        Ok(i) => {
+            let rgba = i.to_rgba8();
+            egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw())
+        }
+        Err(_) => egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]),
+    };
+    let t = ctx.load_texture("logo-grani", img, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|d| d.insert_temp(id, t.clone()));
+    t
+}
+
 /// Mały nagłówek sekcji.
 pub fn kicker(text: &str) -> egui::RichText {
     egui::RichText::new(tr(text).to_string()).size(12.0).color(paper_3()).strong()
@@ -177,7 +222,7 @@ pub fn card(selected: bool) -> egui::Frame {
 }
 
 /// Szkło: lekko przezroczyste tło powierzchni nad mapą.
-pub const GLASS_FILL: Color32 = Color32::from_rgba_premultiplied(17, 19, 24, 170);
+pub const GLASS_FILL: Color32 = Color32::from_rgba_premultiplied(20, 23, 29, 208);
 /// Delikatna jasna obwódka szkła.
 pub const GLASS_EDGE: Color32 = Color32::from_rgba_premultiplied(30, 30, 30, 30);
 
@@ -193,6 +238,16 @@ pub fn glass() -> egui::Frame {
         .corner_radius(CornerRadius::same(18))
         .inner_margin(egui::Margin::same(6))
         .shadow(egui::Shadow { offset: [0, 6], blur: 24, spread: 0, color: Color32::from_black_alpha(90) })
+}
+
+/// Mała kontrolka unosząca się nad samą mapą (sterowanie kamerą, uchwyt panelu): przezroczyste szkło
+/// jak paski i panel boczny; obraz pod nią jest rozmyty (prostokąt z `panels::glass_float_area`).
+pub fn glass_float() -> egui::Frame {
+    egui::Frame::new()
+        .fill(glass_fill())
+        .stroke(Stroke::new(1.0_f32, glass_edge()))
+        .corner_radius(CornerRadius::same(14))
+        .inner_margin(egui::Margin::same(6))
 }
 
 /// Kafelek z ikoną i podpisem (warstwy, style, pory dnia).

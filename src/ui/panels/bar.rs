@@ -18,6 +18,14 @@ pub fn glass_area(a: &mut Atlas, ctx: &egui::Context, id: egui::Id, alpha: f32) 
     }
 }
 
+/// Rozmycie pod małą zaokrągloną kontrolką (`theme::glass_float`): prostokąt lekko zmniejszony,
+/// żeby rozmyty obraz nie wystawał poza zaokrąglone rogi.
+pub fn glass_float_area(a: &mut Atlas, ctx: &egui::Context, id: egui::Id, alpha: f32) {
+    if let Some(r) = ctx.memory(|m| m.area_rect(id)) {
+        a.glass.push((r.shrink(3.0), alpha));
+    }
+}
+
 /// Widoczność kontrolek na mapie (autoukrywanie): 1 – widoczne, 0 – schowane.
 pub fn controls_alpha(a: &Atlas, ctx: &egui::Context) -> f32 {
     if !a.prefs.autohide || a.search.is_some() || egui::Popup::is_any_open(ctx) {

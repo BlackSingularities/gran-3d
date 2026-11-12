@@ -50,7 +50,7 @@ pub(super) fn on_route(a: &mut Atlas, ui: &mut egui::Ui, r: &Route) {
     if hits.is_empty() {
         return;
     }
-    if !fold(ui, "po-drodze", theme::icon::MAP_PIN, &tf!("Po drodze ({})", hits.len()), true) {
+    if !fold(ui, "po-drodze-zw", theme::icon::MAP_PIN, &tf!("Po drodze ({})", hits.len()), false) {
         return;
     }
     let tr = &r.track;
@@ -460,7 +460,7 @@ pub fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
         slope_bar(ui, &r);
     }
     on_route(a, ui, &r);
-    if !r.route_refs.is_empty() && fold(ui, "szlaki-na-trasie", theme::icon::SIGNPOST, tr("Szlaki na trasie"), true) {
+    if !r.route_refs.is_empty() && fold(ui, "szlaki-na-trasie-zw", theme::icon::SIGNPOST, tr("Szlaki na trasie"), false) {
         for &ri in r.route_refs.iter().take(10) {
             if let Some(info) = a.snap.graph.routes.get(ri as usize) {
                 ui.horizontal(|ui| {
@@ -521,11 +521,18 @@ fn access_section(a: &mut Atlas, ui: &mut egui::Ui) {
             }
         });
     }
-    ui.horizontal_wrapped(|ui| {
-        if ui.button(theme::ic(theme::icon::TRAIN, "Rozkład jazdy")).on_hover_text(crate::i18n::tr("Połączenia komunikacją publiczną do początku trasy (Google Maps)")).clicked() {
+    // dwa równe przyciski na całą szerokość panelu (napisy na środku)
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let w = ((ui.available_width() - 6.0) / 2.0).floor();
+        if ui
+            .add_sized([w, 34.0], egui::Button::new(theme::ic(theme::icon::TRAIN, "Rozkład jazdy")))
+            .on_hover_text(crate::i18n::tr("Połączenia komunikacją publiczną do początku trasy (Google Maps)"))
+            .clicked()
+        {
             crate::transit::open_planner(start.lon, start.lat);
         }
-        if ui.button(theme::ic(theme::icon::CAR, "Dojazd autem")).clicked() {
+        if ui.add_sized([w, 34.0], egui::Button::new(theme::ic(theme::icon::CAR, "Dojazd autem"))).clicked() {
             let _ = open::that(crate::transit::drive_url(start.lon, start.lat));
         }
     });
@@ -767,23 +774,40 @@ pub(super) fn compare_section(a: &mut Atlas, ui: &mut egui::Ui) {
         ("Maks. nachylenie", s.max_slope, o.max_slope, |v| format!("{}°", v.round()), true),
         ("Punkty GOT", s.got, o.got, |v| fmt::int(v), false),
     ];
-    egui::Grid::new("porownanie-tabela").num_columns(4).spacing([14.0, 4.0]).show(ui, |ui| {
-        ui.label("");
-        ui.label(RichText::new(tr("ta trasa")).small().color(theme::paper_3()));
-        ui.label(RichText::new(tr("porównywana")).small().color(crate::ui::profile::COMPARE));
-        ui.label(RichText::new(tr("różnica")).small().color(theme::paper_3()));
-        ui.end_row();
-        for (k, a1, b1, f, lower_better) in rows {
-            ui.label(RichText::new(tr(k)).color(theme::paper_2()));
-            ui.label(RichText::new(f(a1)).monospace());
-            ui.label(RichText::new(f(b1)).monospace());
-            let d = b1 - a1;
-            let tiny = d.abs() < a1.abs().max(1.0) * 0.01;
-            let color = if tiny { theme::paper_3() } else if (d < 0.0) == lower_better { theme::OK } else { theme::WARN };
-            let sign = if d > 0.0 { "+" } else if d < 0.0 { "−" } else { "" };
-            ui.label(RichText::new(if tiny { "≈".to_string() } else { format!("{sign}{}", f(d.abs())) }).monospace().color(color));
-            ui.end_row();
+    // tabela na całą szerokość panelu, rysowana ręcznie: stałe kolumny, nic się nie ucina
+    const ROW_H: f32 = 26.0;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW_H * (rows.len() as f32 + 1.0)), egui::Sense::hover());
+    let p = ui.painter().with_clip_rect(rect);
+    p.rect_filled(rect, 12.0, CARD_FILL);
+    p.rect_stroke(rect, 12.0, egui::Stroke::new(1.0, CARD_EDGE), egui::StrokeKind::Inside);
+    let inner = rect.shrink2(egui::vec2(12.0, 0.0));
+    // kolumny: nazwa, ta trasa, porównywana, różnica
+    let col = |k: usize| inner.left() + inner.width() * [0.0, 0.34, 0.56, 0.78][k];
+    // napis w komórce; gdy za szeroki – mniejszym pismem
+    let cell = |k: usize, y: f32, text: String, size: f32, color: Color32| {
+        let room = if k == 3 { inner.right() - col(3) } else { col(k + 1) - col(k) - 6.0 };
+        let mut g = p.layout_no_wrap(text.clone(), egui::FontId::proportional(size), color);
+        if g.size().x > room {
+            g = p.layout_no_wrap(text, egui::FontId::proportional(size - 2.5), color);
         }
-    });
+        p.galley(egui::pos2(col(k), y - g.size().y / 2.0), g, color);
+    };
+    let y0 = rect.top() + ROW_H / 2.0;
+    cell(1, y0, tr("ta trasa").to_string(), 11.5, theme::paper_3());
+    cell(2, y0, tr("porównywana").to_string(), 11.5, crate::ui::profile::COMPARE);
+    cell(3, y0, tr("różnica").to_string(), 11.5, theme::paper_3());
+    for (i, (k, a1, b1, f, lower_better)) in rows.into_iter().enumerate() {
+        let top = rect.top() + ROW_H * (i as f32 + 1.0);
+        p.line_segment([egui::pos2(inner.left(), top), egui::pos2(inner.right(), top)], egui::Stroke::new(1.0, CARD_EDGE));
+        let y = top + ROW_H / 2.0;
+        cell(0, y, tr(k).to_string(), 13.0, theme::paper_2());
+        cell(1, y, f(a1), 13.5, theme::PAPER);
+        cell(2, y, f(b1), 13.5, theme::PAPER);
+        let d = b1 - a1;
+        let tiny = d.abs() < a1.abs().max(1.0) * 0.01;
+        let color = if tiny { theme::paper_3() } else if (d < 0.0) == lower_better { theme::OK } else { theme::WARN };
+        let sign = if d > 0.0 { "+" } else if d < 0.0 { "−" } else { "" };
+        cell(3, y, if tiny { "≈".to_string() } else { format!("{sign}{}", f(d.abs())) }, 13.5, color);
+    }
     theme::para(ui, "Zielona różnica: porównywana trasa jest pod tym względem łatwiejsza lub krótsza.");
 }

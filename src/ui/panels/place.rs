@@ -227,24 +227,32 @@ pub(super) fn coords_section(a: &mut Atlas, ui: &mut egui::Ui, lon: f64, lat: f6
     use crate::coords::CoordFormat;
     section(ui, theme::icon::MAP_PIN, crate::i18n::tr("Współrzędne"));
     let mut copied = false;
-    egui::Grid::new(("wspolrzedne", (lon * 1e6) as i64, (lat * 1e6) as i64)).num_columns(3).spacing([10.0, 4.0]).show(ui, |ui| {
-        for (f, label) in [(CoordFormat::Dms, "°′″"), (CoordFormat::Decimal, "°"), (CoordFormat::Utm, "UTM"), (CoordFormat::Mgrs, "MGRS")] {
-            let txt = crate::coords::format_as(f, lon, lat);
-            let mut rt = RichText::new(&txt).monospace();
-            if f == crate::coords::format() {
-                rt = rt.color(theme::PAPER);
-            } else {
-                rt = rt.color(theme::paper_2());
-            }
-            ui.label(RichText::new(label).small().color(theme::paper_3()));
-            ui.label(rt);
-            if ui.small_button(theme::icon::COPY).on_hover_text(crate::i18n::tr("Kopiuj")).clicked() {
-                ui.ctx().copy_text(txt);
-                copied = true;
-            }
-            ui.end_row();
+    // wiersz na całą szerokość panelu: zapis, pełna wartość (bez ucinania), po prawej kopiowanie;
+    // klik w dowolne miejsce wiersza też kopiuje
+    for (f, label) in [(CoordFormat::Dms, "°′″"), (CoordFormat::Decimal, "°"), (CoordFormat::Utm, "UTM"), (CoordFormat::Mgrs, "MGRS")] {
+        let txt = crate::coords::format_as(f, lon, lat);
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 28.0), egui::Sense::click());
+        theme::focus_ring(ui, &resp, rect, 8.0);
+        let p = ui.painter().with_clip_rect(rect);
+        if resp.hovered() {
+            p.rect_filled(rect, 8.0, Color32::from_white_alpha(14));
         }
-    });
+        let y = rect.center().y;
+        p.text(egui::pos2(rect.left() + 8.0, y), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(11.5), theme::paper_3());
+        let color = if f == crate::coords::format() { theme::PAPER } else { theme::paper_2() };
+        // wartość mieści się w wierszu: przy długim zapisie mniejsze pismo
+        let room = rect.width() - 56.0 - 34.0;
+        let mut g = p.layout_no_wrap(txt.clone(), egui::FontId::monospace(13.5), color);
+        if g.size().x > room {
+            g = p.layout_no_wrap(txt.clone(), egui::FontId::monospace(11.5), color);
+        }
+        p.galley(egui::pos2(rect.left() + 56.0, y - g.size().y / 2.0), g, color);
+        p.text(egui::pos2(rect.right() - 10.0, y), egui::Align2::RIGHT_CENTER, theme::icon::COPY, egui::FontId::proportional(15.0), if resp.hovered() { theme::BRASS } else { theme::paper_3() });
+        if resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(crate::i18n::tr("Kopiuj")).clicked() {
+            ui.ctx().copy_text(txt);
+            copied = true;
+        }
+    }
     if copied {
         a.notify(crate::i18n::tr("Skopiowano współrzędne."));
     }
