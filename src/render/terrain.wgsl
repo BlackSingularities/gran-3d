@@ -482,7 +482,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     }
 
     // siatka UTM: linie co 100 m (z bliska), 1 km i 10 km (pogrubione), zgodne z mapami topograficznymi
-    // Linie są proste: siatka leży na poziomej płaszczyźnie na wysokości środka widoku i jest rzutowana
+    // Linie są proste: siatka leży na poziomej płaszczyźnie na dnie terenu w okolicy i jest rzutowana
     // promieniem z oka (nie układa się na stokach, więc nie faluje z rzeźbą i pokazuje kierunek).
     // W widoku z ziemi (spacer) płaszczyzna byłaby tuż pod okiem – tam siatka zostaje na terenie.
     if (g.style.w > 0.5) {
