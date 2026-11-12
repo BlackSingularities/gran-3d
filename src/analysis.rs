@@ -326,7 +326,8 @@ impl TreeSpecies {
         match self {
             TreeSpecies::Spruce => (24.0, 3.5),
             TreeSpecies::Beech => (20.0, 5.2),
-            TreeSpecies::DwarfPine => (2.2, 1.7),
+            // płat zarośli, nie pojedynczy krzaczek: szeroki, żeby sąsiednie zlewały się w kępy
+            TreeSpecies::DwarfPine => (2.6, 5.5),
             TreeSpecies::Pine => (21.0, 3.8),
             TreeSpecies::Larch => (23.0, 3.1),
             TreeSpecies::Birch => (16.0, 2.9),
