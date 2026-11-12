@@ -119,6 +119,8 @@ impl Atlas {
                     PoiKind::Place => (poi.poi.name.clone(), Color32::from_rgb(230, 222, 200), if poi.poi.place == "city" || poi.poi.place == "town" { 13.5 } else { 11.5 }),
                     PoiKind::Hut | PoiKind::Shelter => (poi.poi.name.clone(), Color32::from_rgb(255, 214, 150), 11.5),
                     PoiKind::Lake => (poi.poi.name.clone(), Color32::from_rgb(150, 205, 240), 11.0),
+                    PoiKind::Station => (poi.poi.name.clone(), Color32::from_rgb(176, 206, 255), 11.5),
+                    PoiKind::BusStop => (poi.poi.name.clone(), Color32::from_rgb(176, 206, 255), 10.5),
                     _ => (poi.poi.name.clone(), theme::paper_2(), 11.0),
                 };
                 let (color, size) = if is_sel { (theme::BRASS, size + 1.5) } else { (color, size) };
@@ -147,6 +149,7 @@ impl Atlas {
                     PoiKind::Locality => Color32::from_rgb(150, 205, 110),
                     PoiKind::Valley | PoiKind::Ridge => Color32::from_rgb(170, 180, 150),
                     PoiKind::Place => Color32::from_rgb(200, 190, 170),
+                    PoiKind::Station | PoiKind::BusStop => Color32::from_rgb(110, 160, 255),
                     _ => theme::paper_2(),
                 };
                 p.line_segment([sp, sp + Vec2::new(5.0, -5.0)], Stroke::new(1.0, Color32::from_black_alpha(160)));
@@ -399,6 +402,9 @@ impl Atlas {
         }
         if self.world.land_busy() {
             chips.push(crate::i18n::tr("pobieranie pokrycia terenu (OSM)…").into());
+        }
+        if self.world.roads_busy() {
+            chips.push(crate::i18n::tr("pobieranie dróg i ulic…").into());
         }
         if self.land_busy {
             chips.push(crate::i18n::tr("wypiekanie pokrycia terenu i poziomów wody…").into());

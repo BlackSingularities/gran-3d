@@ -163,6 +163,48 @@ impl Atlas {
         });
     }
 
+    /// Drogi, ulice i tory wokół celu kamery jako linie na terenie – składane w tle, bo w mieście to
+    /// setki tysięcy punktów. Z daleka zostają tylko drogi główne, z bliska dochodzą ulice i dojazdy.
+    pub(super) fn maybe_roads(&mut self, ppp: f32) {
+        self.world.set_roads(self.prefs.roads);
+        if !self.prefs.roads {
+            if !self.road_lines.is_empty() || self.roads_key.is_some() {
+                self.road_lines.clear();
+                self.roads_key = None;
+                self.roads_ver += 1;
+            }
+            return;
+        }
+        if self.roads_job {
+            return;
+        }
+        let d = if self.panorama.is_some() { 600.0 } else { self.cam.distance };
+        let radius = (d * 2.4).clamp(3500.0, 60_000.0);
+        let (tx, tz) = self.frame.to_local(self.cam.lon, self.cam.lat);
+        let cell = radius / 4.0;
+        let paper = self.prefs.style == Style::Map;
+        let key: RoadsKey = (
+            (tx / cell).round() as i64,
+            (tz / cell).round() as i64,
+            (d.max(1.0).log2() * 2.0).round() as i64,
+            self.world.roads_version(),
+            self.frame_version,
+            paper,
+            ppp.to_bits(),
+        );
+        if self.roads_key == Some(key) {
+            return;
+        }
+        self.roads_key = Some(key);
+        self.roads_job = true;
+        let (tx_job, heights, frame, sectors) = (self.tx.clone(), self.heights.clone(), self.frame, self.world.roads());
+        let (clon, clat) = (self.cam.lon, self.cam.lat);
+        thread::spawn(move || {
+            let lines = road_lines(&sectors, &heights, &frame, (clon, clat), d, radius, paper, ppp);
+            let _ = tx_job.send(JobResult::Roads(key, lines));
+        });
+    }
+
     /// Czy rysować drzewa: pokrycie terenu włączone, styl realistyczny, kamera dość blisko.
     pub(super) fn trees_on(&self) -> bool {
         self.prefs.landcover
@@ -242,14 +284,13 @@ impl Atlas {
                     let Some(e) = heights.sample_cached(lon, lat) else { continue };
                     let seed = hash(gx, gz, 4) as f32;
                     let size = 0.75 + 0.5 * hash(gx, gz, 5) as f32;
-                    // rodzaj: kosodrzewina na zaroślach i wysoko, niżej mieszany las, wyżej świerki
-                    let (kind, h, r) = if scrub || e > 1550.0 {
-                        (2.0, 2.2 * size, 1.6 * size)
-                    } else if e < 900.0 && seed < 0.55 || e < 1200.0 && seed < 0.25 {
-                        (1.0, 20.0 * size, 5.0 * size)
-                    } else {
-                        (0.0, 24.0 * size, 3.6 * size)
-                    };
+                    // gatunek: rodzaj lasu z OSM, a w nim dobór według wysokości i szerokości geograficznej;
+                    // drzewa jednego gatunku rosną kępami (losowanie w dużej mierze wspólne dla ~120 m)
+                    let patch = hash(gx.div_euclid(8), gz.div_euclid(8), 6);
+                    let pick = 0.65 * patch + 0.35 * hash(gx, gz, 7);
+                    let species = crate::analysis::tree_species(crate::landcover::forest_kind(data[i + 1]), scrub, e as f64, lat, pick, hash(gx, gz, 8));
+                    let (h, r) = species.size();
+                    let (kind, h, r) = (species as u8 as f32, h * size, r * size);
                     // na skraju promienia drzewa maleją – bez ostrej granicy
                     let edge = 1.0 - ((d_c / radius - 0.85) / 0.15).clamp(0.0, 1.0) as f32;
                     if edge <= 0.02 {
@@ -344,6 +385,13 @@ impl Atlas {
                         }
                     }
                 }
+                JobResult::Roads(key, lines) => {
+                    self.roads_job = false;
+                    if self.roads_key == Some(key) {
+                        self.road_lines = lines;
+                        self.roads_ver += 1;
+                    }
+                }
                 JobResult::Trees(key, t, near) => {
                     self.trees_busy = false;
                     if self.trees_key == Some(key) {
@@ -402,4 +450,112 @@ impl Atlas {
     }
 
     // ------------------------------------------------------------------ wejście
+}
+
+/// Wygląd drogi danego rodzaju: barwa, krycie, szerokość (px) i czy ma ciemną obwódkę.
+fn road_style(class: crate::roads::Class, paper: bool) -> ([u8; 3], f32, f32, bool) {
+    use crate::roads::Class as C;
+    match class {
+        C::Motorway => ([232, 146, 70], 1.0, 4.0, true),
+        C::Trunk => ([240, 170, 90], 1.0, 3.6, true),
+        C::Primary => ([250, 214, 120], 1.0, 3.2, true),
+        C::Secondary => ([252, 240, 170], 1.0, 2.6, true),
+        C::Tertiary => ([255, 255, 255], 1.0, 2.2, true),
+        // na papierowej mapie białe ulice potrzebują obwódki; na zdjęciu wystarczy jasna kreska
+        C::Street => ([255, 255, 255], if paper { 1.0 } else { 0.85 }, 1.6, paper),
+        C::Service => (if paper { [150, 150, 150] } else { [225, 225, 225] }, 0.75, 1.0, false),
+        C::Track => (if paper { [150, 115, 70] } else { [200, 165, 115] }, 0.85, 1.1, false),
+        C::Rail => ([70, 70, 78], 1.0, 1.8, false),
+        C::Tram => ([170, 100, 190], 0.95, 1.3, false),
+    }
+}
+
+/// Z jakiego oddalenia kamery (m) widać drogi danego rodzaju.
+fn road_range(class: crate::roads::Class) -> f64 {
+    use crate::roads::Class as C;
+    match class {
+        C::Motorway | C::Trunk | C::Primary | C::Rail => 400_000.0,
+        C::Secondary => 90_000.0,
+        C::Tertiary => 45_000.0,
+        C::Street | C::Tram => 16_000.0,
+        C::Service | C::Track => 7_000.0,
+    }
+}
+
+/// Linie dróg w promieniu `radius` od (`clon`, `clat`) przy oddaleniu kamery `d`: najpierw obwódki,
+/// potem wypełnienia od najmniej do najbardziej ważnych, więc drogi główne leżą na wierzchu.
+#[allow(clippy::too_many_arguments)]
+fn road_lines(
+    sectors: &[Arc<Vec<crate::roads::Road>>],
+    heights: &Heights,
+    frame: &Frame,
+    (clon, clat): (f64, f64),
+    d: f64,
+    radius: f64,
+    paper: bool,
+    ppp: f32,
+) -> Vec<LineInst> {
+    use crate::roads::Class;
+    /// Najwięcej odcinków naraz (obwódki liczone osobno).
+    const MAX: usize = 260_000;
+    let kx = 111_320.0 * clat.to_radians().cos().max(0.05);
+    let (dlon, dlat) = (radius / kx, radius / 110_574.0);
+    // punkty gęstsze niż ułamek piksela nic nie wnoszą
+    let min_step = (d / 600.0).clamp(3.0, 400.0);
+    let scale = ppp.max(1.0);
+    let mut casings: Vec<LineInst> = Vec::new();
+    let mut fills: Vec<Vec<LineInst>> = vec![Vec::new(); Class::COUNT];
+    let mut total = 0usize;
+    'all: for roads in sectors {
+        for r in roads.iter() {
+            if d > road_range(r.class) {
+                continue;
+            }
+            if r.bbox[2] < clon - dlon || r.bbox[0] > clon + dlon || r.bbox[3] < clat - dlat || r.bbox[1] > clat + dlat {
+                continue;
+            }
+            let (rgb, alpha, width, casing) = road_style(r.class, paper);
+            let color = lin(rgb, alpha);
+            let (w, wc) = (width * scale, (width + 2.2) * scale);
+            // kolejne punkty na terenie; przerwa w wysokościach albo wyjście poza promień kończy odcinek
+            let mut prev: Option<[f32; 3]> = None;
+            let mut last = (f64::MAX, f64::MAX);
+            let n = r.line.len();
+            for (i, &(lon, lat)) in r.line.iter().enumerate() {
+                let (ex, ez) = ((lon - clon) * kx, (lat - clat) * 110_574.0);
+                if ex.hypot(ez) > radius {
+                    prev = None;
+                    continue;
+                }
+                // przerzedzanie: środkowe punkty bliższe niż `min_step` od poprzedniego rysowanego
+                if prev.is_some() && i + 1 < n && ((lon - last.0) * kx).hypot((lat - last.1) * 110_574.0) < min_step {
+                    continue;
+                }
+                let Some(e) = heights.sample_cached(lon, lat) else {
+                    prev = None;
+                    continue;
+                };
+                let (x, z) = frame.to_local(lon, lat);
+                let p = [x as f32, e + 0.7, z as f32];
+                if let Some(q) = prev {
+                    if casing {
+                        casings.push(LineInst { p0: q, p1: p, color: [0.02, 0.02, 0.025, 0.9], wo: [wc, 0.0] });
+                    }
+                    fills[r.class as usize].push(LineInst { p0: q, p1: p, color, wo: [w, 0.0] });
+                    total += 1;
+                }
+                prev = Some(p);
+                last = (lon, lat);
+            }
+            if total >= MAX {
+                break 'all;
+            }
+        }
+    }
+    let mut out = casings;
+    // dojazdy i drogi gruntowe pod spodem, autostrady wyżej, tory i tramwaje na samym wierzchu
+    for c in [Class::Track, Class::Service, Class::Street, Class::Tertiary, Class::Secondary, Class::Primary, Class::Trunk, Class::Motorway, Class::Rail, Class::Tram] {
+        out.append(&mut fills[c as usize]);
+    }
+    out
 }

@@ -15,4 +15,5 @@
 - Struktura: `render/` (kamera, kafle, shadery WGSL), `ui/atlas/` (widok 3D podzielony na moduły: `view`, `input`, `nav`, `route`, `jobs`, `scene`, `overlays`…), `ui/panels/` (pasek, panel boczny, szczegóły, trasa, ustawienia mapy, okna),
   - **Narzędzia mapy** implementują trait `MapTool` (`ui/atlas/tools.rs`): nowe narzędzie = wariant `Tool` + `impl MapTool` + wpis w `Tool::behavior`/`Tool::ALL`.
   - **Polecenia** (skróty, paleta Ctrl+K, okno pomocy) są w jednym rejestrze `Action` (`ui/atlas/actions.rs`) – nowe polecenie dopisuj tam, nie do obsługi klawiatury.
+  - **Cały świat, nie tylko góry**: drogi, ulice i tory (`roads.rs`, kafle wektorowe OpenFreeMap, `<dane>\roads\`), przystanki i stacje (jedna warstwa nazw „Przystanki i stacje”), nazwy w języku programu (`osm::local_name`).
   - `graph.rs` (trasy), `osm.rs` + `world.rs` (sektory OSM), `heights.rs`, `analysis.rs`, `store.rs` + `pack.rs` (dane na dysku).

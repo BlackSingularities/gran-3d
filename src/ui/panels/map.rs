@@ -48,6 +48,7 @@ pub(super) fn layers_tab(a: &mut Atlas, ui: &mut egui::Ui) {
     ui.label(theme::kicker(crate::i18n::tr("Linie")));
     grid(ui, vec![
         (theme::icon::PATH, crate::i18n::tr("Szlaki (T)"), &mut p.trails, None),
+        (theme::icon::ROAD_HORIZON, crate::i18n::tr("Drogi i ulice"), &mut p.roads, None),
         (theme::icon::WAVE_SINE, crate::i18n::tr("Poziomice (C)"), &mut p.contours, None),
         (theme::icon::GRID_FOUR, crate::i18n::tr("Siatka UTM"), &mut p.km_grid, None),
         (theme::icon::LINK, crate::i18n::tr("Łańcuchy i klamry"), &mut p.chains, None),
@@ -81,7 +82,7 @@ pub fn names_section(a: &mut Atlas, ui: &mut egui::Ui, cols: usize) {
     });
     theme::switch(ui, &mut p.names.elevation, "Wysokość przy szczytach i przełęczach");
     ui.add(egui::Slider::new(&mut p.label_density, 0.3..=2.0).text(crate::i18n::tr("gęstość nazw")));
-    theme::para(ui, "Nazwy pokazują się tylko dla miejsc, które widać – te za graniami są ukryte. Granie, doliny, hale i źródła doczytują się razem ze szlakami okolicy.");
+    theme::para(ui, "Nazwy pokazują się tylko dla miejsc, które widać – te za graniami są ukryte. Przystanki, stacje, parkingi, granie, doliny i źródła doczytują się razem ze szlakami okolicy; przystanki widać z bliska (do kilku kilometrów).");
 }
 
 /// Strona „Mapa” w ustawieniach.

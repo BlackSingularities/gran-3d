@@ -121,64 +121,155 @@ fn value(b: &[u8]) -> Option<Value> {
     })
 }
 
-/// Punkty z wybranych warstw. Punkty leżące w zapasie poza kaflem są pomijane: należą do sąsiada.
-pub fn points(tile: &[u8], wanted: &[&str]) -> Vec<Point> {
+/// Linia kafla: warstwa, atrybuty i części (łamane) w układzie kafla – 0..1, z zapasem poza krawędzią.
+#[derive(Clone, Debug)]
+pub struct Line {
+    pub layer: String,
+    pub tags: HashMap<String, Value>,
+    pub parts: Vec<Vec<(f64, f64)>>,
+}
+
+impl Line {
+    pub fn text(&self, key: &str) -> Option<&str> {
+        match self.tags.get(key) {
+            Some(Value::Text(s)) => Some(s),
+            _ => None,
+        }
+    }
+}
+
+/// Warstwa kafla rozłożona na części: nazwa, rozdzielczość, słowniki atrybutów i surowe obiekty.
+struct RawLayer<'a> {
+    name: String,
+    extent: f64,
+    keys: Vec<String>,
+    values: Vec<Option<Value>>,
+    features: Vec<&'a [u8]>,
+}
+
+fn raw_layer(b: &[u8]) -> RawLayer<'_> {
+    let mut l = RawLayer { name: String::new(), extent: 4096.0, keys: Vec::new(), values: Vec::new(), features: Vec::new() };
+    let mut r = Reader::new(b);
+    while let Some((tag, f)) = r.field() {
+        match (tag, f) {
+            (1, Field::Bytes(s)) => l.name = String::from_utf8_lossy(s).into_owned(),
+            (2, Field::Bytes(s)) => l.features.push(s),
+            (3, Field::Bytes(s)) => l.keys.push(String::from_utf8_lossy(s).into_owned()),
+            (4, Field::Bytes(s)) => l.values.push(value(s)),
+            (5, Field::Varint(v)) => l.extent = (v as f64).max(1.0),
+            _ => {}
+        }
+    }
+    l
+}
+
+/// Obiekt warstwy: indeksy atrybutów, rodzaj geometrii (1 punkt, 2 linia, 3 wielokąt) i polecenia geometrii.
+fn raw_feature(feature: &[u8]) -> (Vec<u64>, u64, Vec<u64>) {
+    let (mut tags, mut kind, mut geometry) = (Vec::new(), 0, Vec::new());
+    let mut r = Reader::new(feature);
+    while let Some((tag, f)) = r.field() {
+        match (tag, f) {
+            (2, Field::Bytes(s)) => tags = varints(s),
+            (3, Field::Varint(v)) => kind = v,
+            (4, Field::Bytes(s)) => geometry = varints(s),
+            _ => {}
+        }
+    }
+    (tags, kind, geometry)
+}
+
+fn tag_map(l: &RawLayer<'_>, tags: &[u64]) -> HashMap<String, Value> {
+    let mut map = HashMap::new();
+    for kv in tags.chunks_exact(2) {
+        if let (Some(k), Some(Some(v))) = (l.keys.get(kv[0] as usize), l.values.get(kv[1] as usize)) {
+            map.insert(k.clone(), v.clone());
+        }
+    }
+    map
+}
+
+const POINT: u64 = 1;
+const LINE: u64 = 2;
+const MOVE_TO: u64 = 1;
+const LINE_TO: u64 = 2;
+
+/// Warstwy kafla (pole 3 wiadomości).
+fn layers(tile: &[u8]) -> Vec<RawLayer<'_>> {
     const LAYER: u64 = 3;
     let mut out = Vec::new();
     let mut r = Reader::new(tile);
     while let Some((tag, f)) = r.field() {
         if let (LAYER, Field::Bytes(layer)) = (tag, f) {
-            read_layer(layer, wanted, &mut out);
+            out.push(raw_layer(layer));
         }
     }
     out
 }
 
-fn read_layer(b: &[u8], wanted: &[&str], out: &mut Vec<Point>) {
-    let (mut name, mut extent) = (String::new(), 4096.0);
-    let (mut keys, mut values, mut features) = (Vec::new(), Vec::new(), Vec::new());
-    let mut r = Reader::new(b);
-    while let Some((tag, f)) = r.field() {
-        match (tag, f) {
-            (1, Field::Bytes(s)) => name = String::from_utf8_lossy(s).into_owned(),
-            (2, Field::Bytes(s)) => features.push(s),
-            (3, Field::Bytes(s)) => keys.push(String::from_utf8_lossy(s).into_owned()),
-            (4, Field::Bytes(s)) => values.push(value(s)),
-            (5, Field::Varint(v)) => extent = v as f64,
-            _ => {}
+/// Punkty z wybranych warstw. Punkty leżące w zapasie poza kaflem są pomijane: należą do sąsiada.
+pub fn points(tile: &[u8], wanted: &[&str]) -> Vec<Point> {
+    let mut out = Vec::new();
+    for l in layers(tile).iter().filter(|l| wanted.contains(&l.name.as_str())) {
+        for feature in &l.features {
+            let (tags, kind, geometry) = raw_feature(feature);
+            if kind != POINT || geometry.len() < 3 || geometry[0] & 7 != MOVE_TO {
+                continue;
+            }
+            let (x, y) = (zigzag(geometry[1]) as f64 / l.extent, zigzag(geometry[2]) as f64 / l.extent);
+            if !(0.0..1.0).contains(&x) || !(0.0..1.0).contains(&y) {
+                continue;
+            }
+            out.push(Point { layer: l.name.clone(), x, y, tags: tag_map(l, &tags) });
         }
     }
-    if !wanted.contains(&name.as_str()) {
-        return;
-    }
-    for feature in features {
-        let (mut tags, mut kind, mut geometry) = (Vec::new(), 0, Vec::new());
-        let mut r = Reader::new(feature);
-        while let Some((tag, f)) = r.field() {
-            match (tag, f) {
-                (2, Field::Bytes(s)) => tags = varints(s),
-                (3, Field::Varint(v)) => kind = v,
-                (4, Field::Bytes(s)) => geometry = varints(s),
-                _ => {}
+    out
+}
+
+/// Linie z wybranych warstw (drogi, tory). Współrzędne mogą wychodzić w zapas poza kafel.
+pub fn lines(tile: &[u8], wanted: &[&str]) -> Vec<Line> {
+    let mut out = Vec::new();
+    for l in layers(tile).iter().filter(|l| wanted.contains(&l.name.as_str())) {
+        for feature in &l.features {
+            let (tags, kind, geometry) = raw_feature(feature);
+            if kind != LINE {
+                continue;
+            }
+            // polecenia: (rodzaj | liczba << 3), potem pary przesunięć zapisane zygzakiem
+            let mut parts: Vec<Vec<(f64, f64)>> = Vec::new();
+            let (mut x, mut y) = (0i64, 0i64);
+            let mut i = 0;
+            while i < geometry.len() {
+                let (cmd, count) = (geometry[i] & 7, (geometry[i] >> 3) as usize);
+                i += 1;
+                if cmd != MOVE_TO && cmd != LINE_TO {
+                    // zamknięcie ścieżki nie ma parametrów; nieznane polecenie kończy obiekt
+                    if cmd == 7 {
+                        continue;
+                    }
+                    break;
+                }
+                if count > geometry.len() || i + count * 2 > geometry.len() {
+                    break;
+                }
+                for _ in 0..count {
+                    x += zigzag(geometry[i]);
+                    y += zigzag(geometry[i + 1]);
+                    i += 2;
+                    let p = (x as f64 / l.extent, y as f64 / l.extent);
+                    if cmd == MOVE_TO {
+                        parts.push(vec![p]);
+                    } else if let Some(last) = parts.last_mut() {
+                        last.push(p);
+                    }
+                }
+            }
+            parts.retain(|p| p.len() >= 2);
+            if !parts.is_empty() {
+                out.push(Line { layer: l.name.clone(), tags: tag_map(l, &tags), parts });
             }
         }
-        const POINT: u64 = 1;
-        const MOVE_TO: u64 = 1;
-        if kind != POINT || geometry.len() < 3 || geometry[0] & 7 != MOVE_TO {
-            continue;
-        }
-        let (x, y) = (zigzag(geometry[1]) as f64 / extent, zigzag(geometry[2]) as f64 / extent);
-        if !(0.0..1.0).contains(&x) || !(0.0..1.0).contains(&y) {
-            continue;
-        }
-        let mut map = HashMap::new();
-        for kv in tags.chunks_exact(2) {
-            if let (Some(k), Some(Some(v))) = (keys.get(kv[0] as usize), values.get(kv[1] as usize)) {
-                map.insert(k.clone(), v.clone());
-            }
-        }
-        out.push(Point { layer: name.clone(), x, y, tags: map });
     }
+    out
 }
 
 #[cfg(test)]
@@ -241,6 +332,32 @@ mod tests {
         assert_eq!((p[0].x, p[0].y), (0.25, 0.5));
         assert_eq!(p[0].text("name"), Some("Świnica"));
         assert_eq!(p[0].number("ele"), Some(2301.0));
+    }
+
+    #[test]
+    fn reads_lines_with_tags() {
+        // łamana (0,0) → (2048,0) → (2048,4096) i druga część od (100,100) o jeden odcinek
+        let geom: Vec<u8> = [9, zz(0), zz(0), 2 << 3 | 2, zz(2048), zz(0), zz(0), zz(4096), 9, zz(-1948), zz(-3996), 1 << 3 | 2, zz(50), zz(0)]
+            .iter()
+            .flat_map(|v| var(*v))
+            .collect();
+        let mut f = bytes(2, &[0, 0]);
+        f.extend(vint(3, 2));
+        f.extend(bytes(4, &geom));
+        let mut l = bytes(1, b"transportation");
+        l.extend(bytes(2, &f));
+        l.extend(bytes(3, b"class"));
+        l.extend(bytes(4, &bytes(1, b"primary")));
+        l.extend(vint(5, 4096));
+        let mut tile = bytes(3, &l);
+        tile.extend(bytes(3, &layer("place", 10, 10)));
+        let got = lines(&tile, &["transportation"]);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].text("class"), Some("primary"));
+        assert_eq!(got[0].parts.len(), 2);
+        assert_eq!(got[0].parts[0], vec![(0.0, 0.0), (0.5, 0.0), (0.5, 1.0)]);
+        assert_eq!(got[0].parts[1].len(), 2);
+        assert!(lines(&tile, &["place"]).is_empty(), "punkt nie jest linią");
     }
 
     #[test]

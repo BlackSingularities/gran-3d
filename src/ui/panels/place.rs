@@ -25,12 +25,12 @@ pub(super) fn region_info(a: &mut Atlas, ui: &mut egui::Ui) {
         } else if let Some(e) = &err {
             e.as_str()
         } else {
-            crate::i18n::tr("W tej okolicy nie ma znakowanych szlaków w OpenStreetMap.")
+            crate::i18n::tr("W tej okolicy nie ma znakowanych szlaków w OpenStreetMap. Drogi, ulice, miejscowości i przystanki pokazują się niezależnie od szlaków.")
         });
     } else {
         grid2(ui, vec![
             (crate::i18n::tr("Szlaki"), fmt::dist(g.total_km * 1000.0)),
-            (crate::i18n::tr("Trasy PTTK i inne"), fmt::int(g.routes.len() as f64)),
+            (crate::i18n::tr("Znakowane trasy"), fmt::int(g.routes.len() as f64)),
             (crate::i18n::tr("Punkty"), fmt::int(a.snap.pois.len() as f64)),
             (crate::i18n::tr("Sektory"), a.snap.sectors.len().to_string()),
         ]);
@@ -360,6 +360,27 @@ pub(super) fn poi_details(a: &mut Atlas, ui: &mut egui::Ui, p: &crate::osm::Poi)
             _ => r,
         };
         row(ui, theme::icon::CALENDAR, "Rezerwacja:", &r);
+    }
+    if let Some(t) = get("transport") {
+        // „bus;tram” → „autobus, tramwaj”
+        let modes: Vec<&str> = t
+            .split(';')
+            .map(|m| match m {
+                "bus" => tr("autobus"),
+                "tram" => tr("tramwaj"),
+                "train" => tr("kolej"),
+                "subway" => tr("metro"),
+                "ferry" => tr("prom"),
+                _ => "",
+            })
+            .filter(|m| !m.is_empty())
+            .collect();
+        if !modes.is_empty() {
+            row(ui, theme::icon::BUS, "Komunikacja:", &modes.join(", "));
+        }
+    }
+    if let Some(n) = get("network") {
+        row(ui, theme::icon::PATH, "Sieć:", &n);
     }
     if let Some(o) = get("operator") {
         row(ui, theme::icon::USERS, "Prowadzi:", &o);

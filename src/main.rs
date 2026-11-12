@@ -32,6 +32,7 @@ mod notices;
 mod osm;
 mod pack;
 mod render;
+mod roads;
 mod settings;
 mod store;
 mod sun;
