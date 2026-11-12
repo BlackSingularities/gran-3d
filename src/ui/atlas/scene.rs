@@ -63,7 +63,6 @@ impl Atlas {
         // cięcie poziomic zależne od odległości
         let d = self.cam.distance;
         let contour = if d < 2500.0 { 10.0 } else if d < 9000.0 { 20.0 } else if d < 30_000.0 { 50.0 } else { 100.0 };
-        let _ = view;
         // siatka UTM dopasowana do ramki wokół środka widoku
         let gc = self.panorama.unwrap_or(self.cam);
         let utm_fit = if self.prefs.km_grid {
@@ -72,7 +71,17 @@ impl Atlas {
             crate::coords::local_utm_fit(gc.lon, gc.lat, x0, z0, |x, z| frame.to_lonlat(x, z))
         } else {
             None
-        };
+        }
+        .map(|(zone, mut f)| {
+            // proste linie: płaszczyzna siatki na wysokości środka widoku (względem oka);
+            // w spacerze i gdy oko jest poniżej środka siatka zostaje na terenie
+            let dy = view.target.y - view.eye.y;
+            if self.panorama.is_none() && dy < -1.0 {
+                f[3][2] = dy as f32;
+                f[3][3] = 1.0;
+            }
+            (zone, f)
+        });
         Scene {
             style: self.prefs.style.code(),
             contours: self.prefs.contours,
