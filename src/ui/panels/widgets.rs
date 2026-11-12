@@ -87,7 +87,8 @@ pub(super) fn grid2(ui: &mut egui::Ui, items: Vec<(&str, String)>) {
     }
 }
 
-/// Wiersz nagłówka sekcji: ikona, tytuł i cienka linia do prawej krawędzi (albo do strzałki zwijania).
+/// Wiersz nagłówka sekcji: ikona i tytuł na środku, po obu stronach cienka linia
+/// (w sekcji zwijanej po prawej strzałka).
 fn section_row(ui: &mut egui::Ui, glyph: &str, title: &str, fold: Option<bool>) -> egui::Response {
     ui.add_space(10.0);
     let sense = if fold.is_some() { egui::Sense::click() } else { egui::Sense::hover() };
@@ -100,16 +101,27 @@ fn section_row(ui: &mut egui::Ui, glyph: &str, title: &str, fold: Option<bool>) 
         }
     }
     let y = rect.center().y;
-    let g = p.text(egui::pos2(rect.left() + 2.0, y), egui::Align2::LEFT_CENTER, glyph, egui::FontId::proportional(15.0), theme::BRASS);
-    let t = p.text(egui::pos2(g.right() + 7.0, y), egui::Align2::LEFT_CENTER, crate::i18n::tr(title), egui::FontId::proportional(13.0), theme::PAPER);
     let mut end = rect.right();
     if let Some(open) = fold {
         let caret = if open { theme::icon::CARET_UP } else { theme::icon::CARET_DOWN };
         p.text(egui::pos2(rect.right() - 6.0, y), egui::Align2::RIGHT_CENTER, caret, egui::FontId::proportional(13.0), theme::paper_3());
         end = rect.right() - 28.0;
     }
-    if t.right() + 10.0 < end {
-        p.line_segment([egui::pos2(t.right() + 10.0, y), egui::pos2(end, y)], egui::Stroke::new(1.0, Color32::from_white_alpha(18)));
+    // ikona z tytułem na środku wiersza (środek całego wiersza, także gdy po prawej jest strzałka)
+    let gg = p.layout_no_wrap(glyph.to_string(), egui::FontId::proportional(15.0), theme::BRASS);
+    let tg = p.layout_no_wrap(crate::i18n::tr(title).to_string(), egui::FontId::proportional(13.0), theme::PAPER);
+    let w = gg.size().x + 7.0 + tg.size().x;
+    let x0 = (rect.center().x - w / 2.0).min(end - 10.0 - w).max(rect.left() + 2.0);
+    let x1 = x0 + w;
+    let title_x = x0 + gg.size().x + 7.0;
+    p.galley(egui::pos2(x0, y - gg.size().y / 2.0), gg, theme::BRASS);
+    p.galley(egui::pos2(title_x, y - tg.size().y / 2.0), tg, theme::PAPER);
+    let line = egui::Stroke::new(1.0, Color32::from_white_alpha(18));
+    if rect.left() + 2.0 < x0 - 10.0 {
+        p.line_segment([egui::pos2(rect.left() + 2.0, y), egui::pos2(x0 - 10.0, y)], line);
+    }
+    if x1 + 10.0 < end {
+        p.line_segment([egui::pos2(x1 + 10.0, y), egui::pos2(end, y)], line);
     }
     resp
 }
@@ -159,9 +171,13 @@ pub(super) const DIFF_COLORS: [Color32; 4] = [theme::OK, theme::WARN, theme::SIG
 
 /// Pigułka z tekstem w kolorze.
 pub(super) fn pill(ui: &mut egui::Ui, text: &str, color: Color32) {
-    egui::Frame::new().fill(color.gamma_multiply(0.16)).corner_radius(9).inner_margin(egui::Margin::symmetric(9, 3)).show(ui, |ui| {
-        ui.label(RichText::new(text).size(12.0).strong().color(color));
-    });
+    // rysowana ręcznie na środku wiersza
+    let g = ui.painter().layout_no_wrap(text.to_string(), egui::FontId::proportional(12.0), color);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), g.size().y + 8.0), egui::Sense::hover());
+    let p = ui.painter().with_clip_rect(rect);
+    let bg = egui::Rect::from_center_size(rect.center(), g.size() + egui::vec2(20.0, 8.0)).intersect(rect);
+    p.rect_filled(bg, 10.0, color.gamma_multiply(0.16));
+    p.galley(egui::pos2(bg.center().x - g.size().x / 2.0, rect.center().y - g.size().y / 2.0), g, color);
 }
 
 /// Karta wariantu trasy.

@@ -26,14 +26,14 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
             .interactable(alpha > 0.05)
             .show(ctx, |ui| {
                 ui.multiply_opacity(alpha);
-                theme::glass().inner_margin(egui::Margin::symmetric(4, 10)).show(ui, |ui| {
+                theme::glass_float().inner_margin(egui::Margin::symmetric(4, 10)).show(ui, |ui| {
                     if ui.small_button(theme::icon::CARET_LEFT).on_hover_text(crate::i18n::tr("Pokaż szczegóły (P)")).clicked() {
                         a.prefs.panel_open = true;
                         a.tab = Tab::Info;
                     }
                 });
             });
-        glass_area(a, ctx, egui::Id::new("szczegoly-uchwyt"), alpha);
+        glass_float_area(a, ctx, egui::Id::new("szczegoly-uchwyt"), alpha);
         return;
     }
     // panel boczny przy prawej krawędzi, ze szkła: od górnego paska do dolnego (profil, pasek stanu)
@@ -47,8 +47,10 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
         .interactable(alpha > 0.05)
         .show(ctx, |ui| {
           ui.multiply_opacity(alpha);
-          egui::Frame::new().fill(theme::glass_fill()).inner_margin(egui::Margin::symmetric(18, 16)).show(ui, |ui| {
-            ui.set_width(SIDEBAR_W - 36.0);
+          // prawy margines oddany paskowi przewijania: treść ma stałą szerokość, pasek leży obok niej
+          let gutter = theme::SCROLL_GUTTER;
+          egui::Frame::new().fill(theme::glass_fill()).inner_margin(egui::Margin { left: 18, right: (18.0 - gutter) as i8, top: 16, bottom: 16 }).show(ui, |ui| {
+            ui.set_width(SIDEBAR_W - 36.0 + gutter);
             ui.set_height(height - 32.0);
             // większe pismo niż w szufladzie
             let st = ui.style_mut();
@@ -68,6 +70,7 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
                 ui.label(RichText::new(glyph).size(19.0).color(theme::BRASS));
                 ui.label(RichText::new(title).size(17.0).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(gutter);
                     if ui.small_button(theme::icon::CARET_RIGHT).on_hover_text(crate::i18n::tr("Ukryj panel (P)")).clicked() {
                         a.prefs.panel_open = false;
                     }
@@ -78,8 +81,8 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
             });
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                // nic nie rozpycha panelu poza jego szerokość
-                ui.set_max_width(ui.available_width());
+                // nic nie rozpycha panelu poza jego szerokość; ta sama szerokość z paskiem i bez niego
+                ui.set_max_width(SIDEBAR_W - 36.0);
                 if a.tab == Tab::Library {
                     crate::ui::library::show(a, ui);
                 } else if a.tab == Tab::Conditions {
@@ -101,7 +104,7 @@ pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
         .interactable(alpha > 0.05)
         .show(ctx, |ui| {
             ui.multiply_opacity(alpha);
-            theme::glass().show(ui, |ui| {
+            theme::glass_float().show(ui, |ui| {
                 ui.vertical(|ui| {
                     let zoom = |a: &mut Atlas, k: f64| {
                         let mut to = a.cam;
@@ -128,7 +131,7 @@ pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
                 });
             });
         });
-    glass_area(a, ctx, egui::Id::new("kamera"), alpha);
+    glass_float_area(a, ctx, egui::Id::new("kamera"), alpha);
 }
 
 pub(super) fn info(a: &mut Atlas, ui: &mut egui::Ui) {

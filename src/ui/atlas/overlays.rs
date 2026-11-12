@@ -6,9 +6,17 @@ impl Atlas {
     /// Etykiety, znaczniki, kompas, podziałka, odczyt kursora i menu kontekstowe.
     pub(super) fn overlays(&mut self, ui: &mut egui::Ui, rect: Rect, view: &View) {
         let p_full = ui.painter_at(rect);
-        // część mapy niezasłonięta panelem bocznym: nazwy i znaczniki nie są rysowane pod panelem
-        let side = if crate::ui::panels::controls_alpha(self, ui.ctx()) > 0.05 { crate::ui::panels::right_inset(self) } else { 0.0 };
-        let visible = Rect::from_min_max(rect.min, Pos2::new((rect.right() - side).max(rect.left()), rect.bottom()));
+        // część mapy niezasłonięta interfejsem: nazwy i znaczniki nie są rysowane pod panelem bocznym,
+        // górnym paskiem ani pod profilem i paskiem stanu na dole
+        let shown = crate::ui::panels::controls_alpha(self, ui.ctx()) > 0.05;
+        let side = if shown { crate::ui::panels::right_inset(self) } else { 0.0 };
+        let top = if shown { crate::ui::panels::TOP_BAR_H } else { 0.0 };
+        // profil i pasek stanu nie chowają się razem z kontrolkami
+        let bottom = crate::ui::panels::bottom_inset(self);
+        let visible = Rect::from_min_max(
+            Pos2::new(rect.left(), (rect.top() + top).min(rect.bottom())),
+            Pos2::new((rect.right() - side).max(rect.left()), (rect.bottom() - bottom).max(rect.top())),
+        );
         let p = ui.painter_at(visible);
         let at = |s: [f32; 2]| Pos2::new(s[0] + rect.left(), s[1] + rect.top());
         // etykiety punktów z rozrzedzaniem i zasłanianiem przez teren
@@ -119,8 +127,9 @@ impl Atlas {
                 let lr = Rect::from_min_size(sp + Vec2::new(7.0, -galley.size().y - 3.0), galley.size()).expand(2.0);
                 // w panoramie pod nazwą jest jeszcze odległość – miejsce zajmuje też ona
                 let busy = if self.panorama.is_some() { Rect::from_min_max(lr.min, lr.max + Vec2::new(0.0, 13.0)) } else { lr };
-                // napis, który wchodziłby pod panel boczny, nie jest pokazywany wcale (zamiast uciętego)
-                if side > 0.0 && lr.right() > visible.right() - 2.0 {
+                // napis, który wchodziłby pod panel boczny, górny pasek albo profil, nie jest pokazywany wcale
+                // (zamiast uciętego)
+                if (side > 0.0 && busy.right() > visible.right() - 2.0) || (top > 0.0 && busy.top() < visible.top() + 2.0) || busy.bottom() > visible.bottom() - 2.0 {
                     continue;
                 }
                 if !is_sel && taken.iter().any(|t| t.intersects(busy)) {
