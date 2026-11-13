@@ -187,16 +187,38 @@ impl Atlas {
     }
 
     pub(super) fn ground(&self, view: &View, px: [f32; 2]) -> Option<(f64, f64, f32)> {
-        // najpierw głębia z karty graficznej (ten sam widok, ten sam piksel ±1,5) – dokładnie to, co widać
+        let dir = view.ray(px);
+        let to_geo = |w: DVec3| {
+            let (lon, lat) = view.frame.to_lonlat(w.x, w.z);
+            (lon, lat, (w.y / view.exag) as f32)
+        };
+        // najpierw głębia z karty graficznej – dokładnie to, co widać
         if let Some(pk) = self.renderer.as_ref().and_then(|r| r.pick) {
-            if pk.eye == view.eye && (pk.at[0] - px[0]).abs() <= 1.5 && (pk.at[1] - px[1]).abs() <= 1.5 {
-                return pk.world.map(|w| {
-                    let (lon, lat) = view.frame.to_lonlat(w.x, w.z);
-                    (lon, lat, (w.y / view.exag) as f32)
-                });
+            let near = |a: [f32; 2], r: f32| (a[0] - px[0]).abs() <= r && (a[1] - px[1]).abs() <= r;
+            // ten sam widok, ten sam piksel ±1,5 (także niebo)
+            if pk.eye == view.eye && near(pk.at, 1.5) {
+                return pk.world.map(to_geo);
+            }
+            if let Some(w) = pk.world.filter(|_| pk.when.elapsed() < Duration::from_millis(400)) {
+                let shown = view.project(w);
+                // punkt z poprzedniej klatki nadal pod kursorem (kamera drgnęła)
+                if shown.is_some_and(|s| near(s, 1.5)) {
+                    return Some(to_geo(w));
+                }
+                // kursor przesunął się o kilka pikseli od ostatniego odczytu: punkt na nowym promieniu
+                // w tej samej odległości (z krzywizną jak w shaderze). Odczyt głębi przychodzi dopiero po
+                // narysowaniu klatki, a samo przecięcie z modelem terenu przy szczytach i graniach bywało
+                // trafiane za lub przed grzbietem – znacznik przeskakiwał wtedy daleko od kursora.
+                if shown.is_some_and(|s| near(s, 60.0)) {
+                    let drop = |d: DVec3| (d.x * d.x + d.z * d.z) / (2.0 * crate::geo::EARTH_R) * 0.87;
+                    let d = w - view.eye;
+                    let rendered = DVec3::new(d.x, d.y - drop(d), d.z);
+                    let rel = dir * rendered.length();
+                    let p = view.eye + DVec3::new(rel.x, rel.y + drop(rel), rel.z);
+                    return Some(to_geo(p));
+                }
             }
         }
-        let dir = view.ray(px);
         let frame = view.frame;
         let h = |x: f64, z: f64| {
             let (lon, lat) = frame.to_lonlat(x, z);

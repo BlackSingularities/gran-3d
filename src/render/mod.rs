@@ -194,6 +194,8 @@ pub struct Pick {
     /// Oko kamery w chwili odczytu (wynik ważny tylko dla tego samego widoku).
     pub eye: glam::DVec3,
     pub world: Option<glam::DVec3>,
+    /// Chwila odczytu (do oceny, czy wynik jest jeszcze świeży).
+    pub when: std::time::Instant,
 }
 
 /// Mapa rastrowa nakładana na teren (cienie, widoczność): prostokąt w metrach ramki.
@@ -1062,14 +1064,20 @@ impl Renderer {
     /// graficzną najwyżej kilkadziesiąt milisekund, więc wynik dotyczy tej samej klatki co obraz.
     fn do_pick(&mut self, view: &View, scale: f32, at: Option<[f32; 2]>) {
         use std::sync::atomic::Ordering::*;
-        // spóźniony odczyt z poprzedniej klatki: zwolnić bufor
+        // spóźniony odczyt z poprzedniej klatki: przejąć wynik (zamiast go wyrzucać – inaczej przy
+        // wolnej karcie kursor co chwilę wracał do przybliżenia i znacznik przeskakiwał) i zwolnić bufor
         match self.pick_state.load(Acquire) {
             2 => {
-                self.pick_read.unmap();
-                self.pick_inflight = None;
+                let d = self.read_pick_depth();
+                if let Some(req) = self.pick_inflight.take() {
+                    self.pick = Some(Pick { at: req.at, eye: req.eye, world: unproject(&req, d), when: std::time::Instant::now() });
+                }
                 self.pick_state.store(0, Release);
             }
-            3 => self.pick_state.store(0, Release),
+            3 => {
+                self.pick_inflight = None;
+                self.pick_state.store(0, Release)
+            }
             _ => {}
         }
         let Some(at) = at else { return };
@@ -1109,20 +1117,31 @@ impl Renderer {
         }
         match self.pick_state.load(Acquire) {
             2 => {
-                let d = {
-                    let range = self.pick_read.slice(..).get_mapped_range();
-                    f32::from_le_bytes([range[0], range[1], range[2], range[3]])
-                };
-                self.pick_read.unmap();
-                self.pick = Some(Pick { at, eye: view.eye, world: unproject(&req, d) });
+                let d = self.read_pick_depth();
+                self.pick = Some(Pick { at, eye: view.eye, world: unproject(&req, d), when: std::time::Instant::now() });
                 self.pick_state.store(0, Release);
             }
-            3 => self.pick_state.store(0, Release),
+            3 => {
+                self.pick_inflight = None;
+                self.pick_state.store(0, Release)
+            }
             // karta nie zdążyła: wynik przepada, odczyt odblokuje się przy następnym wywołaniu
             _ => {
                 self.pick_inflight = Some(req);
             }
         }
+    }
+}
+
+impl Renderer {
+    /// Głębia z zmapowanego bufora wskazania (po odczycie bufor jest zwalniany).
+    fn read_pick_depth(&mut self) -> f32 {
+        let d = {
+            let range = self.pick_read.slice(..).get_mapped_range();
+            f32::from_le_bytes([range[0], range[1], range[2], range[3]])
+        };
+        self.pick_read.unmap();
+        d
     }
 }
 
