@@ -123,6 +123,11 @@ pub fn init(app: &android_activity::AndroidApp) {
     refresh_insets();
 }
 
+/// Interfejs grafiki wymuszony intencją (`vulkan`, `gl`) – testy w emulatorze; pusty – wybór programu.
+pub fn forced_backend() -> String {
+    call_str("backend")
+}
+
 /// Emulator Androida (grafika programowa – tylko OpenGL ES działa pewnie).
 pub fn is_emulator() -> bool {
     call_str("isEmulator") == "1"

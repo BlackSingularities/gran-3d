@@ -149,7 +149,12 @@ pub fn run_android(app: AndroidApp) {
         s.gles = true;
         let _ = s.save();
     }
-    let gles = s.gles || platform::is_emulator();
+    let forced = platform::forced_backend();
+    let gles = match forced.as_str() {
+        "vulkan" => false,
+        "gl" => true,
+        _ => s.gles || platform::is_emulator(),
+    };
     log::info!("grafika: {}", if gles { "OpenGL ES" } else { "Vulkan" });
     let mut setup = WgpuSetupCreateNew::default();
     setup.instance_descriptor.backends = if gles { wgpu::Backends::GL } else { wgpu::Backends::VULKAN | wgpu::Backends::GL };

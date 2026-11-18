@@ -36,6 +36,8 @@ public class GranActivity extends NativeActivity {
     private static final int CREATE_DOCUMENT = 42;
 
     private final ArrayList<String> events = new ArrayList<>();
+    /** Wymuszony interfejs grafiki z intencji (`--es gran_backend vulkan|gl`) – testy w emulatorze. */
+    private String backend = "";
     private String pendingSource;
     private String pendingName;
 
@@ -43,6 +45,7 @@ public class GranActivity extends NativeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (getIntent() != null && getIntent().getStringExtra("gran_backend") != null) backend = getIntent().getStringExtra("gran_backend");
         handleIntent(getIntent());
     }
 
@@ -110,6 +113,10 @@ public class GranActivity extends NativeActivity {
         }
         return in.getSystemWindowInsetTop() + " " + in.getSystemWindowInsetBottom() + " "
                 + in.getSystemWindowInsetLeft() + " " + in.getSystemWindowInsetRight();
+    }
+
+    public String backend() {
+        return backend;
     }
 
     public String isEmulator() {

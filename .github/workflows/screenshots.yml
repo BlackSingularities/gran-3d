@@ -12,6 +12,14 @@ on:
       run_id:
         description: Zamiast wydania – APK z przebiegu Build o tym numerze (test przed wydaniem)
         required: false
+      gpu:
+        description: Grafika emulatora (guest – SwiftShader w emulatorze, swiftshader_indirect)
+        required: false
+        default: guest
+      backend:
+        description: Interfejs grafiki programu (vulkan, gl, pusty – wybór programu)
+        required: false
+        default: vulkan
 
 permissions:
   contents: read
@@ -51,9 +59,9 @@ jobs:
           disk-size: 4G
           profile: pixel_6
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-options: -no-window -gpu ${{ inputs.gpu || 'guest' }} -no-snapshot -noaudio -no-boot-anim
           script: |
-            adb install -r "$(cat apk.txt)" && mkdir -p shots && adb logcat -c && sh .github/emulator-shots.sh
+            adb install -r "$(cat apk.txt)" && mkdir -p shots && adb logcat -c && GRAN_BACKEND="${{ inputs.backend }}" sh .github/emulator-shots.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

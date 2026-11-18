@@ -788,10 +788,7 @@ impl Renderer {
         };
         let color_ms = mk(COLOR, MSAA, wgpu::TextureUsages::RENDER_ATTACHMENT);
         let resolved = mk(COLOR, 1, wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING);
-        // głębia do odczytu tylko przy wskazaniu przez GPU: wielopróbkowa tekstura do próbkowania
-        // nie istnieje w OpenGL ES 3.0 (bufor ramki byłby niepełny i nic by się nie rysowało)
-        let depth_usage = if self.pick_ok { wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING } else { wgpu::TextureUsages::RENDER_ATTACHMENT };
-        let depth = mk(DEPTH, MSAA, depth_usage);
+        let depth = mk(DEPTH, MSAA, wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING);
         let pick_bind = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("wskazanie"),
             layout: &self.pick_layout,
