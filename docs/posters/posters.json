@@ -33,6 +33,35 @@
         "eksport GPX"
       ],
       "meta": "Windows 10 i 11"
+    },
+    {
+      "platform": "android",
+      "file": "android.png",
+      "title": "Góry *w kieszeni*",
+      "lead": "Ten sam trójwymiarowy atlas co na komputerze: prawdziwy teren, znakowane szlaki, trasy z wariantami, mapy offline i punkty od innych turystów.",
+      "shots": [
+        {
+          "src": "../screenshots/android/01-teren.png",
+          "caption": "Teren 3D i szlaki"
+        },
+        {
+          "src": "../screenshots/android/02-trasa.png",
+          "caption": "Trasa z wariantami"
+        },
+        {
+          "src": "../screenshots/android/03-warunki.png",
+          "caption": "Pogoda i lawiny"
+        }
+      ],
+      "features": [
+        "mapy offline",
+        "punkty i komentarze",
+        "gesty i przytrzymanie",
+        "pogoda 48 h",
+        "eksport GPX i FIT",
+        "aktualizacje z redzikowski.com"
+      ],
+      "meta": "Android 8+ · ARM 64-bit"
     }
   ]
 }

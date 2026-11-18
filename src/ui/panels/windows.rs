@@ -26,7 +26,7 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
     let size = egui::vec2((screen.width() - 28.0).max(320.0), h);
     glass_area(a, ctx, egui::Id::new("profil"), 1.0);
     egui::Area::new(egui::Id::new("profil"))
-        .fixed_pos([screen.left(), screen.bottom() - STATUS_H - toolbar_h(a) - if sheet_open(a) { a.sheet_h } else { 0.0 } - h - 20.0])
+        .fixed_pos([screen.left(), screen.bottom() - a.safe_bottom - STATUS_H - toolbar_h(a) - if sheet_open(a) { a.sheet_h } else { 0.0 } - h - 20.0])
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
             egui::Frame::new().fill(theme::glass_fill()).inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
@@ -259,7 +259,7 @@ pub fn help(a: &mut Atlas, ctx: &egui::Context) {
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("GRAŃ").size(30.0).strong());
-                        ui.label(RichText::new(env!("CARGO_PKG_VERSION")).size(13.0).color(theme::paper_3()));
+                        ui.label(RichText::new(crate::app_version()).size(13.0).color(theme::paper_3()));
                     });
                     ui.label(RichText::new(tr("Atlas gór w 3D: teren, szlaki, trasy i warunki")).size(14.0).color(theme::paper_2()));
                 });

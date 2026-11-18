@@ -2,7 +2,9 @@
 # GitHub Releases. Program pobiera aktualizacje przez redzikowski.com (kopia wydań z GitHuba), więc
 # wydanie musi zawierać instalator, APK i latest.yml (sumy SHA-512 obu plików, sprawdzane przed instalacją).
 #
-#  • push na main z nową wersją w Cargo.toml (brak tagu v<wersja>) → wydanie automatycznie
+#  • push na main z nową wersją w Cargo.toml (brak tagu v<wersja>) → wydanie Windows automatycznie
+#  • push na main z nową wersją w android/VERSION (brak tagu android-v<wersja>) → osobne wydanie Androida
+#    (APK + latest.yml; nieoznaczane jako „najnowsze”, żeby nie przykryło wydania Windows)
 #  • push tagu v*        → wydanie tej wersji
 #  • commit z „[release]” w treści → to samo; tag v<wersja z Cargo.toml> tworzy workflow
 #  • push / pull request → kontrolna kompilacja i testy (artefakty przebiegu, bez publikacji)
@@ -34,6 +36,9 @@ jobs:
       tag: ${{ steps.v.outputs.tag }}
       version: ${{ steps.v.outputs.version }}
       new: ${{ steps.v.outputs.new }}
+      android_tag: ${{ steps.v.outputs.android_tag }}
+      android_version: ${{ steps.v.outputs.android_version }}
+      android_new: ${{ steps.v.outputs.android_new }}
     steps:
       - uses: actions/checkout@v4
       - id: v
@@ -49,6 +54,16 @@ jobs:
           else
             echo "new=true" >> "$GITHUB_OUTPUT"
             echo "Nowa wersja $tag – bez wydania."
+          fi
+          av=$(tr -d ' \r\n' < android/VERSION)
+          atag="android-v$av"
+          echo "android_version=$av" >> "$GITHUB_OUTPUT"
+          echo "android_tag=$atag" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$atag" >/dev/null; then
+            echo "android_new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "android_new=true" >> "$GITHUB_OUTPUT"
+            echo "Nowa wersja Androida $atag – bez wydania."
           fi
       - name: Wersja tagu zgodna z Cargo.toml
         if: startsWith(github.ref, 'refs/tags/v')
@@ -118,7 +133,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
-      VERSION: ${{ needs.version.outputs.version }}
+      VERSION: ${{ needs.version.outputs.android_version }}
       # cienkie LTO: dużo szybsza kompilacja, prawie ten sam rozmiar i szybkość
       CARGO_PROFILE_RELEASE_LTO: thin
     steps:
@@ -181,7 +196,7 @@ jobs:
           bt="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
           "$bt/apksigner" verify --print-certs "$apk" | head -3
           "$bt/aapt2" dump badging "$apk" | head -3
-          mkdir -p out && cp "$apk" "out/GRAN-$VERSION.apk"
+          mkdir -p out && cp "$apk" "out/GRAN-Android-$VERSION.apk"
           ls -la out
       - uses: actions/upload-artifact@v4
         with:
@@ -195,20 +210,19 @@ jobs:
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.outputs.new == 'true') ||
       (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
-    needs: [version, windows, android]
+    needs: [version, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
+          name: windows
           path: dist-release
-          merge-multiple: true
       - run: ls -la dist-release
-      - name: latest.yml (sumy SHA-512 dla aktualizatora Windows i Androida)
+      - name: latest.yml (suma SHA-512 dla aktualizatora Windows)
         run: |
           v="${{ needs.version.outputs.version }}"
           exe="GRAN-Setup-$v.exe"
-          apk="GRAN-$v.apk"
           sha() { openssl dgst -sha512 -binary "dist-release/$1" | base64 -w0; }
           size() { stat -c %s "dist-release/$1"; }
           {
@@ -217,9 +231,6 @@ jobs:
             echo "  - url: $exe"
             echo "    sha512: $(sha "$exe")"
             echo "    size: $(size "$exe")"
-            echo "  - url: $apk"
-            echo "    sha512: $(sha "$apk")"
-            echo "    size: $(size "$apk")"
             echo "path: $exe"
             echo "sha512: $(sha "$exe")"
             echo "releaseDate: '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
@@ -230,7 +241,7 @@ jobs:
           v="${{ needs.version.outputs.version }}"
           f="build/release-notes/$v.md"
           if [ -f "$f" ]; then cp "$f" notes.md
-          else printf 'Instalator Windows `GRAN-Setup-%s.exe` i aplikacja na Androida `GRAN-%s.apk` – do pobrania ze strony https://redzikowski.com/portfolio/gran-3d. Zainstalowany program sam proponuje kolejne wersje.\n' "$v" "$v" > notes.md
+          else printf 'Instalator Windows `GRAN-Setup-%s.exe` – do pobrania ze strony https://redzikowski.com/portfolio/gran-3d. Zainstalowany program sam proponuje kolejne wersje.\n' "$v" > notes.md
           fi
       - uses: softprops/action-gh-release@v2
         with:
@@ -241,4 +252,45 @@ jobs:
           body_path: notes.md
           generate_release_notes: true
           files: dist-release/*
+          fail_on_unmatched_files: true
+
+  release-android:
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.outputs.android_new == 'true'
+    needs: [version, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android
+          path: dist-android
+      - name: latest.yml (suma SHA-512 dla aktualizatora Androida)
+        run: |
+          v="${{ needs.version.outputs.android_version }}"
+          apk="GRAN-Android-$v.apk"
+          sha=$(openssl dgst -sha512 -binary "dist-android/$apk" | base64 -w0)
+          {
+            echo "version: $v"
+            echo "files:"
+            echo "  - url: $apk"
+            echo "    sha512: $sha"
+            echo "    size: $(stat -c %s "dist-android/$apk")"
+            echo "path: $apk"
+            echo "sha512: $sha"
+            echo "releaseDate: '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+          } > dist-android/latest.yml
+          cat dist-android/latest.yml
+          f="android/release-notes/$v.md"
+          if [ -f "$f" ]; then cp "$f" notes.md
+          else printf 'GRAŃ na Androida `GRAN-Android-%s.apk` – do pobrania ze strony https://redzikowski.com/portfolio/gran-3d. Zainstalowana aplikacja sama proponuje kolejne wersje.\n' "$v" > notes.md
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.android_tag }}
+          target_commitish: ${{ github.sha }}
+          name: GRAŃ na Androida ${{ needs.version.outputs.android_version }}
+          make_latest: false
+          body_path: notes.md
+          files: dist-android/*
           fail_on_unmatched_files: true

@@ -227,8 +227,17 @@ fn chart(ui: &mut egui::Ui, hours: &[Hour], ele: f32, (lon, lat): (f64, f64)) {
         return;
     }
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 170.0), Sense::hover());
-    let p = ui.painter_at(rect);
-    let plot = Rect::from_min_max(rect.min + Vec2::new(30.0, 8.0), rect.max - Vec2::new(30.0, 22.0));
+    // telefon: wykres od krawędzi do krawędzi ekranu (poza marginesy arkusza), węższe opisy osi
+    let narrow = crate::ui::theme::compact(ui.ctx());
+    let rect = if narrow {
+        let s = ui.ctx().screen_rect();
+        Rect::from_min_max(Pos2::new(s.left() + 2.0, rect.top()), Pos2::new(s.right() - 2.0, rect.bottom()))
+    } else {
+        rect
+    };
+    let p = ui.painter().with_clip_rect(rect);
+    let pad = if narrow { 24.0 } else { 30.0 };
+    let plot = Rect::from_min_max(rect.min + Vec2::new(pad, 8.0), rect.max - Vec2::new(pad - 4.0, 22.0));
     let n = hours.len();
     let x = |i: f32| plot.left() + i / (n - 1) as f32 * plot.width();
     let tmin = hours.iter().map(|h| h.temp).fold(f32::INFINITY, f32::min) - 2.0;

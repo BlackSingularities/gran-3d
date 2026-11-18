@@ -36,6 +36,8 @@ public class GranActivity extends NativeActivity {
     private static final int CREATE_DOCUMENT = 42;
 
     private final ArrayList<String> events = new ArrayList<>();
+    /** Wymuszony interfejs grafiki z intencji (`--es gran_backend vulkan|gl`) – testy w emulatorze. */
+    private String backend = "";
     private String pendingSource;
     private String pendingName;
 
@@ -43,6 +45,7 @@ public class GranActivity extends NativeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (getIntent() != null && getIntent().getStringExtra("gran_backend") != null) backend = getIntent().getStringExtra("gran_backend");
         handleIntent(getIntent());
     }
 
@@ -98,6 +101,22 @@ public class GranActivity extends NativeActivity {
 
     public String language() {
         return Locale.getDefault().toLanguageTag();
+    }
+
+    /** Pasek stanu i pasek nawigacji (piksele): „góra dół lewo prawo”. */
+    public String insets() {
+        android.view.WindowInsets in = getWindow().getDecorView().getRootWindowInsets();
+        if (in == null) return "0 0 0 0";
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.graphics.Insets i = in.getInsets(android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
+            return i.top + " " + i.bottom + " " + i.left + " " + i.right;
+        }
+        return in.getSystemWindowInsetTop() + " " + in.getSystemWindowInsetBottom() + " "
+                + in.getSystemWindowInsetLeft() + " " + in.getSystemWindowInsetRight();
+    }
+
+    public String backend() {
+        return backend;
     }
 
     public String isEmulator() {

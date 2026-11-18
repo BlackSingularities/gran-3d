@@ -111,7 +111,8 @@ fn point_row(ui: &mut egui::Ui, p: &crate::points::Point, dist: Option<f64>) -> 
     job.wrap = egui::text::TextWrapping::truncate_at_width(tw.max(40.0));
     let g = ui.painter().layout_job(job);
     painter.galley(egui::pos2(rect.left() + 40.0, rect.top() + 4.0), g, theme::PAPER);
-    let sub = format!("{} · {}", p.category.label(), tf!("komentarze: {}", p.comments.len()));
+    let score = if p.up + p.down > 0 { format!(" · {:+}", p.score()) } else { String::new() };
+    let sub = format!("{} · {}{}", p.category.label(), tf!("komentarze: {}", p.comments.len()), score);
     painter.text(egui::pos2(rect.left() + 40.0, rect.bottom() - 5.0), egui::Align2::LEFT_BOTTOM, sub, egui::FontId::proportional(11.5), theme::paper_3());
     resp
 }
@@ -185,6 +186,28 @@ pub fn user_point_info(a: &mut Atlas, ui: &mut egui::Ui, id: &str) {
     });
     if p.mine && p.status != Status::Approved {
         ui.label(RichText::new(theme::ic(theme::icon::CLOCK, p.status.label())).small().color(theme::WARN));
+    }
+    // ocena przez innych: +1 / −1 (ponowne kliknięcie cofa ocenę)
+    if !p.mine || p.status == Status::Approved {
+        let mine = a.points.my_vote(&p.id);
+        let mut vote = None;
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            let up = egui::Button::new(RichText::new(format!("{}  +1  ·  {}", theme::icon::THUMBS_UP, p.up)).color(if mine == 1 { theme::OK } else { theme::PAPER })).selected(mine == 1).min_size(egui::vec2(0.0, 36.0));
+            if ui.add(up).on_hover_text(tr("Wpis jest prawdziwy i przydatny")).clicked() {
+                vote = Some(if mine == 1 { 0 } else { 1 });
+            }
+            let down = egui::Button::new(RichText::new(format!("{}  −1  ·  {}", theme::icon::THUMBS_DOWN, p.down)).color(if mine == -1 { theme::SIGNAL } else { theme::PAPER })).selected(mine == -1).min_size(egui::vec2(0.0, 36.0));
+            if ui.add(down).on_hover_text(tr("Wpis jest nieaktualny albo nieprzydatny")).clicked() {
+                vote = Some(if mine == -1 { 0 } else { -1 });
+            }
+            ui.label(RichText::new(tf!("ocena: {}", format!("{:+}", p.score()))).small().color(theme::paper_3()));
+        });
+        if let Some(v) = vote {
+            if let Err(e) = a.points.vote(&p.id, v) {
+                a.notify(e);
+            }
+        }
     }
     let ele = p.ele.or_else(|| a.heights.sample_cached(p.lon, p.lat)).unwrap_or(0.0);
     ui.label(RichText::new(format!("{}  ·  {}", fmt::coords(p.lon, p.lat), fmt::ele(ele as f64))).small().monospace().color(theme::paper_3()));

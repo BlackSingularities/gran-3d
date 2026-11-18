@@ -160,12 +160,20 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
     }
 
     crate::ui::panels::glass_area(a, ctx, egui::Id::new(crate::i18n::tr("Szukaj")), 1.0);
-    egui::Window::new(crate::i18n::tr("Szukaj"))
-        .title_bar(false)
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_TOP, [0.0, 12.0])
-        .fixed_size([crate::ui::theme::fit(ctx, 460.0), 10.0])
+    // telefon: okno rozwija się z przycisku na cały górny pasek, przykrywając pozostałe przyciski
+    let compact = crate::ui::theme::compact(ctx);
+    let t = ctx.animate_bool_with_time(egui::Id::new("szukaj-rozwiniecie"), true, crate::ui::panels::SEARCH_ANIM);
+    let win = egui::Window::new(crate::i18n::tr("Szukaj")).title_bar(false).collapsible(false).resizable(false);
+    let win = if compact {
+        let r = crate::ui::panels::search_rect(ctx, a.safe_top, t);
+        if t < 1.0 {
+            ctx.request_repaint();
+        }
+        win.fixed_pos(r.min - egui::vec2(0.0, 0.0)).fixed_size([r.width() - 20.0, 10.0])
+    } else {
+        win.anchor(egui::Align2::CENTER_TOP, [0.0, 12.0 + a.safe_top]).fixed_size([crate::ui::theme::fit(ctx, 460.0), 10.0])
+    };
+    win.order(egui::Order::Foreground)
         .frame(crate::ui::theme::glass().inner_margin(egui::Margin::same(10)))
         .show(ctx, |ui| {
             let r = ui.add(

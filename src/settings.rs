@@ -37,6 +37,9 @@ pub struct Settings {
     /// Android: grafika przez OpenGL ES zamiast Vulkana (tryb zgodności; po ponownym uruchomieniu).
     #[serde(default)]
     pub gles: bool,
+    /// Obejrzana wersja ekranu powitalnego (autor, wsparcie, zgłoszenia).
+    #[serde(default)]
+    pub welcome: u32,
 }
 
 fn res_level() -> u8 {
@@ -88,6 +91,7 @@ impl Default for Settings {
             lang: String::new(),
             tour_done: false,
             gles: false,
+            welcome: 0,
         }
     }
 }

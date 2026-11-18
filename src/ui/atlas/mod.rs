@@ -339,6 +339,11 @@ pub struct Atlas {
     /// Wysokość arkusza szczegółów na wąskim ekranie; arkusz rozwinięty na cały ekran.
     pub sheet_h: f32,
     pub sheet_full: bool,
+    /// Pasek stanu i pasek nawigacji systemu (punkty) – interfejs zaczyna się pod i kończy nad nimi.
+    pub safe_top: f32,
+    pub safe_bottom: f32,
+    /// Przewinięcie dolnego paska stanu na wąskim ekranie (punkty).
+    status_scroll: f32,
 }
 
 /// Stan planowania do historii: punkty i tryb wyznaczania.
@@ -485,6 +490,9 @@ impl Atlas {
             compact: false,
             sheet_h: 0.0,
             sheet_full: false,
+            safe_top: 0.0,
+            safe_bottom: 0.0,
+            status_scroll: 0.0,
         }
     }
 
@@ -599,6 +607,27 @@ impl Atlas {
                 }
                 ("prz", Some(x)) => self.prefs.exag = x.clamp(1.0, 3.0),
                 ("teren", _) => terrain = v == "1",
+                // otwarty panel albo narzędzie (zrzuty do dokumentacji, linki z instrukcji)
+                ("panel", _) => match v.as_str() {
+                    "warunki" => {
+                        self.prefs.panel_open = true;
+                        self.tab = crate::ui::panels::Tab::Conditions;
+                    }
+                    "biblioteka" => {
+                        self.prefs.panel_open = true;
+                        self.tab = crate::ui::panels::Tab::Library;
+                    }
+                    "punkty" => {
+                        self.tool = Tool::Point;
+                        self.open_info();
+                    }
+                    "offline" => {
+                        self.tool = Tool::Area;
+                        self.open_info();
+                    }
+                    "szczegoly" => self.open_info(),
+                    _ => {}
+                },
                 ("trasa", _) => {
                     wps = v
                         .split(';')

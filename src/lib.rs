@@ -46,6 +46,16 @@ mod world;
 #[cfg(target_os = "android")]
 pub use android_activity::AndroidApp;
 
+/// Wersja programu: Windows – z `Cargo.toml`, Android – własna numeracja z `android/VERSION`
+/// (wydania `android-v<wersja>` niezależne od wydań Windows `v<wersja>`).
+pub fn app_version() -> &'static str {
+    if platform::MOBILE {
+        include_str!("../android/VERSION").trim_ascii()
+    } else {
+        env!("CARGO_PKG_VERSION")
+    }
+}
+
 /// Dziennik programu: `%LOCALAPPDATA%\GRAN\gran.log` (poprzedni przebieg w `gran.1.log`).
 /// Na Androidzie `LOCALAPPDATA` wskazuje folder aplikacji (ustawiany w [`run_android`]).
 pub fn log_path() -> std::path::PathBuf {
@@ -81,7 +91,7 @@ fn init_log() {
     b.init();
     log::info!(
         "GRAŃ {} · {} {} · {} · język {}",
-        env!("CARGO_PKG_VERSION"),
+        app_version(),
         std::env::consts::OS,
         std::env::consts::ARCH,
         platform::device(),
@@ -91,9 +101,13 @@ fn init_log() {
 
 /// Wspólny start: zgłoszenia awarii, ustawienia, język, dziennik i strefy czasowe.
 fn prepare() -> settings::Settings {
-    feedback::install("gran-3d", "GRAŃ", env!("CARGO_PKG_VERSION"), "GRAN");
+    feedback::install("gran-3d", "GRAŃ", app_version(), "GRAN");
     let s = settings::Settings::load();
     i18n::set(if s.lang.is_empty() { i18n::system() } else { &s.lang });
+    // zrzuty do dokumentacji w wybranym języku niezależnie od systemu
+    if let Ok(l) = std::env::var("GRAN_LANG") {
+        i18n::set(&l);
+    }
     init_log();
     tz::warm_up();
     s
@@ -108,17 +122,22 @@ fn creator() -> eframe::AppCreator<'static> {
 pub fn run_desktop() -> eframe::Result<()> {
     let s = prepare();
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png")).unwrap_or_default();
+    // zrzuty do dokumentacji: GRAN_WINDOW=szer×wys (np. 824x1830 – układ telefonu przy GRAN_ZOOM=2)
+    let window = std::env::var("GRAN_WINDOW").ok().and_then(|w| {
+        let (a, b) = w.split_once(['x', '×'])?;
+        Some([a.trim().parse::<f32>().ok()?, b.trim().parse::<f32>().ok()?])
+    });
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("GRAŃ")
             .with_app_id("gran")
-            .with_inner_size([1440.0, 900.0])
-            .with_min_inner_size([1024.0, 640.0])
+            .with_inner_size(window.unwrap_or([1440.0, 900.0]))
+            .with_min_inner_size(window.map(|_| [320.0, 480.0]).unwrap_or([1024.0, 640.0]))
             .with_drag_and_drop(true)
             .with_icon(icon),
         renderer: eframe::Renderer::Wgpu,
         vsync: s.vsync,
-        persist_window: true,
+        persist_window: window.is_none(),
         ..Default::default()
     };
     eframe::run_native("GRAŃ", options, creator())
@@ -139,7 +158,12 @@ pub fn run_android(app: AndroidApp) {
         s.gles = true;
         let _ = s.save();
     }
-    let gles = s.gles || platform::is_emulator();
+    let forced = platform::forced_backend();
+    let gles = match forced.as_str() {
+        "vulkan" => false,
+        "gl" => true,
+        _ => s.gles || platform::is_emulator(),
+    };
     log::info!("grafika: {}", if gles { "OpenGL ES" } else { "Vulkan" });
     let mut setup = WgpuSetupCreateNew::default();
     setup.instance_descriptor.backends = if gles { wgpu::Backends::GL } else { wgpu::Backends::VULKAN | wgpu::Backends::GL };

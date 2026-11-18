@@ -5,7 +5,7 @@ PKG=com.blacksingularities.gran3d
 shot() {
   name="$1"; link="$2"; wait="$3"
   # cudzysłowy dla zdalnej powłoki: średniki w linku nie mogą rozdzielać poleceń
-  adb shell "am start -n $PKG/.GranActivity --ez gran_capture true --es gran_link '$link'"
+  adb shell "am start -n $PKG/.GranActivity --ez gran_capture true --es gran_backend '${GRAN_BACKEND:-}' --es gran_link '$link'"
   sleep "$wait"
   if adb shell pidof "$PKG" >/dev/null; then echo "$name: aplikacja działa"; else echo "::warning::$name: aplikacja nie działa"; fi
   adb exec-out screencap -p > "shots/$name.png"

@@ -30,23 +30,14 @@ pub enum Category {
     Warning,
     Water,
     View,
-    Shelter,
-    Parking,
     Photo,
+    /// Także rodzaje usunięte z programu (dawne „nocleg”, „parking”) i nieznane.
+    #[serde(other)]
     Other,
 }
 
 impl Category {
-    pub const ALL: [Category; 8] = [
-        Category::Warning,
-        Category::Info,
-        Category::Water,
-        Category::View,
-        Category::Shelter,
-        Category::Parking,
-        Category::Photo,
-        Category::Other,
-    ];
+    pub const ALL: [Category; 6] = [Category::Warning, Category::Info, Category::Water, Category::View, Category::Photo, Category::Other];
 
     pub fn label(self) -> &'static str {
         use crate::i18n::tr;
@@ -55,8 +46,6 @@ impl Category {
             Category::Warning => tr("Utrudnienie"),
             Category::Water => tr("Woda"),
             Category::View => tr("Punkt widokowy"),
-            Category::Shelter => tr("Nocleg i schronienie"),
-            Category::Parking => tr("Parking"),
             Category::Photo => tr("Miejsce na zdjęcie"),
             Category::Other => tr("Inne"),
         }
@@ -69,8 +58,6 @@ impl Category {
             Category::Warning => i::WARNING,
             Category::Water => i::DROP,
             Category::View => i::BINOCULARS,
-            Category::Shelter => i::TENT,
-            Category::Parking => i::CAR,
             Category::Photo => i::CAMERA,
             Category::Other => i::CHAT_CIRCLE_TEXT,
         }
@@ -82,8 +69,6 @@ impl Category {
             Category::Warning => Color32::from_rgb(247, 160, 60),
             Category::Water => Color32::from_rgb(90, 170, 255),
             Category::View => Color32::from_rgb(110, 214, 140),
-            Category::Shelter => Color32::from_rgb(214, 160, 110),
-            Category::Parking => Color32::from_rgb(150, 160, 255),
             Category::Photo => Color32::from_rgb(240, 120, 200),
             Category::Info => Color32::from_rgb(122, 176, 255),
             Category::Other => Color32::from_rgb(190, 196, 206),
@@ -158,9 +143,19 @@ pub struct Point {
     pub status: Status,
     #[serde(default)]
     pub mine: bool,
+    /// Oceny innych użytkowników: +1 i −1.
+    #[serde(default)]
+    pub up: u32,
+    #[serde(default)]
+    pub down: u32,
 }
 
 impl Point {
+    /// Bilans ocen.
+    pub fn score(&self) -> i64 {
+        self.up as i64 - self.down as i64
+    }
+
     /// Data utworzenia do wyświetlenia („2026-11-18”).
     pub fn date(&self) -> &str {
         self.created_at.get(..10).unwrap_or("")
@@ -188,6 +183,9 @@ struct Saved {
     outbox: Vec<Outgoing>,
     #[serde(default)]
     cache: Vec<Point>,
+    /// Własne oceny punktów (+1 / −1).
+    #[serde(default)]
+    votes: HashMap<String, i8>,
 }
 
 #[derive(Default)]
@@ -251,6 +249,7 @@ impl Points {
             "mine": s.saved.mine,
             "outbox": s.saved.outbox,
             "cache": cache,
+            "votes": s.saved.votes,
         });
         drop(s);
         let _ = std::fs::create_dir_all(crate::settings::config_dir());
@@ -406,6 +405,8 @@ impl Points {
                 comments: if text.trim().is_empty() { Vec::new() } else { vec![comment] },
                 status: Status::Queued,
                 mine: true,
+                up: 0,
+                down: 0,
             });
             s.saved.outbox.push(Outgoing::Point { local });
             Self::changed(&mut s);
@@ -436,6 +437,79 @@ impl Points {
         }
         self.persist();
         self.flush_now();
+    }
+
+    /// Moja ocena punktu: 1, −1 albo 0 (brak).
+    pub fn my_vote(&self, id: &str) -> i8 {
+        self.inner.lock().unwrap().saved.votes.get(id).copied().unwrap_or(0)
+    }
+
+    /// Ocena punktu (+1, −1, 0 – cofnięcie) wysyłana w tle; liczniki odświeżają się po odpowiedzi.
+    pub fn vote(&self, id: &str, value: i8) -> Result<(), String> {
+        if crate::offline::is_offline() {
+            return Err(crate::i18n::tr("Tryb offline – ocenisz punkt po połączeniu z siecią.").into());
+        }
+        if id.starts_with("local-") {
+            return Err(crate::i18n::tr("punkt nie został jeszcze wysłany").into());
+        }
+        let (client, prev) = {
+            let mut s = self.inner.lock().unwrap();
+            let prev = s.saved.votes.get(id).copied().unwrap_or(0);
+            if value == 0 {
+                s.saved.votes.remove(id);
+            } else {
+                s.saved.votes.insert(id.to_string(), value);
+            }
+            // od razu w liczniku (poprawione odpowiedzią serwera)
+            if let Some(p) = s.server.get_mut(id) {
+                let dec = |v: &mut u32| *v = v.saturating_sub(1);
+                match prev {
+                    1 => dec(&mut p.up),
+                    -1 => dec(&mut p.down),
+                    _ => {}
+                }
+                match value {
+                    1 => p.up += 1,
+                    -1 => p.down += 1,
+                    _ => {}
+                }
+            }
+            Self::changed(&mut s);
+            (s.saved.client.clone(), prev)
+        };
+        self.persist();
+        let me = self.clone();
+        let id = id.to_string();
+        std::thread::spawn(move || {
+            let body = serde_json::json!({ "app": "gran-3d", "client": client, "value": value });
+            let r = agent()
+                .post(&format!("{API}/{}/vote", crate::osm::urlencode(&id)))
+                .timeout(Duration::from_secs(20))
+                .set("Content-Type", "application/json")
+                .send_string(&body.to_string())
+                .map_err(err)
+                .and_then(json);
+            let mut s = me.inner.lock().unwrap();
+            match r {
+                Ok(v) => {
+                    if let Some(p) = s.server.get_mut(&id) {
+                        p.up = v["up"].as_u64().unwrap_or(p.up as u64) as u32;
+                        p.down = v["down"].as_u64().unwrap_or(p.down as u64) as u32;
+                    }
+                }
+                Err(e) => {
+                    log::warn!("ocena punktu: {e}");
+                    s.error = Some(e);
+                    if prev == 0 {
+                        s.saved.votes.remove(&id);
+                    } else {
+                        s.saved.votes.insert(id.clone(), prev);
+                    }
+                }
+            }
+            Self::changed(&mut s);
+        });
+        Ok(())
     }
 
     /// Zgłoszenie punktu do moderacji (spam, nieprawda, obraźliwe).
@@ -507,7 +581,7 @@ impl Points {
     fn send(&self, item: &Outgoing, client: &str) -> Result<(), String> {
         let base = |m: &mut serde_json::Map<String, serde_json::Value>| {
             m.insert("app".into(), "gran-3d".into());
-            m.insert("appVersion".into(), env!("CARGO_PKG_VERSION").into());
+            m.insert("appVersion".into(), crate::app_version().into());
             m.insert("platform".into(), crate::platform::NAME.into());
             m.insert("locale".into(), crate::i18n::current().into());
             m.insert("client".into(), client.into());
@@ -626,8 +700,10 @@ mod tests {
 
     #[test]
     fn parses_server_point() {
+        let old: Point = serde_json::from_value(serde_json::json!({ "id": "x", "lon": 1.0, "lat": 2.0, "category": "parking", "title": "Stary" })).unwrap();
+        assert_eq!(old.category, Category::Other, "usunięte rodzaje jako „Inne”");
         let v = serde_json::json!({
-            "id": "abc", "lon": 20.0, "lat": 49.2, "ele": 1987.5, "category": "water", "title": "Źródło",
+            "id": "abc", "lon": 20.0, "lat": 49.2, "ele": 1987.5, "category": "water", "title": "Źródło", "up": 5, "down": 2,
             "author": "Ania", "createdAt": "2026-11-18T10:00:00Z",
             "comments": [{ "id": "c1", "author": "Ania", "text": "Płynie", "createdAt": "2026-11-18T10:00:00Z" },
                          { "id": "c2", "author": "GRAŃ", "text": "Dzięki!", "official": true }]
@@ -638,6 +714,7 @@ mod tests {
         assert!(p.comments[1].official);
         assert_eq!(p.status, Status::Approved);
         assert_eq!(p.date(), "2026-11-18");
+        assert_eq!(p.score(), 3);
     }
 
     #[test]

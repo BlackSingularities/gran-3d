@@ -92,6 +92,10 @@ pub fn apply(ctx: &egui::Context) {
         }
     }
     ctx.set_fonts(fonts);
+    // zawsze ciemny motyw programu – przy jasnym motywie systemu (np. domyślnie na Androidzie)
+    // egui przełączało się na jasne kolory: czarne pogrubienia i jasne przyciski na ciemnym szkle
+    ctx.set_theme(egui::ThemePreference::Dark);
+    ctx.set_visuals_of(egui::Theme::Dark, visuals());
     ctx.set_visuals(visuals());
     ctx.style_mut(|s| {
         // tekst nie zawija się w wiersze interfejsu; akapity zawija jawnie `para`
@@ -362,6 +366,25 @@ pub fn bar(ui: &mut egui::Ui, frac: f32, color: Color32) {
 pub fn para(ui: &mut egui::Ui, text: impl Into<String>) {
     let text: String = text.into();
     ui.add(egui::Label::new(egui::RichText::new(tr(&text).to_string()).small().color(paper_3())).wrap());
+}
+
+/// Przycisk narzędzia na telefonie: ikona i mały podpis pod nią (wysokość jak zwykłego przycisku).
+pub fn tool_tile(ui: &mut egui::Ui, glyph: &str, label: &str, on: bool, w: f32) -> egui::Response {
+    let label = tr(label);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 48.0), Sense::click());
+    focus_ring(ui, &resp, rect, 10.0);
+    let p = ui.painter();
+    if on {
+        p.rect_filled(rect, 10.0, BRASS_DIM);
+    } else if resp.is_pointer_button_down_on() {
+        p.rect_filled(rect, 10.0, Color32::from_white_alpha(22));
+    }
+    let color = if on { BRASS } else { PAPER };
+    p.text(rect.center() - egui::vec2(0.0, 7.0), egui::Align2::CENTER_CENTER, glyph, FontId::proportional(20.0), color);
+    let g = p.layout_no_wrap(label.to_string(), FontId::proportional(9.5), if on { BRASS } else { paper_2() });
+    let x = rect.center().x - (g.size().x / 2.0).min(w / 2.0 - 1.0);
+    p.with_clip_rect(rect).galley(egui::pos2(x, rect.bottom() - 15.0), g, paper_2());
+    resp.on_hover_text(label)
 }
 
 /// Okrągły przycisk z samą ikoną.

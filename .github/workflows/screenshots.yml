@@ -12,12 +12,53 @@ on:
       run_id:
         description: Zamiast wydania – APK z przebiegu Build o tym numerze (test przed wydaniem)
         required: false
+      gpu:
+        description: Grafika emulatora (guest – SwiftShader w emulatorze, swiftshader_indirect)
+        required: false
+        default: guest
+      backend:
+        description: Interfejs grafiki programu (vulkan, gl, pusty – wybór programu)
+        required: false
+        default: vulkan
+      target:
+        description: android – emulator; phone – układ telefonu z programu na Windows (WARP), do plakatu
+        required: false
+        default: phone
 
 permissions:
   contents: read
 
 jobs:
+  phone:
+    if: inputs.target != 'android'
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalator z przebiegu Build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh run download "${{ inputs.run_id }}" --repo "$env:GITHUB_REPOSITORY" -n windows --dir inst
+          $setup = Get-ChildItem inst\GRAN-Setup-*.exe | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Get-ChildItem "$env:ProgramFiles\*\Gran.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) { $exe = Get-ChildItem "C:\Program Files*" -Recurse -Filter Gran.exe -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          "GRAN_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
+          Write-Host $exe.FullName
+      - name: Zrzuty układu telefonu
+        shell: pwsh
+        run: ./.github/phone-shots.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phone-screenshots
+          path: shots/
+          retention-days: 30
+
   android:
+    if: inputs.target == 'android'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -51,9 +92,9 @@ jobs:
           disk-size: 4G
           profile: pixel_6
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-options: -no-window -gpu ${{ inputs.gpu || 'guest' }} -no-snapshot -noaudio -no-boot-anim
           script: |
-            adb install -r "$(cat apk.txt)" && mkdir -p shots && adb logcat -c && sh .github/emulator-shots.sh
+            adb install -r "$(cat apk.txt)" && mkdir -p shots && adb logcat -c && GRAN_BACKEND="${{ inputs.backend }}" sh .github/emulator-shots.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

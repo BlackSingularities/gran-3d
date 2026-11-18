@@ -96,6 +96,9 @@ pub struct App {
     cleaning: Option<Arc<Mutex<Option<(usize, u64)>>>>,
 }
 
+/// Wersja ekranu powitalnego: większa – pokaż go raz także osobom, które przewodnik już widziały.
+const WELCOME: u32 = 1;
+
 /// Klucz ustawień widoku; nowy układ zaczyna od nowych domyślnych.
 const PREFS_KEY: &str = "atlas2";
 
@@ -142,6 +145,10 @@ impl App {
             }),
         };
         app.collect_garbage();
+        // zrzuty do dokumentacji: skala interfejsu z GRAN_ZOOM
+        if let Some(z) = std::env::var("GRAN_ZOOM").ok().and_then(|z| z.parse::<f32>().ok()) {
+            app.atlas.prefs.ui_scale = z.clamp(crate::ui::atlas::UI_SCALE_MIN, crate::ui::atlas::UI_SCALE_MAX);
+        }
         // link gran:// z wiersza poleceń (kliknięty w systemie)
         if let Some(l) = std::env::args().find(|a| a.starts_with("gran://")) {
             app.atlas.apply_link(&l);
@@ -150,7 +157,13 @@ impl App {
         if let Some(f) = std::env::args().skip(1).map(PathBuf::from).find(|p| crate::formats::is_track_file(p) && p.is_file()) {
             app.atlas.import_track(&f);
         }
-        app.tour = if app.settings.tour_done || std::env::var_os("GRAN_CAPTURE").is_some() { None } else { Some(0) };
+        // przewodnik dla nowych, a powitanie (autor, wsparcie, zgłoszenia) raz także dla dotychczasowych
+        let unseen = !app.settings.tour_done || app.settings.welcome < WELCOME;
+        app.tour = if unseen && std::env::var_os("GRAN_CAPTURE").is_none() { Some(0) } else { None };
+        // zrzuty do dokumentacji: przewodnik na wybranym kroku (GRAN_TOUR=0…)
+        if let Some(n) = std::env::var("GRAN_TOUR").ok().and_then(|n| n.parse::<usize>().ok()) {
+            app.tour = Some(n);
+        }
         if app.settings.auto_update && std::env::var_os("GRAN_CAPTURE").is_none() {
             app.check_updates(false);
         }
@@ -244,11 +257,20 @@ impl App {
         let mut settings = false;
         let update = &self.update;
         crate::ui::panels::top_bar(&mut self.atlas, ctx, |atlas, ui| {
-            if theme::icon_button(ui, theme::icon::GEAR, false).on_hover_text(crate::i18n::tr("Ustawienia (Ctrl+,)")).clicked() {
-                settings = true;
-            }
-            if theme::icon_button(ui, theme::icon::QUESTION, atlas.help).on_hover_text(crate::i18n::tr("Skróty i sterowanie (?)")).clicked() {
-                atlas.help = !atlas.help;
+            if atlas.compact {
+                if theme::tool_tile(ui, theme::icon::GEAR, crate::i18n::tr("Ustawienia"), false, 52.0).clicked() {
+                    settings = true;
+                }
+                if theme::tool_tile(ui, theme::icon::QUESTION, crate::i18n::tr("Pomoc"), atlas.help, 46.0).clicked() {
+                    atlas.help = !atlas.help;
+                }
+            } else {
+                if theme::icon_button(ui, theme::icon::GEAR, false).on_hover_text(crate::i18n::tr("Ustawienia (Ctrl+,)")).clicked() {
+                    settings = true;
+                }
+                if theme::icon_button(ui, theme::icon::QUESTION, atlas.help).on_hover_text(crate::i18n::tr("Skróty i sterowanie (?)")).clicked() {
+                    atlas.help = !atlas.help;
+                }
             }
             if let Update::Available(rel) = update {
                 if ui.add(theme::primary(&tf!("Aktualizacja {}", rel.version))).clicked() {
@@ -442,7 +464,7 @@ impl App {
                             crate::ui::panels::offline_areas(atlas, ui);
                         }
                         Page::About => {
-                            ui.label(RichText::new(tf!("GRAŃ {}", env!("CARGO_PKG_VERSION"))).size(22.0).strong());
+                            ui.label(RichText::new(tf!("GRAŃ {}", crate::app_version())).size(22.0).strong());
                             if ui.button(theme::ic(theme::icon::ARROWS_CLOCKWISE, "Sprawdź aktualizacje")).clicked() {
                                 check = true;
                             }
@@ -661,60 +683,95 @@ impl App {
         }
     }
 
-    /// Przewodnik pierwszego uruchomienia: kilka kart z podstawami.
+    /// Przewodnik pierwszego uruchomienia: powitanie z informacją o autorze, podstawy obsługi,
+    /// punkty i mapy offline, na koniec wsparcie i zgłaszanie błędów.
     fn tour_ui(&mut self, ctx: &egui::Context) {
         use crate::i18n::tr;
         let Some(step) = self.tour else { return };
         if self.settings_open.is_some() || self.moving.is_some() {
             return;
         }
-        let steps: [(&str, &str, &str); 6] = [
-            (theme::icon::MOUNTAINS, crate::i18n::tr("Witaj w GRANI"), crate::i18n::tr("Trójwymiarowy atlas szlaków górskich z prawdziwym modelem terenu. W kilku krokach pokażę, jak z niego korzystać.")),
-            if crate::platform::MOBILE {
-                (theme::icon::HAND_GRABBING, crate::i18n::tr("Poruszanie mapą"), crate::i18n::tr("Jeden palec – przesuwanie. Dwa palce: rozsuwanie przybliża, obrót palców obraca mapę, przesuwanie w górę i w dół zmienia nachylenie. Dwukrotne dotknięcie przybliża, przytrzymanie palca otwiera menu punktu."))
+        let mobile = crate::platform::MOBILE;
+        let steps: [(&str, &str, &str); 7] = [
+            (theme::icon::MOUNTAINS, "Witaj w GRANI", "Trójwymiarowy atlas gór z prawdziwym modelem terenu, znakowanymi szlakami i trasami z wariantami – na Windows i Androida. W kilku krokach pokażę, jak z niego korzystać."),
+            if mobile {
+                (theme::icon::HAND_GRABBING, "Poruszanie mapą", "Jeden palec – przesuwanie. Dwa palce: rozsuwanie przybliża, obrót palców obraca mapę, przesuwanie w górę i w dół zmienia nachylenie. Przytrzymaj palec na miejscu, żeby je zaznaczyć i zobaczyć szczegóły.")
             } else {
-                (theme::icon::HAND_GRABBING, crate::i18n::tr("Poruszanie mapą"), crate::i18n::tr("Lewy przycisk – przesuwanie (chwytasz teren). Prawy przycisk – obrót wokół chwyconego punktu. Kółko – przybliżanie do kursora, dwuklik – przybliżenie do punktu. Klawisze: strzałki, Q E, PgUp PgDn."))
+                (theme::icon::HAND_GRABBING, "Poruszanie mapą", "Lewy przycisk – przesuwanie (chwytasz teren). Prawy przycisk – obrót wokół chwyconego punktu. Kółko – przybliżanie do kursora, dwuklik – przybliżenie do punktu. Klawisze: strzałki, Q E, PgUp PgDn.")
             },
-            if crate::platform::MOBILE {
-                (theme::icon::PATH, crate::i18n::tr("Planowanie trasy"), crate::i18n::tr("Wybierz narzędzie trasy w dolnym pasku i dotykaj mapy: start, punkty pośrednie, cel. Punkty można przeciągać. Trasę zapiszesz w bibliotece albo wyeksportujesz do GPX, KML lub FIT."))
+            if mobile {
+                (theme::icon::PATH, "Planowanie trasy", "Wybierz „Trasa” w dolnym pasku i przytrzymuj palec na mapie: start, punkty pośrednie, cel. Punkty można przeciągać. Trasę zapiszesz w bibliotece albo wyeksportujesz do GPX, KML lub FIT.")
             } else {
-                (theme::icon::PATH, crate::i18n::tr("Planowanie trasy"), crate::i18n::tr("Wybierz narzędzie trasy (klawisz 2) i klikaj na mapie: start, punkty pośrednie, cel. Punkty można przeciągać, Ctrl+Z cofa zmianę, Ctrl+Y ją ponawia. Trasę zapiszesz w bibliotece (Ctrl+S) albo wyeksportujesz do GPX, KML lub GeoJSON."))
+                (theme::icon::PATH, "Planowanie trasy", "Wybierz narzędzie trasy (klawisz 2) i klikaj na mapie: start, punkty pośrednie, cel. Punkty można przeciągać, Ctrl+Z cofa zmianę, Ctrl+Y ją ponawia. Trasę zapiszesz w bibliotece (Ctrl+S) albo wyeksportujesz do GPX, KML lub GeoJSON.")
             },
-            (theme::icon::MAP_PIN_PLUS, crate::i18n::tr("Punkty i mapy offline"), crate::i18n::tr("Narzędzie „Punkty i komentarze” pozwala opisać miejsce dla innych turystów (źródło, utrudnienie, widok). „Mapy offline” pobiera wybrany obszar, żeby działał bez internetu.")),
-            if crate::platform::MOBILE {
-                (theme::icon::PERSON_SIMPLE_WALK, crate::i18n::tr("Spacer"), crate::i18n::tr("Przycisk z idącą postacią stawia Cię na terenie: lewy drążek na ekranie – chodzenie, przeciąganie palcem – rozglądanie, „wstecz” – wyjście."))
+            (theme::icon::MAP_PIN_PLUS, "Punkty i komentarze", "Narzędzie „Punkty” pozwala opisać miejsce dla innych turystów: utrudnienie na szlaku, źródło, punkt widokowy. Cudze punkty możesz ocenić (+1 / −1) i skomentować, a nieprawdziwy albo obraźliwy wpis – zgłosić przyciskiem „Zgłoś” w szczegółach punktu. Wpisy sprawdzam przed publikacją."),
+            (theme::icon::DOWNLOAD_SIMPLE, "Mapy offline", "„Mapy offline” pobiera zaznaczony obszar – teren, zdjęcia, szlaki i nazwy – żeby działał bez internetu. Pobrane obszary nie znikają przy sprzątaniu danych, a tryb offline całkowicie odcina sieć."),
+            if mobile {
+                (theme::icon::PERSON_SIMPLE_WALK, "Spacer i biblioteka", "Przycisk „Spacer” stawia Cię na terenie: drążek na ekranie – chodzenie, przeciąganie palcem – rozglądanie. Biblioteka trzyma zapisane trasy, miejsca i widoki. Przycisk „wstecz” zamyka kolejne okna i panele.")
             } else {
-                (theme::icon::PERSON_SIMPLE_WALK, crate::i18n::tr("Spacer"), crate::i18n::tr("Przycisk z idącą postacią stawia Cię na terenie: W A S D – chodzenie, Shift – bieg, spacja – skok, prawy przycisk – rozglądanie, Esc – wyjście."))
+                (theme::icon::PERSON_SIMPLE_WALK, "Spacer i skróty", "Przycisk z idącą postacią stawia Cię na terenie: W A S D – chodzenie, Shift – bieg, spacja – skok. Biblioteka (B) trzyma zapisane trasy, miejsca i widoki. F11 – pełny ekran, ? – wszystkie skróty.")
             },
-            if crate::platform::MOBILE {
-                (theme::icon::BOOKMARKS, crate::i18n::tr("Biblioteka"), crate::i18n::tr("Biblioteka trzyma zapisane trasy, ulubione miejsca i widoki. Przycisk „wstecz” zamyka kolejne okna i panele. Przewodnik obejrzysz ponownie z ustawień."))
-            } else {
-                (theme::icon::BOOKMARKS, crate::i18n::tr("Biblioteka i skróty"), crate::i18n::tr("Biblioteka (B) trzyma zapisane trasy, ulubione miejsca i widoki. F11 – pełny ekran, ? – wszystkie skróty. Przewodnik obejrzysz ponownie z ustawień."))
-            },
+            (theme::icon::HEART, "Wsparcie i kontakt", "GRAŃ tworzę sam, po godzinach, i udostępniam za darmo. Jeśli program Ci się przydaje, możesz postawić mi kawę. Błąd albo pomysł na nową funkcję zgłosisz z ustawień (O programie → Zgłoś błąd lub sugestię) – zgłoszenie trafia prosto do mnie. Przewodnik obejrzysz ponownie z ustawień."),
         ];
         let step = step.min(steps.len() - 1);
+        let last = step + 1 == steps.len();
         let (glyph, title, body) = steps[step];
         let mut next = Some(step);
-        egui::Modal::new(egui::Id::new("przewodnik")).frame(theme::glass().inner_margin(egui::Margin::same(22))).show(ctx, |ui| {
-            ui.set_width(theme::fit(ctx, 460.0));
+        let mut feedback = false;
+        let w = theme::fit(ctx, 520.0);
+        egui::Modal::new(egui::Id::new("przewodnik")).frame(theme::glass().inner_margin(egui::Margin::same(24))).show(ctx, |ui| {
+            ui.set_width(w);
             ui.horizontal(|ui| {
-                ui.label(RichText::new(glyph).size(30.0).color(theme::BRASS));
+                if step == 0 || last {
+                    let logo = theme::logo(ctx);
+                    ui.add(egui::Image::new((logo.id(), egui::vec2(56.0, 56.0))));
+                } else {
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(56.0, 56.0), egui::Sense::hover());
+                    ui.painter().circle_filled(r.center(), 27.0, theme::BRASS_DIM);
+                    ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(28.0), theme::BRASS);
+                }
+                ui.add_space(6.0);
                 ui.vertical(|ui| {
                     ui.label(RichText::new(tf!("Krok {} z {}", step + 1, steps.len())).small().color(theme::paper_3()));
-                    ui.label(RichText::new(tr(title)).size(20.0).strong());
+                    ui.add(egui::Label::new(RichText::new(tr(title)).size(22.0).strong()).wrap());
                 });
             });
-            ui.add_space(10.0);
+            ui.add_space(12.0);
             ui.add(egui::Label::new(RichText::new(tr(body)).size(15.0).color(theme::paper_2())).wrap());
-            ui.add_space(16.0);
+            // autor (powitanie) i wsparcie (koniec)
+            if step == 0 || last {
+                ui.add_space(12.0);
+                theme::card(false).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new(tr("Autor")).small().color(theme::paper_3()));
+                    ui.label(RichText::new("Adam Rędzikowski").size(16.0).strong());
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.link("redzikowski.com").clicked() {
+                            crate::platform::open_url("https://redzikowski.com/portfolio/gran-3d");
+                        }
+                        ui.label(RichText::new("·  kontakt@redzikowski.com").color(theme::paper_3()));
+                    });
+                    ui.add_space(6.0);
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.add(theme::primary(&theme::ic(theme::icon::COFFEE, "Postaw kawę"))).clicked() {
+                            crate::platform::open_url("https://buycoffee.to/adamredzikowski");
+                        }
+                        if ui.add(egui::Button::new(theme::ic(theme::icon::BUG, "Zgłoś błąd lub sugestię")).min_size(egui::vec2(0.0, 34.0))).clicked() {
+                            feedback = true;
+                        }
+                    });
+                });
+            }
+            ui.add_space(18.0);
             ui.horizontal(|ui| {
-                // postęp: kropki
                 for i in 0..steps.len() {
-                    let (r, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
-                    ui.painter().circle_filled(r.center(), 4.0, if i == step { theme::BRASS } else { theme::INK_4 });
+                    let (r, resp) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
+                    ui.painter().circle_filled(r.center(), if i == step { 5.0 } else { 3.5 }, if i == step { theme::BRASS } else { theme::INK_4 });
+                    if resp.clicked() {
+                        next = Some(i);
+                    }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let last = step + 1 == steps.len();
                     if ui.add(theme::primary(if last { crate::i18n::tr("Zaczynamy") } else { crate::i18n::tr("Dalej") })).clicked() {
                         next = if last { None } else { Some(step + 1) };
                     }
@@ -728,8 +785,12 @@ impl App {
             });
         });
         self.tour = next;
-        if next.is_none() && !self.settings.tour_done {
+        if feedback {
+            self.feedback.open();
+        }
+        if next.is_none() && (!self.settings.tour_done || self.settings.welcome < WELCOME) {
             self.settings.tour_done = true;
+            self.settings.welcome = WELCOME;
             let _ = self.settings.save();
         }
     }
@@ -807,9 +868,13 @@ impl eframe::App for App {
         theme::set_high_contrast(ctx, self.atlas.prefs.high_contrast);
         // telefon: arkusz szczegółów od dołu zamiast panelu bocznego
         self.atlas.compact = theme::compact(ctx);
-        let sh = ctx.screen_rect().height();
+        let [it, ib] = crate::platform::insets();
+        let ppp = ctx.pixels_per_point().max(0.1);
+        self.atlas.safe_top = it / ppp;
+        self.atlas.safe_bottom = ib / ppp;
+        let sh = ctx.screen_rect().height() - self.atlas.safe_top - self.atlas.safe_bottom;
         let max_sheet = (sh - crate::ui::panels::TOP_BAR_H - crate::ui::panels::STATUS_H - crate::ui::panels::TOOLBAR_H - 8.0).max(200.0);
-        self.atlas.sheet_h = if self.atlas.sheet_full { max_sheet } else { (sh * 0.46).clamp(240.0, max_sheet) };
+        self.atlas.sheet_h = if self.atlas.sheet_full { max_sheet } else { (sh * 0.46).max(240.0).min(max_sheet) };
         self.update_ui(ctx);
 
         self.top_bar(ctx);

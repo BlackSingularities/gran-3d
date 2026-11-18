@@ -7,6 +7,11 @@ use super::Storage;
 /// Zdarzenia systemu przychodzą na komputerze od razu (okna dialogowe są synchroniczne).
 pub fn poll() {}
 
+/// Paski systemu nad oknem programu (góra, dół) w pikselach – na komputerze brak.
+pub fn insets() -> [f32; 2] {
+    [0.0, 0.0]
+}
+
 pub fn device() -> String {
     format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)
 }

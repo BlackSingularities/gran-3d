@@ -10,7 +10,7 @@ impl Atlas {
         // górnym paskiem ani pod profilem i paskiem stanu na dole
         let shown = crate::ui::panels::controls_alpha(self, ui.ctx()) > 0.05;
         let side = if shown { crate::ui::panels::right_inset(self) } else { 0.0 };
-        let top = if shown { crate::ui::panels::TOP_BAR_H } else { 0.0 };
+        let top = self.safe_top + if shown { crate::ui::panels::TOP_BAR_H } else { 0.0 };
         // profil i pasek stanu nie chowają się razem z kontrolkami
         let bottom = crate::ui::panels::bottom_inset(self);
         let visible = Rect::from_min_max(
@@ -267,7 +267,7 @@ impl Atlas {
         pc.multiply_opacity(alpha);
         let r = 30.0;
         // pod górnym paskiem, obok panelu bocznego
-        let c = rect.right_top() + Vec2::new(-51.0 - crate::ui::panels::right_inset(self), 51.0 + crate::ui::panels::TOP_BAR_H);
+        let c = rect.right_top() + Vec2::new(-51.0 - crate::ui::panels::right_inset(self), 51.0 + self.safe_top + crate::ui::panels::TOP_BAR_H);
         let compass = Rect::from_center_size(c, Vec2::splat(r * 2.0 + 4.0));
         let resp = ui.interact(compass, ui.id().with("kompas"), if alpha > 0.05 { Sense::click_and_drag() } else { Sense::hover() });
         let hot = resp.hovered() || resp.dragged();
@@ -376,7 +376,9 @@ impl Atlas {
                 ));
             }
         }
-        let bar = Rect::from_min_max(rect.left_bottom() - Vec2::new(0.0, 24.0), rect.right_bottom());
+        // telefon: pasek stanu nad dolnym paskiem narzędzi i nad paskiem nawigacji systemu
+        let bar_bottom = rect.bottom() - self.safe_bottom - crate::ui::panels::toolbar_h(self);
+        let bar = Rect::from_min_max(Pos2::new(rect.left(), bar_bottom - 24.0), Pos2::new(rect.right(), bar_bottom));
         self.glass.push((bar, 1.0));
         p.rect_filled(bar, 0.0, theme::glass_fill());
         // cały pasek jednym pismem i jedną barwą: odczyt kursora, stan wczytywania, źródła danych
@@ -385,11 +387,13 @@ impl Atlas {
         // źródła danych przy prawej krawędzi; pozostałe napisy nie wchodzą na siebie
         let attr_g = p.layout_no_wrap(attr_text(self.prefs.style).to_string(), bar_font.clone(), bar_color);
         let attr_left = bar.right() - 12.0 - attr_g.size().x;
-        p.galley(Pos2::new(attr_left, bar.center().y - attr_g.size().y / 2.0), attr_g, bar_color);
-        let info_g = p.layout_no_wrap(info, bar_font.clone(), bar_color);
+        let info_g = p.layout_no_wrap(info.clone(), bar_font.clone(), bar_color);
         let info_right = bar.left() + 12.0 + info_g.size().x;
-        p.with_clip_rect(Rect::from_min_max(bar.min, Pos2::new((attr_left - 16.0).max(bar.left()), bar.bottom())))
-            .galley(Pos2::new(bar.left() + 12.0, bar.center().y - info_g.size().y / 2.0), info_g, bar_color);
+        if !self.compact {
+            p.galley(Pos2::new(attr_left, bar.center().y - attr_g.size().y / 2.0), attr_g, bar_color);
+            p.with_clip_rect(Rect::from_min_max(bar.min, Pos2::new((attr_left - 16.0).max(bar.left()), bar.bottom())))
+                .galley(Pos2::new(bar.left() + 12.0, bar.center().y - info_g.size().y / 2.0), info_g, bar_color);
+        }
 
         // stan wczytywania i tryby
         let mut chips: Vec<String> = Vec::new();
@@ -443,8 +447,48 @@ impl Atlas {
         if let Some(t) = lens_txt {
             chips.push(format!("{t}{}", if self.lens_pin.is_some() { crate::i18n::tr(" (przypięta · klik – w nowe miejsce · Esc)") } else { crate::i18n::tr(" · klik przypina") }));
         }
+        // telefon: jeden wiersz od lewej (odczyt, stan, źródła danych), przewijany palcem w poziomie;
+        // dotknięcie otwiera szczegóły wczytywania
+        if self.compact {
+            let mut parts: Vec<String> = Vec::new();
+            if !info.is_empty() {
+                parts.push(info.clone());
+            }
+            parts.extend(chips.iter().cloned());
+            parts.push(attr_text(self.prefs.style).to_string());
+            let g = p.layout_no_wrap(parts.join("   ·   "), bar_font.clone(), bar_color);
+            let room = bar.width() - 24.0;
+            let max = (g.size().x - room).max(0.0);
+            let resp = ui.interact(bar, ui.id().with("pasek-stanu"), Sense::click_and_drag());
+            if resp.dragged() {
+                self.status_scroll = (self.status_scroll - resp.drag_delta().x).clamp(0.0, max);
+            }
+            self.status_scroll = self.status_scroll.clamp(0.0, max);
+            p.with_clip_rect(bar.shrink2(Vec2::new(8.0, 0.0))).galley(Pos2::new(bar.left() + 12.0 - self.status_scroll, bar.center().y - g.size().y / 2.0), g, bar_color);
+            // zanikanie przy krawędziach, gdy jest co przewinąć
+            if max > 0.0 {
+                let fade = |x0: f32, x1: f32, left: bool| {
+                    let steps = 8;
+                    for i in 0..steps {
+                        let t = i as f32 / steps as f32;
+                        let a = ((if left { 1.0 - t } else { t }) * 200.0) as u8;
+                        let x = x0 + (x1 - x0) * t;
+                        p.rect_filled(Rect::from_min_max(Pos2::new(x, bar.top()), Pos2::new(x + (x1 - x0) / steps as f32 + 0.5, bar.bottom())), 0.0, Color32::from_rgba_unmultiplied(20, 23, 29, a));
+                    }
+                };
+                if self.status_scroll > 0.5 {
+                    fade(bar.left(), bar.left() + 18.0, true);
+                }
+                if self.status_scroll < max - 0.5 {
+                    fade(bar.right() - 18.0, bar.right(), false);
+                }
+            }
+            if resp.clicked() {
+                self.load_details = !self.load_details;
+            }
+        }
         // statusy na środku dolnego paska (nad odczytem kursora i atrybucją)
-        if !chips.is_empty() {
+        if !chips.is_empty() && !self.compact {
             // zwykły tekst na pasku, bez tła i obwódki; klik otwiera szczegóły wczytywania
             let g = p.layout_no_wrap(chips.join("  ·  "), bar_font, bar_color);
             // na środku paska, a gdy brakuje miejsca – między odczytem kursora a źródłami danych

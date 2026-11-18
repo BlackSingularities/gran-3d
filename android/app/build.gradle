@@ -2,9 +2,9 @@ plugins {
     id 'com.android.application'
 }
 
-// wersja z Cargo.toml (ta sama co programu Windows)
-def cargo = file('../../Cargo.toml').readLines().find { it.startsWith('version = ') }
-def granVersion = cargo.replaceAll(/version = "(.*)"/, '$1')
+// wersja Androida z android/VERSION (numeracja niezależna od Windows); kod wersji zaczyna się od
+// 100000, bo wcześniejsze APK (1.x z Electrona, 4.0.x) miały kody do 40001
+def granVersion = file('../VERSION').text.trim()
 def (vMaj, vMin, vPat) = granVersion.tokenize('.').collect { it.replaceAll('[^0-9].*', '') as int }
 
 // podpis wydania: plik keystore i hasła ze zmiennych środowiskowych (sekrety CI)
@@ -20,7 +20,7 @@ android {
         applicationId 'com.blacksingularities.gran3d'
         minSdk = 26
         targetSdk = 34
-        versionCode vMaj * 10000 + vMin * 100 + vPat
+        versionCode 100000 + vMaj * 10000 + vMin * 100 + vPat
         versionName granVersion
         ndk { abiFilters 'arm64-v8a' }
     }

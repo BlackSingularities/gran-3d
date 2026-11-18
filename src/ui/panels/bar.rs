@@ -62,13 +62,19 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
     ctx.request_repaint_after(std::time::Duration::from_secs(20));
     let alpha = controls_alpha(a, ctx);
     let screen = ctx.screen_rect();
+    // pod paskiem stanu systemu (Android), który dostaje własne ciemne tło
+    let top = screen.top() + a.safe_top;
+    if a.safe_top > 0.0 {
+        let strip = egui::Rect::from_min_max(screen.min, egui::pos2(screen.right(), top));
+        ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("pasek-systemu"))).rect_filled(strip, 0.0, theme::INK_0);
+    }
     egui::Area::new(egui::Id::new("gorny-pasek"))
-        .fixed_pos(screen.min)
+        .fixed_pos(egui::pos2(screen.left(), top))
         .order(egui::Order::Middle)
         .interactable(alpha > 0.05)
         .show(ctx, |ui| {
             ui.multiply_opacity(alpha);
-            let bar = egui::Rect::from_min_size(screen.min, egui::vec2(screen.width(), TOP_BAR_H));
+            let bar = egui::Rect::from_min_size(egui::pos2(screen.left(), top), egui::vec2(screen.width(), TOP_BAR_H));
             let p = ui.painter();
             p.rect_filled(bar, 0.0, theme::glass_fill());
             p.line_segment([bar.left_bottom(), bar.right_bottom()], egui::Stroke::new(1.0, theme::glass_edge()));
@@ -90,11 +96,17 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
                     layers_button(a, ui);
                     style_button(a, ui);
                     sun_button(a, ui);
-                    if a.search.is_none() {
-                        let w = ui.available_width() - 4.0;
-                        search_field_w(a, ui, w);
+                    if theme::tool_tile(ui, theme::icon::MAGNIFYING_GLASS, crate::i18n::tr("Szukaj"), a.search.is_some(), 46.0).clicked() {
+                        a.search = Some(Default::default());
                     }
                 });
+                // zamykanie wyszukiwarki: pole zwija się z powrotem do przycisku
+                let t = ctx.animate_bool_with_time(egui::Id::new("szukaj-rozwiniecie"), a.search.is_some(), SEARCH_ANIM);
+                if a.search.is_none() && t > 0.01 {
+                    let r = search_rect(ctx, a.safe_top, t);
+                    ui.painter().rect_filled(r, 14.0, theme::POPUP_FILL);
+                    ctx.request_repaint();
+                }
                 return;
             }
             row(ui, inner, egui::Layout::left_to_right(egui::Align::Center), &mut |ui| tools(a, ui));
@@ -114,6 +126,18 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
                 sun_button(a, ui);
             });
         });
+}
+
+/// Czas rozwijania i zwijania wyszukiwarki na telefonie (s).
+pub const SEARCH_ANIM: f32 = 0.22;
+
+/// Wyszukiwarka na telefonie: od przycisku przy lewej krawędzi (`t` = 0) do całego paska (`t` = 1).
+pub fn search_rect(ctx: &egui::Context, safe_top: f32, t: f32) -> egui::Rect {
+    let s = ctx.screen_rect();
+    let e = egui::emath::easing::cubic_out(t.clamp(0.0, 1.0));
+    let (x0, w0, w1) = (s.left() + 12.0, 46.0, s.width() - 16.0);
+    let x = x0 + (s.left() + 8.0 - x0) * e;
+    egui::Rect::from_min_size(egui::pos2(x, s.top() + safe_top + 4.0), egui::vec2(w0 + (w1 - w0) * e, TOP_BAR_H - 8.0))
 }
 
 /// Wysokość górnego paska.
@@ -143,7 +167,7 @@ pub fn profile_expanded(a: &Atlas) -> bool {
 /// Odsunięcie od dołu okna: pasek stanu, pasek narzędzi i arkusz (telefon) oraz profil trasy.
 pub fn bottom_inset(a: &Atlas) -> f32 {
     let sheet = if sheet_open(a) { a.sheet_h } else { 0.0 };
-    STATUS_H + toolbar_h(a) + sheet + match (a.profile_route().is_some(), profile_expanded(a)) {
+    a.safe_bottom + STATUS_H + toolbar_h(a) + sheet + match (a.profile_route().is_some(), profile_expanded(a)) {
         (false, _) => 0.0,
         (true, true) => PROFILE_H + 20.0,
         (true, false) => PROFILE_BAR_H + 20.0,
@@ -157,7 +181,8 @@ pub fn bottom_toolbar(a: &mut Atlas, ctx: &egui::Context) {
         return;
     }
     let screen = ctx.screen_rect();
-    let bar = egui::Rect::from_min_size(egui::pos2(screen.left(), screen.bottom() - STATUS_H - TOOLBAR_H), egui::vec2(screen.width(), TOOLBAR_H));
+    // na samym dole, nad paskiem nawigacji systemu (pasek stanu programu leży nad narzędziami)
+    let bar = egui::Rect::from_min_size(egui::pos2(screen.left(), screen.bottom() - a.safe_bottom - TOOLBAR_H), egui::vec2(screen.width(), TOOLBAR_H));
     a.glass.push((bar, 1.0));
     egui::Area::new(egui::Id::new("dolny-pasek"))
         .fixed_pos(bar.min)
@@ -165,12 +190,15 @@ pub fn bottom_toolbar(a: &mut Atlas, ctx: &egui::Context) {
         .show(ctx, |ui| {
             let p = ui.painter();
             p.rect_filled(bar, 0.0, theme::glass_fill());
+            if a.safe_bottom > 0.0 {
+                p.rect_filled(egui::Rect::from_min_max(bar.left_bottom(), screen.right_bottom()), 0.0, theme::INK_0);
+            }
             p.line_segment([bar.left_top(), bar.right_top()], egui::Stroke::new(1.0, theme::glass_edge()));
-            ui.scope_builder(egui::UiBuilder::new().max_rect(bar.shrink2(egui::vec2(6.0, 8.0))), |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(bar.shrink2(egui::vec2(4.0, 6.0))), |ui| {
                 egui::ScrollArea::horizontal().id_salt("narzedzia-dol").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
                     ui.horizontal_centered(|ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        tools(a, ui);
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        compact_tools(a, ui);
                     });
                 });
             });
@@ -251,6 +279,58 @@ pub(super) fn tools(a: &mut Atlas, ui: &mut egui::Ui) {
     }
 }
 
+/// Narzędzia dolnego paska na telefonie: te same co na komputerze, z krótkimi podpisami.
+fn compact_tools(a: &mut Atlas, ui: &mut egui::Ui) {
+    const W: f32 = 58.0;
+    let plain = a.tool == Tool::Explore && a.lens == Lens::None && a.panorama.is_none();
+    let ctx = ui.ctx().clone();
+    if theme::tool_tile(ui, theme::icon::CURSOR, "Wybór", plain, W).clicked() {
+        select_mode(a, &ctx);
+    }
+    for (tab, glyph, label) in [(Tab::Info, theme::icon::COMPASS, "Szczegóły"), (Tab::Library, theme::icon::BOOKMARKS, "Biblioteka"), (Tab::Conditions, theme::icon::CLOUD_SUN, "Warunki")] {
+        let on = a.prefs.panel_open && a.tab == tab;
+        if theme::tool_tile(ui, glyph, label, on, W).clicked() {
+            a.prefs.panel_open = !on;
+            a.tab = tab;
+        }
+    }
+    ui.separator();
+    for t in Tool::ALL.into_iter().filter(|t| *t != Tool::Explore) {
+        let label = match t {
+            Tool::Route => "Trasa",
+            Tool::Measure => "Pomiar",
+            Tool::Point => "Punkty",
+            Tool::Area => "Offline",
+            Tool::Explore => "",
+        };
+        if theme::tool_tile(ui, t.behavior().icon(), label, a.tool == t, W).clicked() {
+            a.run(Action::Tool(t), &ctx);
+        }
+    }
+    ui.separator();
+    for l in Lens::ALL {
+        let label = match l {
+            Lens::Band => "Poziom",
+            Lens::Rel => "Względna",
+            Lens::Vis => "Widok stąd",
+            Lens::Time => "Dojście",
+            Lens::None => "",
+        };
+        if theme::tool_tile(ui, l.icon(), label, a.lens == l, W).clicked() {
+            a.set_lens(l);
+        }
+    }
+    ui.separator();
+    if theme::tool_tile(ui, theme::icon::PERSON_SIMPLE_WALK, "Spacer", a.panorama.is_some(), W).clicked() {
+        if a.panorama.is_some() {
+            a.exit_panorama();
+        } else {
+            let (lon, lat) = (a.cam.lon, a.cam.lat);
+            a.enter_panorama(lon, lat);
+        }
+    }
+}
+
 /// Pora dnia: ikona słońca lub księżyca, godzina i data; rozwija panel światła.
 pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
     let (day, hour) = a.when();
@@ -265,14 +345,15 @@ pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
     };
     let accent = if custom { theme::BRASS } else { theme::PAPER };
     let narrow = a.compact;
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(if narrow { 44.0 } else { 118.0 }, 42.0), egui::Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(if narrow { 46.0 } else { 118.0 }, if narrow { 48.0 } else { 42.0 }), egui::Sense::click());
     theme::focus_ring(ui, &resp, rect, 12.0);
     let p = ui.painter();
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     p.rect_filled(rect, 12.0, if open { Color32::from_rgba_unmultiplied(122, 176, 255, 40) } else if resp.hovered() { Color32::from_white_alpha(16) } else { Color32::TRANSPARENT });
     let sun_col = if alt > 6.0 { theme::WARN } else if alt > -6.0 { Color32::from_rgb(255, 150, 90) } else { Color32::from_rgb(160, 180, 255) };
     if narrow {
-        p.text(rect.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(22.0), if custom { theme::BRASS } else { sun_col });
+        p.text(rect.center() - egui::vec2(0.0, 7.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(20.0), if custom { theme::BRASS } else { sun_col });
+        p.text(rect.center_bottom() - egui::vec2(0.0, 9.0), egui::Align2::CENTER_CENTER, fmt::hour(hour), egui::FontId::proportional(9.5), if custom { theme::BRASS } else { theme::paper_2() });
     } else {
         p.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(22.0), sun_col);
         p.text(rect.left_top() + egui::vec2(38.0, 5.0), egui::Align2::LEFT_TOP, fmt::hour(hour), egui::FontId::proportional(16.0), accent);
@@ -300,14 +381,16 @@ pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bar_menu(ui: &mut egui::Ui, glyph: &str, glyph_color: Color32, title: &str, sub: &str, w: f32, hint: &str, width: f32, body: impl FnOnce(&mut egui::Ui)) -> Option<egui::Rect> {
     let narrow = theme::compact(ui.ctx());
-    let w = if narrow { 44.0 } else { w };
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 42.0), egui::Sense::click());
+    let w = if narrow { 50.0 } else { w };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, if narrow { 48.0 } else { 42.0 }), egui::Sense::click());
     theme::focus_ring(ui, &resp, rect, 12.0);
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     let p = ui.painter();
     p.rect_filled(rect, 12.0, if open { Color32::from_rgba_unmultiplied(122, 176, 255, 40) } else if resp.hovered() { Color32::from_white_alpha(16) } else { Color32::TRANSPARENT });
     if narrow {
-        p.text(rect.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(21.0), glyph_color);
+        p.text(rect.center() - egui::vec2(0.0, 7.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(20.0), glyph_color);
+        let short = title.split_whitespace().next().unwrap_or(title);
+        p.text(rect.center_bottom() - egui::vec2(0.0, 9.0), egui::Align2::CENTER_CENTER, short, egui::FontId::proportional(9.5), theme::paper_2());
     } else {
         p.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(20.0), glyph_color);
         p.text(rect.left_top() + egui::vec2(38.0, 5.0), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(14.0), theme::PAPER);
