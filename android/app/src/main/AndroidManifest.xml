@@ -31,6 +31,13 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- link do widoku: gran://widok?… -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="gran" />
+            </intent-filter>
             <!-- „Otwórz za pomocą GRANI”: ślady GPX, KML, GeoJSON -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

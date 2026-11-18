@@ -55,6 +55,16 @@ public class GranActivity extends NativeActivity {
     /** Plik otwarty z innej aplikacji („Otwórz za pomocą GRANI”, „Udostępnij”). */
     private void handleIntent(Intent intent) {
         if (intent == null) return;
+        // link gran://widok?… (z przeglądarki albo `am start --es gran_link …`)
+        String link = intent.getStringExtra("gran_link");
+        if (link == null && intent.getData() != null && "gran".equals(intent.getData().getScheme())) {
+            link = intent.getData().toString();
+        }
+        if (link != null) {
+            if (intent.getBooleanExtra("gran_capture", false)) push("capture", "1");
+            push("link", link);
+            return;
+        }
         Uri uri = null;
         if (Intent.ACTION_VIEW.equals(intent.getAction())) {
             uri = intent.getData();

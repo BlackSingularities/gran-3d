@@ -840,6 +840,14 @@ impl App {
             match e {
                 crate::platform::Event::Opened(p) => self.atlas.import_track(&p),
                 crate::platform::Event::Message(m) => self.atlas.notify(m),
+                crate::platform::Event::Link(l) => {
+                    self.atlas.apply_link(&l);
+                }
+                crate::platform::Event::Capture => {
+                    self.tour = None;
+                    self.update = Update::Idle;
+                    self.ask = None;
+                }
             }
         }
         if crate::platform::MOBILE {

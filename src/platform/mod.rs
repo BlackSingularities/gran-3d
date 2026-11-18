@@ -30,6 +30,10 @@ pub enum Event {
     Opened(PathBuf),
     /// Komunikat dla użytkownika (zapisano plik, odmowa uprawnień…).
     Message(String),
+    /// Link `gran://widok?…` otwarty z innej aplikacji.
+    Link(String),
+    /// Uruchomienie do zrzutów ekranu (bez przewodnika i pytań).
+    Capture,
 }
 
 static EVENTS: Mutex<Vec<Event>> = Mutex::new(Vec::new());

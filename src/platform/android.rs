@@ -119,6 +119,8 @@ pub fn poll() {
         match line.split_once('\t') {
             Some(("open", p)) => super::push(Event::Opened(PathBuf::from(p))),
             Some(("msg", m)) => super::push(Event::Message(crate::i18n::tr(m).to_string())),
+            Some(("link", l)) => super::push(Event::Link(l.to_string())),
+            Some(("capture", _)) => super::push(Event::Capture),
             Some(("saved", name)) => super::push(Event::Message(tf!("Zapisano {}", name))),
             Some(("denied", _)) => super::push(Event::Message(crate::i18n::tr("Zezwól GRANI na instalowanie aplikacji (okno ustawień), a potem ponów aktualizację.").to_string())),
             _ => {}
