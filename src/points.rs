@@ -405,6 +405,8 @@ impl Points {
                 comments: if text.trim().is_empty() { Vec::new() } else { vec![comment] },
                 status: Status::Queued,
                 mine: true,
+                up: 0,
+                down: 0,
             });
             s.saved.outbox.push(Outgoing::Point { local });
             Self::changed(&mut s);
