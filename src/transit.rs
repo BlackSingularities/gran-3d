@@ -45,7 +45,7 @@ pub fn drive_url(lon: f64, lat: f64) -> String {
 }
 
 pub fn open_planner(lon: f64, lat: f64) {
-    let _ = open::that(planner_url(lon, lat));
+    crate::platform::open_url(&planner_url(lon, lat));
 }
 
 /// Trasa w Mapy.com (planer pieszy, mapa turystyczna): start, punkty pośrednie (najwyżej 15) i koniec.

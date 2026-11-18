@@ -12,6 +12,10 @@ pub enum Tool {
     Explore,
     Route,
     Measure,
+    /// Punkty społeczności: dodawanie punktów z komentarzami.
+    Point,
+    /// Obszar do pobrania na potrzeby trybu offline.
+    Area,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,13 +99,15 @@ pub trait MapTool: Sync {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 3] = [Tool::Explore, Tool::Route, Tool::Measure];
+    pub const ALL: [Tool; 5] = [Tool::Explore, Tool::Route, Tool::Measure, Tool::Point, Tool::Area];
 
     pub fn behavior(self) -> &'static dyn MapTool {
         match self {
             Tool::Explore => &Explore,
             Tool::Route => &RoutePlanner,
             Tool::Measure => &Measure,
+            Tool::Point => &PointTool,
+            Tool::Area => &AreaTool,
         }
     }
 }
@@ -121,7 +127,7 @@ impl Atlas {
         self.tool.behavior().close(self);
     }
 
-    fn open_info(&mut self) {
+    pub(crate) fn open_info(&mut self) {
         self.prefs.panel_open = true;
         self.tab = crate::ui::panels::Tab::Info;
     }
@@ -244,6 +250,118 @@ impl MapTool for Measure {
     }
     fn panel(&self, a: &mut Atlas, ui: &mut egui::Ui) -> bool {
         crate::ui::panels::measure_info(a, ui);
+        true
+    }
+}
+
+/// Punkty społeczności: klik w teren otwiera formularz nowego punktu z komentarzem.
+pub struct PointTool;
+
+impl MapTool for PointTool {
+    fn icon(&self) -> &'static str {
+        theme::icon::MAP_PIN_PLUS
+    }
+    fn title(&self) -> &'static str {
+        crate::i18n::tr("Punkty i komentarze")
+    }
+    fn hint(&self) -> &'static str {
+        crate::i18n::tr("Dodaj punkt z komentarzem dla innych turystów")
+    }
+    fn key(&self) -> &'static str {
+        "4"
+    }
+    fn click(&self, a: &mut Atlas, lon: f64, lat: f64) {
+        a.start_point_draft(lon, lat);
+        a.open_info();
+    }
+    fn close(&self, a: &mut Atlas) {
+        a.point_draft = None;
+        a.tool = Tool::Explore;
+    }
+    fn drop_last(&self, a: &mut Atlas) {
+        a.point_draft = None;
+    }
+    fn grab(&self, a: &Atlas, view: &View, rect: Rect, p: Pos2) -> Option<usize> {
+        let d = a.point_draft.as_ref()?;
+        let s = view.project(a.local(d.lon, d.lat, d.ele))?;
+        ((Pos2::new(s[0] + rect.left(), s[1] + rect.top()) - p).length() < 22.0).then_some(0)
+    }
+    fn drag(&self, a: &mut Atlas, _i: usize, (lon, lat, e): (f64, f64, f32)) {
+        if let Some(d) = a.point_draft.as_mut() {
+            d.lon = lon;
+            d.lat = lat;
+            d.ele = e;
+        }
+    }
+    fn panel(&self, a: &mut Atlas, ui: &mut egui::Ui) -> bool {
+        crate::ui::panels::point_tool_panel(a, ui);
+        true
+    }
+}
+
+/// Obszar offline: dwa kliknięcia wyznaczają narożniki prostokąta do pobrania.
+pub struct AreaTool;
+
+impl MapTool for AreaTool {
+    fn icon(&self) -> &'static str {
+        theme::icon::DOWNLOAD_SIMPLE
+    }
+    fn title(&self) -> &'static str {
+        crate::i18n::tr("Mapy offline")
+    }
+    fn hint(&self) -> &'static str {
+        crate::i18n::tr("Pobierz obszar do użytku bez internetu")
+    }
+    fn key(&self) -> &'static str {
+        "5"
+    }
+    fn click(&self, a: &mut Atlas, lon: f64, lat: f64) {
+        let d = a.area_draft.get_or_insert_with(Default::default);
+        match (d.a, d.b) {
+            (None, _) | (Some(_), Some(_)) => {
+                d.a = Some((lon, lat));
+                d.b = None;
+            }
+            (Some(_), None) => d.b = Some((lon, lat)),
+        }
+        a.open_info();
+    }
+    fn close(&self, a: &mut Atlas) {
+        a.area_draft = None;
+        a.tool = Tool::Explore;
+    }
+    fn drop_last(&self, a: &mut Atlas) {
+        if let Some(d) = a.area_draft.as_mut() {
+            if d.b.take().is_none() {
+                d.a = None;
+            }
+        }
+    }
+    fn grab(&self, a: &Atlas, view: &View, rect: Rect, p: Pos2) -> Option<usize> {
+        let d = a.area_draft.as_ref()?;
+        let mut hit = None;
+        for (i, c) in [d.a, d.b].into_iter().enumerate() {
+            let Some((lon, lat)) = c else { continue };
+            let e = a.heights.sample_cached(lon, lat).unwrap_or(0.0);
+            if let Some(s) = view.project(a.local(lon, lat, e)) {
+                if (Pos2::new(s[0] + rect.left(), s[1] + rect.top()) - p).length() < 22.0 {
+                    hit = Some(i);
+                }
+            }
+        }
+        hit
+    }
+    fn drag(&self, a: &mut Atlas, i: usize, (lon, lat, _): (f64, f64, f32)) {
+        if let Some(d) = a.area_draft.as_mut() {
+            if i == 0 {
+                d.a = Some((lon, lat));
+            } else {
+                d.b = Some((lon, lat));
+            }
+        }
+    }
+    fn panel(&self, a: &mut Atlas, ui: &mut egui::Ui) -> bool {
+        crate::ui::panels::area_tool_panel(a, ui);
         true
     }
 }

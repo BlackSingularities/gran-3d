@@ -210,6 +210,12 @@ impl Atlas {
                 p.circle_filled(at(s), 3.0, theme::BRASS);
             }
         }
+        self.community_overlays(ui, &p, rect, visible, view);
+        if self.panorama.is_some() && crate::platform::MOBILE {
+            self.walk_stick_ui(ui, visible);
+        } else {
+            self.walk_stick = Vec2::ZERO;
+        }
         match &self.selection {
             Selection::Point { lon, lat } => {
                 let e = self.heights.sample_cached(*lon, *lat).unwrap_or(0.0);
@@ -504,6 +510,18 @@ impl Atlas {
                         close = true;
                     }
                     ui.separator();
+                    if item(ui, crate::i18n::tr("Dodaj punkt z komentarzem")) {
+                        self.start_point_draft(lon, lat);
+                        self.open_info();
+                        close = true;
+                    }
+                    if item(ui, crate::i18n::tr("Pobierz okolicę do użytku offline")) {
+                        let (dlon, dlat) = (0.08 / lat.to_radians().cos().max(0.1), 0.06);
+                        self.area_draft = Some(AreaDraft { a: Some((lon - dlon, lat - dlat)), b: Some((lon + dlon, lat + dlat)), ..Default::default() });
+                        self.tool = Tool::Area;
+                        self.open_info();
+                        close = true;
+                    }
                     if item(ui, crate::i18n::tr("Informacje o punkcie")) {
                         self.tool = Tool::Explore;
                         self.selection = Selection::Point { lon, lat };

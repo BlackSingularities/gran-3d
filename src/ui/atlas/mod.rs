@@ -25,6 +25,7 @@ use crate::ui::theme;
 use crate::world::{Snapshot, World};
 
 mod actions;
+mod community;
 mod input;
 mod jobs;
 mod nav;
@@ -59,7 +60,40 @@ pub enum Selection {
     Poi(usize),
     Point { lon: f64, lat: f64 },
     Trail(u32),
+    /// Punkt społeczności (identyfikator z redzikowski.com albo lokalny).
+    UserPoint(String),
 }
+
+/// Szkic nowego punktu społeczności.
+#[derive(Clone, Debug)]
+pub struct PointDraft {
+    pub lon: f64,
+    pub lat: f64,
+    pub ele: f32,
+    pub category: crate::points::Category,
+    pub title: String,
+    pub text: String,
+    pub author: String,
+}
+
+/// Szkic obszaru offline: narożniki i ustawienia pobierania.
+#[derive(Clone, Debug)]
+pub struct AreaDraft {
+    pub a: Option<(f64, f64)>,
+    pub b: Option<(f64, f64)>,
+    pub detail: crate::offline::Detail,
+    pub ortho: bool,
+    pub name: String,
+}
+
+impl Default for AreaDraft {
+    fn default() -> Self {
+        Self { a: None, b: None, detail: crate::offline::Detail::Standard, ortho: false, name: String::new() }
+    }
+}
+
+/// Pytanie do potwierdzenia i działanie po wybraniu pierwszego przycisku.
+pub type Confirm = (crate::ui::dialog::Ask, Box<dyn FnOnce(&mut Atlas)>);
 
 /// Wynik analizy widoczności z punktu.
 pub struct VsInfo {
@@ -285,6 +319,26 @@ pub struct Atlas {
     roads_key: Option<RoadsKey>,
     roads_job: bool,
     roads_ver: u64,
+    /// Punkty społeczności, szkic nowego punktu i klikalne znaczniki na mapie.
+    pub points: crate::points::Points,
+    pub point_draft: Option<PointDraft>,
+    point_hits: Vec<(Rect, String)>,
+    /// Obszary offline i szkic nowego obszaru.
+    pub offline: crate::offline::Offline,
+    pub area_draft: Option<AreaDraft>,
+    /// Pytanie czekające na odpowiedź (usuwanie z biblioteki itp.).
+    pub confirm: Option<Confirm>,
+    /// Dotyk: trwa gest dwoma palcami (do podniesienia wszystkich palców przesuwanie jednym jest wstrzymane).
+    pinch: bool,
+    /// Ostatnie położenie palca na mapie (dotknięcie kończy się bez położenia wskaźnika).
+    touch_last: Option<Pos2>,
+    /// Drążek chodzenia w spacerze na ekranie dotykowym (x – w bok, y – przód/tył, −1…1).
+    pub walk_stick: Vec2,
+    /// Wąski ekran (telefon): dolny pasek narzędzi i arkusz zamiast panelu bocznego.
+    pub compact: bool,
+    /// Wysokość arkusza szczegółów na wąskim ekranie; arkusz rozwinięty na cały ekran.
+    pub sheet_h: f32,
+    pub sheet_full: bool,
 }
 
 /// Stan planowania do historii: punkty i tryb wyznaczania.
@@ -315,6 +369,8 @@ impl Atlas {
         let cam = Camera { lon, lat, height, heading, pitch, distance, ..Camera::default() };
         metrics::set_model(if prefs.din { TimeModel::Din } else { TimeModel::Pttk }, prefs.pace);
         let (tx, rx) = channel();
+        let heights_store = heights.store();
+        crate::offline::set_offline(prefs.offline_mode);
         Atlas {
             frame: Frame::at(lon, lat),
             frame_version: 1,
@@ -417,6 +473,67 @@ impl Atlas {
             roads_key: None,
             roads_job: false,
             roads_ver: 0,
+            points: crate::points::Points::load(),
+            point_draft: None,
+            point_hits: Vec::new(),
+            offline: crate::offline::Offline::new(heights_store),
+            area_draft: None,
+            confirm: None,
+            pinch: false,
+            touch_last: None,
+            walk_stick: Vec2::ZERO,
+            compact: false,
+            sheet_h: 0.0,
+            sheet_full: false,
+        }
+    }
+
+    /// Nowy szkic punktu społeczności w (`lon`, `lat`).
+    pub fn start_point_draft(&mut self, lon: f64, lat: f64) {
+        let ele = self.heights.sample_cached(lon, lat).unwrap_or(0.0);
+        let author = self.points.author();
+        match self.point_draft.as_mut() {
+            // przeniesienie szkicu – wpisany tekst zostaje
+            Some(d) => {
+                d.lon = lon;
+                d.lat = lat;
+                d.ele = ele;
+            }
+            None => {
+                let title = self.name_near(lon, lat, 120.0).unwrap_or_default();
+                self.point_draft = Some(PointDraft { lon, lat, ele, category: crate::points::Category::Info, title, text: String::new(), author });
+            }
+        }
+        self.tool = Tool::Point;
+    }
+
+    /// Tryb offline: przełączenie sieci i zapamiętanie wyboru.
+    pub fn set_offline(&mut self, on: bool) {
+        self.prefs.offline_mode = on;
+        crate::offline::set_offline(on);
+        self.notify(if on {
+            crate::i18n::tr("Tryb offline: mapa korzysta tylko z zapisanych danych.")
+        } else {
+            crate::i18n::tr("Tryb online: brakujące dane znów będą pobierane.")
+        });
+        if !on {
+            self.points.flush();
+        }
+    }
+
+    /// Pytanie do potwierdzenia; `run` wykona się po wybraniu pierwszego przycisku.
+    pub fn ask(&mut self, ask: crate::ui::dialog::Ask, run: impl FnOnce(&mut Atlas) + 'static) {
+        self.confirm = Some((ask, Box::new(run)));
+    }
+
+    /// Okno pytania (wywoływać co klatkę).
+    pub fn confirm_ui(&mut self, ctx: &egui::Context) {
+        let Some((ask, _)) = &self.confirm else { return };
+        if let Some(i) = crate::ui::dialog::show(ctx, "atlas", ask) {
+            let (_, run) = self.confirm.take().unwrap();
+            if i == 0 {
+                run(self);
+            }
         }
     }
 

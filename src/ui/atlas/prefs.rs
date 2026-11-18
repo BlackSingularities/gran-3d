@@ -160,6 +160,10 @@ pub struct Prefs {
     pub pistes: bool,
     /// Drogi, ulice i tory.
     pub roads: bool,
+    /// Punkty społeczności (komentarze użytkowników z redzikowski.com).
+    pub user_points: bool,
+    /// Tryb offline: tylko dane z dysku.
+    pub offline_mode: bool,
     /// Wysoki kontrast interfejsu.
     pub high_contrast: bool,
     /// Skala interfejsu (0,75–2).
@@ -323,6 +327,8 @@ impl Default for Prefs {
             closures: true,
             pistes: false,
             roads: true,
+            user_points: true,
+            offline_mode: false,
             high_contrast: false,
             ui_scale: 1.0,
         }

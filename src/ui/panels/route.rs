@@ -533,7 +533,7 @@ fn access_section(a: &mut Atlas, ui: &mut egui::Ui) {
             crate::transit::open_planner(start.lon, start.lat);
         }
         if ui.add_sized([w, 34.0], egui::Button::new(theme::ic(theme::icon::CAR, "Dojazd autem"))).clicked() {
-            let _ = open::that(crate::transit::drive_url(start.lon, start.lat));
+            crate::platform::open_url(&crate::transit::drive_url(start.lon, start.lat));
         }
     });
 }

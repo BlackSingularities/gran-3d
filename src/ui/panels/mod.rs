@@ -14,6 +14,7 @@ use crate::ui::profile;
 use crate::ui::theme;
 
 mod bar;
+mod community;
 mod legend;
 mod map;
 mod place;
@@ -23,6 +24,7 @@ mod widgets;
 mod windows;
 
 pub use bar::*;
+pub use community::*;
 pub use legend::*;
 pub use map::*;
 pub use place::*;

@@ -59,7 +59,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
     let mut run: Option<Item> = enter.then(|| items.get(p.sel).copied()).flatten();
     let mut close = esc;
 
-    let w = (ctx.screen_rect().width() * 0.5).clamp(360.0, 620.0);
+    let w = crate::ui::theme::fit(ctx, (ctx.screen_rect().width() * 0.5).clamp(360.0, 620.0));
     let resp = egui::Area::new(egui::Id::new("paleta-polecen"))
         .order(egui::Order::Foreground)
         .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 90.0))

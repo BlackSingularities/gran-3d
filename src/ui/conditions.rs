@@ -440,10 +440,10 @@ fn notices_ui(a: &mut Atlas, ui: &mut egui::Ui) {
     }
     ui.horizontal_wrapped(|ui| {
         if ui.small_button(theme::ic(theme::icon::ARROW_SQUARE_OUT, "Pełny komunikat TPN")).clicked() {
-            let _ = open::that(crate::notices::TPN_URL);
+            crate::platform::open_url(&crate::notices::TPN_URL);
         }
         if ui.small_button(theme::ic(theme::icon::ARROW_SQUARE_OUT, "TANAP (Słowacja)")).clicked() {
-            let _ = open::that(crate::notices::TANAP_URL);
+            crate::platform::open_url(&crate::notices::TANAP_URL);
         }
     });
     theme::para(ui, "Zamknięte odcinki zapisane w OpenStreetMap program rysuje na mapie na czerwono (Warstwy → Zamknięte szlaki, klawisz Z) i ostrzega o nich przy trasie.");
@@ -457,7 +457,7 @@ fn avalanche_ui(a: &mut Atlas, ui: &mut egui::Ui) {
         avalanche::AtState::NoService => {
             theme::para(ui, "Dla tego miejsca program nie zna otwartego źródła komunikatów lawinowych. Obsługiwane są służby z Europy zrzeszone w EAWS (Alpy, Pireneje, Karpaty, Skandynawia, Wyspy Brytyjskie i inne) oraz centra lawinowe w USA. Sprawdź lokalną służbę lawinową przed wyjściem.");
             if ui.small_button(theme::ic(theme::icon::ARROW_SQUARE_OUT, "Służby lawinowe na świecie")).clicked() {
-                let _ = open::that("https://www.avalanches.org/");
+                crate::platform::open_url(&"https://www.avalanches.org/");
             }
         }
         avalanche::AtState::Loading => {
@@ -547,7 +547,7 @@ fn bulletin_ui(ui: &mut egui::Ui, b: &Bulletin, ele: f32) {
             });
         }
         if ui.link(tf!("Pełny komunikat: {}", b.url.trim_start_matches("https://").trim_end_matches('/'))).clicked() {
-            let _ = open::that(&b.url);
+            crate::platform::open_url(&b.url);
         }
     });
 }

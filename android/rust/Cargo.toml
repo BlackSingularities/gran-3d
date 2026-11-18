@@ -1,0 +1,14 @@
+[package]
+name = "gran-android"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "GRAŃ na Androida: biblioteka natywna ładowana przez GranActivity (NativeActivity)."
+
+[lib]
+name = "gran_android"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+gran = { path = "../.." }

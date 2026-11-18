@@ -150,9 +150,11 @@ impl Store {
             return (0, 0);
         }
         let mut free: Vec<(SystemTime, u64, PackKey, PathBuf)> = Vec::new();
+        // obszary pobrane do użytku offline są chronione
+        let areas = crate::offline::load_areas(&self.root);
         for layer in Layer::STORED {
             for (key, path) in pack::list(&self.root.join("tiles"), layer.id(), layer.dir()) {
-                if key.z <= BASE_MAX_Z {
+                if key.z <= BASE_MAX_Z || areas.iter().any(|a| a.covers(layer, &key)) {
                     continue;
                 }
                 if let Ok(m) = fs::metadata(&path) {
@@ -219,7 +221,17 @@ fn free_space_impl(dir: &Path) -> Option<u64> {
     (ok != 0).then_some(avail)
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "android")]
+fn free_space_impl(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: ścieżka zakończona zerem, struktura na stosie
+    let r = unsafe { libc::statvfs(c.as_ptr(), &mut st) };
+    (r == 0).then(|| st.f_bavail as u64 * st.f_frsize as u64)
+}
+
+#[cfg(not(any(windows, target_os = "android")))]
 fn free_space_impl(_dir: &Path) -> Option<u64> {
     None
 }

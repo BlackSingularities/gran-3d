@@ -1,0 +1,57 @@
+plugins {
+    id 'com.android.application'
+}
+
+// wersja z Cargo.toml (ta sama co programu Windows)
+def cargo = file('../../Cargo.toml').readLines().find { it.startsWith('version = ') }
+def granVersion = cargo.replaceAll(/version = "(.*)"/, '$1')
+def (vMaj, vMin, vPat) = granVersion.tokenize('.').collect { it.replaceAll('[^0-9].*', '') as int }
+
+// podpis wydania: plik keystore i hasła ze zmiennych środowiskowych (sekrety CI)
+def ksFile = System.getenv('GRAN_ANDROID_KEYSTORE')
+
+android {
+    namespace = 'com.blacksingularities.gran3d'
+    compileSdk = 35
+    ndkVersion = System.getenv('ANDROID_NDK_VERSION') ?: '27.2.12479018'
+
+    defaultConfig {
+        // ten sam identyfikator co wersja 1.x – nowa wersja instaluje się jako aktualizacja
+        applicationId 'com.blacksingularities.gran3d'
+        minSdk = 26
+        targetSdk = 34
+        versionCode vMaj * 10000 + vMin * 100 + vPat
+        versionName granVersion
+        ndk { abiFilters 'arm64-v8a' }
+    }
+    signingConfigs {
+        release {
+            if (ksFile) {
+                storeFile file(ksFile)
+                storePassword System.getenv('GRAN_ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('GRAN_ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('GRAN_ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    packaging {
+        jniLibs { useLegacyPackaging = false }
+    }
+    buildTypes {
+        release {
+            if (ksFile) signingConfig signingConfigs.release
+            minifyEnabled false
+        }
+    }
+    applicationVariants.all { variant ->
+        variant.outputs.all { outputFileName = "GRAN-${granVersion}-${variant.buildType.name}.apk" }
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+}

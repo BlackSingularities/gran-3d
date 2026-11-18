@@ -92,6 +92,36 @@ impl Atlas {
         self.prefs.exag = self.prefs.exag.clamp(1.0, 3.0);
     }
 
+    /// Przycisk „wstecz” (Android): zamyka to, co na wierzchu. `false` – nie było czego zamknąć.
+    pub fn back(&mut self, compact: bool) -> bool {
+        if self.search.is_some() {
+            self.search = None;
+            return true;
+        }
+        if self.palette.is_some()
+            || self.help
+            || self.ctx_menu.is_some()
+            || self.panorama.is_some()
+            || self.flight.is_some()
+            || self.lens_pin.is_some()
+            || self.lens != Lens::None
+            || self.selection != Selection::None
+            || self.tool != Tool::Explore
+        {
+            self.escape();
+            return true;
+        }
+        if self.load_details {
+            self.load_details = false;
+            return true;
+        }
+        if compact && self.prefs.panel_open {
+            self.prefs.panel_open = false;
+            return true;
+        }
+        false
+    }
+
     /// Esc zamyka najpierw to, co najbardziej „na wierzchu”.
     pub fn escape(&mut self) {
         if self.palette.is_some() {
@@ -118,7 +148,39 @@ impl Atlas {
     pub(super) fn handle_mouse(&mut self, ui: &mut egui::Ui, resp: &egui::Response, rect: Rect, view: &View) {
         let ctx = ui.ctx().clone();
         let to_px = |p: Pos2| [p.x - rect.left(), p.y - rect.top()];
-        let pointer = resp.hover_pos().or(resp.interact_pointer_pos());
+        let pointer = resp.hover_pos().or(resp.interact_pointer_pos()).or(if crate::platform::MOBILE { self.touch_last } else { None });
+        // dotyk dwoma palcami: obrót mapy (skręt palców), nachylenie (oba palce w górę/dół),
+        // przybliżanie (rozsuwanie) – to ostatnie obsługuje niżej wspólny kod kółka myszy
+        let touches = ctx.input(|i| i.any_touches());
+        if !touches {
+            self.pinch = false;
+        }
+        if let Some(mt) = ctx.input(|i| i.multi_touch()).filter(|m| m.num_touches >= 2 && rect.contains(m.center_pos)) {
+            self.pinch = true;
+            self.fly = None;
+            self.ctx_menu = None;
+            if self.panorama.is_none() {
+                let rot = mt.rotation_delta as f64;
+                if rot.abs() > 1e-4 {
+                    self.orbit(-rot.to_degrees(), 0.0);
+                    self.cam.heading = (self.cam.heading - rot.to_degrees()).rem_euclid(360.0);
+                }
+                // nachylenie tylko przy ruchu bez wyraźnego szczypania i obrotu
+                let ty = mt.translation_delta.y as f64;
+                if (mt.zoom_delta - 1.0).abs() < 0.015 && rot.abs() < 0.01 && ty.abs() > 0.2 {
+                    let pitch = (self.cam.pitch + ty * 0.3).clamp(self.min_pitch(), 89.0);
+                    self.orbit(0.0, pitch - self.cam.pitch);
+                    self.cam.pitch = pitch;
+                }
+            }
+            ctx.request_repaint();
+        }
+        // przytrzymanie palca – menu punktu (jak prawy przycisk myszy)
+        if resp.long_touched() && !self.pinch {
+            if let (Some(p), Some((lon, lat, e))) = (pointer, self.hover) {
+                self.ctx_menu = Some((p, lon, lat, e));
+            }
+        }
         // kółko: przybliżanie do kursora
         if let Some(p) = resp.hover_pos() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y + (i.zoom_delta() - 1.0) * 300.0) as f64;
@@ -150,12 +212,17 @@ impl Atlas {
                 }
             }
         }
-        if resp.dragged_by(egui::PointerButton::Primary) {
+        if resp.dragged_by(egui::PointerButton::Primary) && !self.pinch {
             self.fly = None;
             if let (Some(i), Some(at)) = (self.drag_waypoint, self.hover) {
                 self.tool.behavior().drag(self, i, at);
             } else if self.panorama.is_some() {
-                // spacer: lewy przycisk to zwykły wskaźnik (rozglądanie – prawym)
+                // spacer: lewy przycisk to zwykły wskaźnik (rozglądanie – prawym); na dotyku palec rozgląda się
+                if crate::platform::MOBILE {
+                    let d = resp.drag_delta();
+                    self.cam.heading = (self.cam.heading - d.x as f64 * 0.2).rem_euclid(360.0);
+                    self.cam.pitch = (self.cam.pitch + d.y as f64 * 0.2).clamp(self.min_pitch(), 89.0);
+                }
             } else if let (Some(g), Some(p)) = (self.drag_grab, pointer) {
                 // chwycony punkt terenu zostaje pod kursorem
                 let dir = view.ray(to_px(p));
@@ -205,7 +272,7 @@ impl Atlas {
                 self.ctx_menu = Some((p, lon, lat, e));
             }
         }
-        if resp.double_clicked() {
+        if resp.double_clicked() && !self.pinch {
             if let Some((lon, lat, _)) = self.hover {
                 if self.panorama.is_none() {
                     self.fly_to(lon, lat, Some((self.cam.distance / 2.5).max(600.0)));
@@ -213,8 +280,18 @@ impl Atlas {
             }
             return;
         }
-        if resp.clicked() {
+        if resp.clicked() && !self.pinch {
             self.ctx_menu = None;
+            // punkt społeczności pod palcem lub kursorem
+            if let Some(p) = pointer {
+                if matches!(self.tool, Tool::Explore | Tool::Point) && self.lens == Lens::None {
+                    if let Some(id) = self.point_hit(p) {
+                        self.selection = Selection::UserPoint(id);
+                        self.open_info();
+                        return;
+                    }
+                }
+            }
             let Some((lon, lat, _)) = self.hover else { return };
             // etykieta pod kursorem
             if let Some(p) = pointer {

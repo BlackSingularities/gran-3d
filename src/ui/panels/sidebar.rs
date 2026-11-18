@@ -11,13 +11,16 @@ pub(super) fn sidebar_open(a: &Atlas) -> bool {
 
 /// Odsunięcie elementów przy prawej krawędzi, gdy panel szczegółów jest otwarty.
 pub fn right_inset(a: &Atlas) -> f32 {
-    if sidebar_open(a) { SIDEBAR_W } else { 0.0 }
+    if sidebar_open(a) && !a.compact { SIDEBAR_W } else { 0.0 }
 }
 
 /// Szczegóły w prawym panelu bocznym (zwęża widok mapy); wywoływać przed panelem środkowym.
 pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
     // wskazanie z panelu żyje jedną klatkę: ustawia je na nowo to, nad czym jest kursor
     a.panel_cursor = None;
+    if !sidebar_open(a) && a.compact {
+        return;
+    }
     if !sidebar_open(a) {
         // schowany panel: uchwyt przy prawej krawędzi
         let alpha = controls_alpha(a, ctx);
@@ -38,20 +41,49 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
     }
     // panel boczny przy prawej krawędzi, ze szkła: od górnego paska do dolnego (profil, pasek stanu)
     let screen = ctx.screen_rect();
-    let height = (screen.height() - TOP_BAR_H - bottom_inset(a)).max(200.0);
+    // telefon: arkusz od dołu na całą szerokość (nad paskiem narzędzi), komputer: panel po prawej
+    let (pos, sw, height) = if a.compact {
+        let h = a.sheet_h;
+        (egui::pos2(screen.left(), screen.bottom() - STATUS_H - TOOLBAR_H - h), screen.width(), h)
+    } else {
+        (egui::pos2(screen.right() - SIDEBAR_W, screen.top() + TOP_BAR_H), SIDEBAR_W, (screen.height() - TOP_BAR_H - bottom_inset(a)).max(200.0))
+    };
     let alpha = controls_alpha(a, ctx);
-    a.glass.push((egui::Rect::from_min_size(egui::pos2(screen.right() - SIDEBAR_W, screen.top() + TOP_BAR_H), egui::vec2(SIDEBAR_W, height)), alpha));
+    a.glass.push((egui::Rect::from_min_size(pos, egui::vec2(sw, height)), alpha));
     egui::Area::new(egui::Id::new("szczegoly"))
-        .fixed_pos([screen.right() - SIDEBAR_W, screen.top() + TOP_BAR_H])
+        .fixed_pos(pos)
         .order(egui::Order::Middle)
         .interactable(alpha > 0.05)
         .show(ctx, |ui| {
           ui.multiply_opacity(alpha);
           // prawy margines oddany paskowi przewijania: treść ma stałą szerokość, pasek leży obok niej
           let gutter = theme::SCROLL_GUTTER;
-          egui::Frame::new().fill(theme::glass_fill()).inner_margin(egui::Margin { left: 18, right: (18.0 - gutter) as i8, top: 16, bottom: 16 }).show(ui, |ui| {
-            ui.set_width(SIDEBAR_W - 36.0 + gutter);
-            ui.set_height(height - 32.0);
+          let (m, top) = if a.compact { (12i8, 10i8) } else { (18i8, 16i8) };
+          let frame = egui::Frame::new().fill(theme::glass_fill()).inner_margin(egui::Margin { left: m, right: (m as f32 - gutter) as i8, top, bottom: top });
+          let frame = if a.compact { frame.corner_radius(egui::CornerRadius { nw: 18, ne: 18, sw: 0, se: 0 }).stroke(egui::Stroke::new(1.0, theme::glass_edge())) } else { frame };
+          frame.show(ui, |ui| {
+            ui.set_width(sw - 2.0 * m as f32 + gutter);
+            ui.set_height(height - 2.0 * top as f32);
+            if a.compact {
+                // uchwyt arkusza: przeciągnięcie w górę rozwija na cały ekran, w dół – zwija
+                let (r, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 14.0), egui::Sense::click_and_drag());
+                ui.painter().rect_filled(egui::Rect::from_center_size(r.center(), egui::vec2(40.0, 4.0)), 2.0, theme::paper_3());
+                if resp.clicked() {
+                    a.sheet_full = !a.sheet_full;
+                }
+                if resp.drag_stopped() {
+                    let dy = resp.total_drag_delta().map(|d| d.y).unwrap_or(0.0);
+                    if dy < -40.0 {
+                        a.sheet_full = true;
+                    } else if dy > 40.0 {
+                        if a.sheet_full {
+                            a.sheet_full = false;
+                        } else {
+                            a.prefs.panel_open = false;
+                        }
+                    }
+                }
+            }
             // większe pismo niż w szufladzie
             let st = ui.style_mut();
             st.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
@@ -71,8 +103,16 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
                 ui.label(RichText::new(title).size(17.0).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(gutter);
-                    if ui.small_button(theme::icon::CARET_RIGHT).on_hover_text(crate::i18n::tr("Ukryj panel (P)")).clicked() {
+                    let close_glyph = if a.compact { theme::icon::X } else { theme::icon::CARET_RIGHT };
+                    let btn = if a.compact { ui.add(egui::Button::new(RichText::new(close_glyph).size(18.0)).min_size(egui::vec2(40.0, 36.0))) } else { ui.small_button(close_glyph) };
+                    if btn.on_hover_text(crate::i18n::tr("Ukryj panel (P)")).clicked() {
                         a.prefs.panel_open = false;
+                    }
+                    if a.compact {
+                        let g = if a.sheet_full { theme::icon::CARET_DOWN } else { theme::icon::CARET_UP };
+                        if ui.add(egui::Button::new(RichText::new(g).size(18.0)).min_size(egui::vec2(40.0, 36.0))).clicked() {
+                            a.sheet_full = !a.sheet_full;
+                        }
                     }
                     if a.tab == Tab::Info && a.tool == Tool::Route && ui.button(theme::ic(theme::icon::X, "Zakończ planowanie")).on_hover_text(crate::i18n::tr("Usuwa trasę z mapy i wraca do zwykłego trybu")).clicked() {
                         a.end_planning();
@@ -82,7 +122,7 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 // nic nie rozpycha panelu poza jego szerokość; ta sama szerokość z paskiem i bez niego
-                ui.set_max_width(SIDEBAR_W - 36.0);
+                ui.set_max_width(sw - 2.0 * m as f32);
                 if a.tab == Tab::Library {
                     crate::ui::library::show(a, ui);
                 } else if a.tab == Tab::Conditions {
@@ -97,7 +137,8 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
 
 /// Mały przycisk sterowania kamerą: sama ikona, podświetlenie pod kursorem, bez stałego wypełnienia.
 fn nav_button(ui: &mut egui::Ui, glyph: &str, hint: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), egui::Sense::click());
+    let side = if crate::platform::MOBILE { 42.0 } else { 30.0 };
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
     theme::focus_ring(ui, &resp, rect, 8.0);
     let p = ui.painter();
     if resp.is_pointer_button_down_on() {
@@ -106,13 +147,13 @@ fn nav_button(ui: &mut egui::Ui, glyph: &str, hint: &str) -> egui::Response {
         p.rect_filled(rect, 8.0, Color32::from_white_alpha(16));
     }
     let color = if resp.hovered() { theme::PAPER } else { theme::paper_2() };
-    p.text(rect.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(16.0), color);
+    p.text(rect.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(if crate::platform::MOBILE { 20.0 } else { 16.0 }), color);
     resp.on_hover_text(hint)
 }
 
 /// Cienka pozioma kreska między grupami przycisków kamery.
 fn nav_divider(ui: &mut egui::Ui) {
-    let (r, _) = ui.allocate_exact_size(egui::vec2(30.0, 7.0), egui::Sense::hover());
+    let (r, _) = ui.allocate_exact_size(egui::vec2(if crate::platform::MOBILE { 42.0 } else { 30.0 }, 7.0), egui::Sense::hover());
     ui.painter().line_segment([egui::pos2(r.left() + 7.0, r.center().y), egui::pos2(r.right() - 7.0, r.center().y)], egui::Stroke::new(1.0, Color32::from_white_alpha(28)));
 }
 
@@ -153,7 +194,7 @@ pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
                         a.start_fly(to, 0.7);
                     }
                     let full = ui.ctx().input(|i| i.viewport().fullscreen.unwrap_or(false));
-                    if nav_button(ui, if full { theme::icon::CORNERS_IN } else { theme::icon::CORNERS_OUT }, if full { crate::i18n::tr("Zamknij pełny ekran (F11)") } else { crate::i18n::tr("Pełny ekran (F11)") }).clicked() {
+                    if !crate::platform::MOBILE && nav_button(ui, if full { theme::icon::CORNERS_IN } else { theme::icon::CORNERS_OUT }, if full { crate::i18n::tr("Zamknij pełny ekran (F11)") } else { crate::i18n::tr("Pełny ekran (F11)") }).clicked() {
                         let ctx = ui.ctx().clone();
                         a.toggle_fullscreen(&ctx);
                     }
@@ -175,5 +216,6 @@ pub(super) fn info(a: &mut Atlas, ui: &mut egui::Ui) {
         Selection::Point { lon, lat } => point_info(a, ui, lon, lat),
         Selection::Trail(e) => trail_info(a, ui, e),
         Selection::None => region_info(a, ui),
+        Selection::UserPoint(id) => user_point_info(a, ui, &id),
     }
 }

@@ -1,6 +1,8 @@
 //! Aktualizacje przez redzikowski.com: serwer strony udostępnia kopię GitHub Releases w tym samym
-//! formacie i pośredniczy w pobieraniu plików. Instalator jest sprawdzany sumą SHA-512 z `latest.yml`
-//! tego samego wydania i uruchamiany z podniesieniem uprawnień (UAC) w trybie cichym.
+//! formacie i pośredniczy w pobieraniu plików. Plik (instalator Windows `GRAN-Setup-<wersja>.exe`
+//! albo `GRAN-<wersja>.apk` na Androida) jest sprawdzany sumą SHA-512 z `latest.yml` tego samego
+//! wydania. Windows: instalator z podniesieniem uprawnień (UAC) w trybie cichym; Android: okno
+//! instalatora systemu.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -62,10 +64,7 @@ pub fn latest() -> Result<Release, String> {
     let assets = v["assets"].as_array().unwrap_or(&empty);
     let exe = assets
         .iter()
-        .find(|a| {
-            let n = a["name"].as_str().unwrap_or("");
-            n.starts_with("GRAN-Setup-") && n.to_lowercase().ends_with(".exe")
-        })
+        .find(|a| is_package(a["name"].as_str().unwrap_or("")))
         .ok_or(crate::i18n::tr("Wydanie nie zawiera instalatora."))?;
     let yml = assets.iter().find(|a| a["name"] == "latest.yml");
     Ok(Release {
@@ -76,6 +75,16 @@ pub fn latest() -> Result<Release, String> {
         yml_url: yml.and_then(|y| y["browser_download_url"].as_str().map(String::from)),
         notes: v["body"].as_str().unwrap_or("").to_string(),
     })
+}
+
+/// Plik aktualizacji dla tego systemu.
+pub fn is_package(name: &str) -> bool {
+    let n = name.to_lowercase();
+    if crate::platform::MOBILE {
+        n.starts_with("gran-") && !n.starts_with("gran-setup-") && n.ends_with(".apk")
+    } else {
+        n.starts_with("gran-setup-") && n.ends_with(".exe")
+    }
 }
 
 /// Suma SHA-512 (base64) instalatora z `latest.yml`.
@@ -131,31 +140,9 @@ pub fn download(rel: &Release, progress: Arc<AtomicU64>) -> Result<PathBuf, Stri
     Ok(file)
 }
 
-/// Instalator w trybie cichym z oknem UAC; po instalacji uruchamia nową wersję.
+/// Instalacja pobranego pliku (Windows: UAC i tryb cichy; Android: okno instalatora systemu).
 pub fn run_installer(file: &std::path::Path) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::UI::Shell::ShellExecuteW;
-        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-        let w = |s: &std::ffi::OsStr| s.encode_wide().chain(Some(0)).collect::<Vec<u16>>();
-        let verb = w("runas".as_ref());
-        let path = w(file.as_os_str());
-        let args = w("/S --updated --force-run".as_ref());
-        // SAFETY: wszystkie napisy zakończone zerem i żyją do końca wywołania
-        let r = unsafe {
-            ShellExecuteW(std::ptr::null_mut(), verb.as_ptr(), path.as_ptr(), args.as_ptr(), std::ptr::null(), SW_SHOWNORMAL)
-        };
-        if (r as isize) <= 32 {
-            return Err(crate::i18n::tr("Instalacja aktualizacji została przerwana (brak zgody administratora?).").into());
-        }
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = file;
-        Err(crate::i18n::tr("Aktualizacje tylko w systemie Windows.").into())
-    }
+    crate::platform::install_update(file)
 }
 
 /// Pozostałość po poprzedniej aktualizacji.
@@ -172,6 +159,20 @@ mod tests {
         assert!(cmp_version("2.0.0", "1.1.0") > 0);
         assert!(cmp_version("v1.0.3", "1.0.3") == 0);
         assert!(cmp_version("2.0.0", "2.0.1") < 0);
+    }
+
+    #[test]
+    fn package_for_platform() {
+        assert!(is_package("GRAN-Setup-4.0.0.exe") != crate::platform::MOBILE);
+        assert!(is_package("GRAN-4.0.0.apk") == crate::platform::MOBILE);
+        assert!(!is_package("latest.yml"));
+    }
+
+    #[test]
+    fn sha_from_two_files() {
+        let yml = "version: 4.0.0\nfiles:\n  - url: GRAN-Setup-4.0.0.exe\n    sha512: win\n    size: 10\n  - url: GRAN-4.0.0.apk\n    sha512: apk\n    size: 20\npath: GRAN-Setup-4.0.0.exe\nsha512: win\n";
+        assert_eq!(parse_sha(yml, "GRAN-4.0.0.apk").as_deref(), Some("apk"));
+        assert_eq!(parse_sha(yml, "GRAN-Setup-4.0.0.exe").as_deref(), Some("win"));
     }
 
     #[test]

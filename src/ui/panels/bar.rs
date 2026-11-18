@@ -28,7 +28,7 @@ pub fn glass_float_area(a: &mut Atlas, ctx: &egui::Context, id: egui::Id, alpha:
 
 /// Widoczność kontrolek na mapie (autoukrywanie): 1 – widoczne, 0 – schowane.
 pub fn controls_alpha(a: &Atlas, ctx: &egui::Context) -> f32 {
-    if !a.prefs.autohide || a.search.is_some() || egui::Popup::is_any_open(ctx) {
+    if !a.prefs.autohide || crate::platform::MOBILE || a.search.is_some() || egui::Popup::is_any_open(ctx) {
         return 1.0;
     }
     let screen = ctx.screen_rect();
@@ -81,6 +81,22 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
                     body(ui);
                 });
             };
+            if a.compact {
+                let mut trailing = Some(trailing);
+                row(ui, inner, egui::Layout::right_to_left(egui::Align::Center), &mut |ui| {
+                    if let Some(t) = trailing.take() {
+                        t(a, ui);
+                    }
+                    layers_button(a, ui);
+                    style_button(a, ui);
+                    sun_button(a, ui);
+                    if a.search.is_none() {
+                        let w = ui.available_width() - 4.0;
+                        search_field_w(a, ui, w);
+                    }
+                });
+                return;
+            }
             row(ui, inner, egui::Layout::left_to_right(egui::Align::Center), &mut |ui| tools(a, ui));
             if a.search.is_none() {
                 let w = (screen.width() * 0.28).clamp(220.0, 448.0);
@@ -106,26 +122,82 @@ pub const TOP_BAR_H: f32 = 56.0;
 /// Wysokość paska stanu na dole mapy.
 pub const STATUS_H: f32 = 24.0;
 
-/// Odsunięcie od dołu okna: pasek stanu i profil trasy (gdy otwarty).
+/// Wysokość dolnego paska narzędzi na wąskim ekranie.
+pub const TOOLBAR_H: f32 = 60.0;
+
+/// Dolny pasek narzędzi (tylko wąski ekran).
+pub fn toolbar_h(a: &Atlas) -> f32 {
+    if a.compact { TOOLBAR_H } else { 0.0 }
+}
+
+/// Arkusz szczegółów otwarty od dołu (wąski ekran).
+pub fn sheet_open(a: &Atlas) -> bool {
+    a.compact && a.prefs.panel_open
+}
+
+/// Profil trasy rozwinięty (na telefonie zwinięty, gdy otwarty jest arkusz).
+pub fn profile_expanded(a: &Atlas) -> bool {
+    a.prefs.profile_open && !sheet_open(a)
+}
+
+/// Odsunięcie od dołu okna: pasek stanu, pasek narzędzi i arkusz (telefon) oraz profil trasy.
 pub fn bottom_inset(a: &Atlas) -> f32 {
-    STATUS_H + match (a.profile_route().is_some(), a.prefs.profile_open) {
+    let sheet = if sheet_open(a) { a.sheet_h } else { 0.0 };
+    STATUS_H + toolbar_h(a) + sheet + match (a.profile_route().is_some(), profile_expanded(a)) {
         (false, _) => 0.0,
         (true, true) => PROFILE_H + 20.0,
         (true, false) => PROFILE_BAR_H + 20.0,
     }
 }
 
+/// Dolny pasek narzędzi na wąskim ekranie: te same przyciski co na górnym pasku komputera,
+/// przewijane palcem w poziomie.
+pub fn bottom_toolbar(a: &mut Atlas, ctx: &egui::Context) {
+    if !a.compact {
+        return;
+    }
+    let screen = ctx.screen_rect();
+    let bar = egui::Rect::from_min_size(egui::pos2(screen.left(), screen.bottom() - STATUS_H - TOOLBAR_H), egui::vec2(screen.width(), TOOLBAR_H));
+    a.glass.push((bar, 1.0));
+    egui::Area::new(egui::Id::new("dolny-pasek"))
+        .fixed_pos(bar.min)
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            let p = ui.painter();
+            p.rect_filled(bar, 0.0, theme::glass_fill());
+            p.line_segment([bar.left_top(), bar.right_top()], egui::Stroke::new(1.0, theme::glass_edge()));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(bar.shrink2(egui::vec2(6.0, 8.0))), |ui| {
+                egui::ScrollArea::horizontal().id_salt("narzedzia-dol").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
+                    ui.horizontal_centered(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        tools(a, ui);
+                    });
+                });
+            });
+        });
+}
+
 /// Pole wyszukiwarki; po kliknięciu okno wyników rozwija się w tym samym miejscu.
 pub(super) fn search_field(a: &mut Atlas, ui: &mut egui::Ui) {
     let w = (ui.ctx().screen_rect().width() * 0.28).clamp(220.0, 448.0);
+    search_field_w(a, ui, w);
+}
+
+fn search_field_w(a: &mut Atlas, ui: &mut egui::Ui, w: f32) {
+    let w = w.max(44.0);
     ui.allocate_ui(egui::vec2(w, 42.0), |ui| {
         let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 42.0), egui::Sense::click());
         theme::focus_ring(ui, &resp, rect, 12.0);
         let p = ui.painter();
         p.rect_filled(rect, 12.0, if resp.hovered() { Color32::from_white_alpha(18) } else { Color32::from_white_alpha(8) });
         p.text(rect.left_center() + egui::vec2(16.0, 0.0), egui::Align2::LEFT_CENTER, theme::icon::MAGNIFYING_GLASS, egui::FontId::proportional(18.0), theme::paper_2());
-        p.text(rect.left_center() + egui::vec2(44.0, 0.0), egui::Align2::LEFT_CENTER, crate::i18n::tr("Szukaj szczytu, szlaku, miejscowości"), egui::FontId::proportional(14.0), theme::paper_3());
-        p.text(rect.right_center() - egui::vec2(14.0, 0.0), egui::Align2::RIGHT_CENTER, "/", egui::FontId::monospace(12.0), theme::paper_3());
+        let hint = if a.compact { crate::i18n::tr("Szukaj") } else { crate::i18n::tr("Szukaj szczytu, szlaku, miejscowości") };
+        if w > 90.0 {
+            p.with_clip_rect(rect.shrink(4.0)).text(rect.left_center() + egui::vec2(44.0, 0.0), egui::Align2::LEFT_CENTER, hint, egui::FontId::proportional(14.0), theme::paper_3());
+        }
+        if !crate::platform::MOBILE {
+            p.text(rect.right_center() - egui::vec2(14.0, 0.0), egui::Align2::RIGHT_CENTER, "/", egui::FontId::monospace(12.0), theme::paper_3());
+        }
         if resp.clicked() {
             a.search = Some(Default::default());
         }
@@ -192,23 +264,29 @@ pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
         theme::icon::MOON_STARS
     };
     let accent = if custom { theme::BRASS } else { theme::PAPER };
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(118.0, 42.0), egui::Sense::click());
+    let narrow = a.compact;
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(if narrow { 44.0 } else { 118.0 }, 42.0), egui::Sense::click());
     theme::focus_ring(ui, &resp, rect, 12.0);
     let p = ui.painter();
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     p.rect_filled(rect, 12.0, if open { Color32::from_rgba_unmultiplied(122, 176, 255, 40) } else if resp.hovered() { Color32::from_white_alpha(16) } else { Color32::TRANSPARENT });
     let sun_col = if alt > 6.0 { theme::WARN } else if alt > -6.0 { Color32::from_rgb(255, 150, 90) } else { Color32::from_rgb(160, 180, 255) };
-    p.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(22.0), sun_col);
-    p.text(rect.left_top() + egui::vec2(38.0, 5.0), egui::Align2::LEFT_TOP, fmt::hour(hour), egui::FontId::proportional(16.0), accent);
-    p.text(rect.left_bottom() + egui::vec2(38.0, -5.0), egui::Align2::LEFT_BOTTOM, if custom { day.label() } else { crate::i18n::tr("teraz").into() }, egui::FontId::proportional(10.5), theme::paper_3());
+    if narrow {
+        p.text(rect.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(22.0), if custom { theme::BRASS } else { sun_col });
+    } else {
+        p.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(22.0), sun_col);
+        p.text(rect.left_top() + egui::vec2(38.0, 5.0), egui::Align2::LEFT_TOP, fmt::hour(hour), egui::FontId::proportional(16.0), accent);
+        p.text(rect.left_bottom() + egui::vec2(38.0, -5.0), egui::Align2::LEFT_BOTTOM, if custom { day.label() } else { crate::i18n::tr("teraz").into() }, egui::FontId::proportional(10.5), theme::paper_3());
+    }
     let zone = crate::tz::label(a.cam.lon, a.cam.lat, a.when_unix());
     let resp = resp.on_hover_text(format!(
         "{}\n{}",
         if custom { crate::i18n::tr("Pora ustawiona ręcznie") } else { crate::i18n::tr("Oświetlenie jak teraz") },
         tf!("czas lokalny środka widoku: {}", zone)
     ));
+    let pw = theme::fit(ui.ctx(), 360.0);
     egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).frame(theme::glass().inner_margin(egui::Margin::same(14))).show(|ui| {
-        ui.set_width(360.0);
+        ui.set_width(pw);
         light_tab(a, ui);
     });
     let pid = egui::Popup::default_response_id(&resp);
@@ -221,16 +299,23 @@ pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
 /// Przycisk paska z ikoną, podpisem i podtytułem; rozwija panel z kafelkami.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bar_menu(ui: &mut egui::Ui, glyph: &str, glyph_color: Color32, title: &str, sub: &str, w: f32, hint: &str, width: f32, body: impl FnOnce(&mut egui::Ui)) -> Option<egui::Rect> {
+    let narrow = theme::compact(ui.ctx());
+    let w = if narrow { 44.0 } else { w };
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 42.0), egui::Sense::click());
     theme::focus_ring(ui, &resp, rect, 12.0);
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
     let p = ui.painter();
     p.rect_filled(rect, 12.0, if open { Color32::from_rgba_unmultiplied(122, 176, 255, 40) } else if resp.hovered() { Color32::from_white_alpha(16) } else { Color32::TRANSPARENT });
-    p.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(20.0), glyph_color);
-    p.text(rect.left_top() + egui::vec2(38.0, 5.0), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(14.0), theme::PAPER);
-    p.text(rect.left_bottom() + egui::vec2(38.0, -5.0), egui::Align2::LEFT_BOTTOM, sub, egui::FontId::proportional(10.5), theme::paper_3());
-    p.text(rect.right_center() - egui::vec2(10.0, 0.0), egui::Align2::RIGHT_CENTER, theme::icon::CARET_DOWN, egui::FontId::proportional(12.0), theme::paper_3());
+    if narrow {
+        p.text(rect.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(21.0), glyph_color);
+    } else {
+        p.text(rect.left_center() + egui::vec2(18.0, 0.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(20.0), glyph_color);
+        p.text(rect.left_top() + egui::vec2(38.0, 5.0), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(14.0), theme::PAPER);
+        p.text(rect.left_bottom() + egui::vec2(38.0, -5.0), egui::Align2::LEFT_BOTTOM, sub, egui::FontId::proportional(10.5), theme::paper_3());
+        p.text(rect.right_center() - egui::vec2(10.0, 0.0), egui::Align2::RIGHT_CENTER, theme::icon::CARET_DOWN, egui::FontId::proportional(12.0), theme::paper_3());
+    }
     let resp = resp.on_hover_text(hint);
+    let width = theme::fit(ui.ctx(), width);
     egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).frame(theme::glass().inner_margin(egui::Margin::same(14))).show(|ui| {
         ui.set_width(width);
         body(ui);
