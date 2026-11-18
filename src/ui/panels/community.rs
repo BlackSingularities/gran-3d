@@ -109,7 +109,7 @@ fn point_row(ui: &mut egui::Ui, p: &crate::points::Point, dist: Option<f64>) -> 
     let title = egui::text::LayoutJob::simple_singleline(p.title.clone(), egui::FontId::proportional(14.5), theme::PAPER);
     let mut job = title;
     job.wrap = egui::text::TextWrapping::truncate_at_width(tw.max(40.0));
-    let g = ui.fonts(|f| f.layout_job(job));
+    let g = ui.painter().layout_job(job);
     painter.galley(egui::pos2(rect.left() + 40.0, rect.top() + 4.0), g, theme::PAPER);
     let sub = format!("{} · {}", p.category.label(), tf!("komentarze: {}", p.comments.len()));
     painter.text(egui::pos2(rect.left() + 40.0, rect.bottom() - 5.0), egui::Align2::LEFT_BOTTOM, sub, egui::FontId::proportional(11.5), theme::paper_3());
@@ -222,7 +222,7 @@ pub fn user_point_info(a: &mut Atlas, ui: &mut egui::Ui, id: &str) {
         });
     }
     ui.add_space(10.0);
-    ui.label(theme::kicker(tf!("Komentarze ({})", p.comments.len())));
+    ui.label(theme::kicker(&tf!("Komentarze ({})", p.comments.len())));
     for c in &p.comments {
         theme::card(c.official).show(ui, |ui| {
             ui.set_width(ui.available_width());
