@@ -100,6 +100,12 @@ public class GranActivity extends NativeActivity {
         return Locale.getDefault().toLanguageTag();
     }
 
+    public String isEmulator() {
+        String f = Build.FINGERPRINT + " " + Build.MODEL + " " + Build.HARDWARE + " " + Build.PRODUCT;
+        boolean emu = f.contains("generic") || f.contains("emulator") || f.contains("sdk_gphone") || f.contains("ranchu") || f.contains("goldfish") || f.contains("Emulator");
+        return emu ? "1" : "0";
+    }
+
     public String deviceInfo() {
         return "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ") · "
                 + Build.MANUFACTURER + " " + Build.MODEL;

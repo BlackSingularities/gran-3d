@@ -106,6 +106,11 @@ pub fn init(app: &android_activity::AndroidApp) {
     let _ = DEVICE.set(call_str("deviceInfo"));
 }
 
+/// Emulator Androida (grafika programowa – tylko OpenGL ES działa pewnie).
+pub fn is_emulator() -> bool {
+    call_str("isEmulator") == "1"
+}
+
 pub fn device() -> String {
     DEVICE.get().cloned().unwrap_or_else(|| "Android".into())
 }
