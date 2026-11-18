@@ -300,32 +300,46 @@ impl App {
         let known = self.usage.known.load(Ordering::Relaxed);
         let current_limit = self.settings.limit_gb;
         let atlas = &mut self.atlas;
-        let modal = egui::Modal::new(egui::Id::new("ustawienia")).frame(theme::glass().inner_margin(egui::Margin::same(18))).show(ctx, |ui| {
-            let compact = theme::compact(ctx);
+        let compact = theme::compact(ctx);
+        let margin = if compact { 12 } else { 18 };
+        let modal = egui::Modal::new(egui::Id::new("ustawienia")).frame(theme::glass().inner_margin(egui::Margin::same(margin))).show(ctx, |ui| {
             let full_w = theme::fit(ctx, 760.0);
-            let body_h = if compact { (ctx.screen_rect().height() - 220.0).clamp(260.0, 640.0) } else { 440.0 };
+            let body_h = if compact { (ctx.screen_rect().height() - 190.0).clamp(240.0, 680.0) } else { 440.0 };
             ui.set_width(full_w);
-            ui.horizontal(|ui| {
-                ui.heading(crate::i18n::tr("Ustawienia"));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button(theme::icon::X).on_hover_text(crate::i18n::tr("Zamknij bez zapisywania (Esc)")).clicked() {
-                        close = true;
-                    }
-                });
-            });
-            ui.add_space(8.0);
-            // telefon: strony jako rząd ikon nad treścią
             if compact {
-                egui::ScrollArea::horizontal().id_salt("strony-ustawien").show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        for (page, glyph, name) in PAGES {
-                            if ui.add(egui::Button::new(theme::ic(glyph, name)).selected(view.page == page).min_size(egui::vec2(0.0, theme::TOUCH))).clicked() {
-                                view.page = page;
-                            }
+                // telefon: ikona ustawień zamiast tytułu, strony jako same ikony (otwarta – z nazwą), zamykanie samym X
+                ui.horizontal(|ui| {
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(30.0, 44.0), egui::Sense::hover());
+                    ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, theme::icon::GEAR, egui::FontId::proportional(22.0), theme::BRASS);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if bare_icon(ui, theme::icon::X).on_hover_text(crate::i18n::tr("Zamknij bez zapisywania (Esc)")).clicked() {
+                            close = true;
                         }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            egui::ScrollArea::horizontal().id_salt("strony-ustawien").scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 2.0;
+                                    for (page, glyph, name) in PAGES {
+                                        if page_tab(ui, glyph, crate::i18n::tr(name), view.page == page).clicked() {
+                                            view.page = page;
+                                        }
+                                    }
+                                });
+                            });
+                        });
                     });
                 });
                 ui.add_space(6.0);
+            } else {
+                ui.horizontal(|ui| {
+                    ui.heading(crate::i18n::tr("Ustawienia"));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if bare_icon(ui, theme::icon::X).on_hover_text(crate::i18n::tr("Zamknij bez zapisywania (Esc)")).clicked() {
+                            close = true;
+                        }
+                    });
+                });
+                ui.add_space(8.0);
             }
             ui.horizontal_top(|ui| {
                 if !compact {
@@ -341,10 +355,14 @@ impl App {
                 }
                 ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), body_h), egui::Layout::top_down(egui::Align::Min), |ui| {
                     ui.set_height(body_h);
-                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match view.page {
+                    let content_w = ui.available_width() - theme::SCROLL_GUTTER;
+                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                      // nic nie rozpycha treści poza okno (długie napisy się łamią)
+                      ui.set_max_width(content_w);
+                      match view.page {
                         Page::General => {
                             ui.label(theme::kicker(crate::i18n::tr("Język / Language")));
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 let cur = if view.draft.lang.is_empty() { crate::i18n::system() } else { view.draft.lang.as_str() };
                                 let mut pick = None;
                                 for l in crate::i18n::LANGS {
@@ -358,8 +376,8 @@ impl App {
                             });
                             ui.add_space(12.0);
                             ui.label(theme::kicker(crate::i18n::tr("Dostępność")));
-                            theme::switch(ui, &mut atlas.prefs.high_contrast, crate::i18n::tr("Wysoki kontrast (Ctrl+H)"));
-                            ui.horizontal(|ui| {
+                            theme::switch(ui, &mut atlas.prefs.high_contrast, if crate::platform::MOBILE { crate::i18n::tr("Wysoki kontrast") } else { crate::i18n::tr("Wysoki kontrast (Ctrl+H)") });
+                            ui.horizontal_wrapped(|ui| {
                                 ui.label(crate::i18n::tr("Wielkość interfejsu"));
                                 ui.add(
                                     egui::Slider::new(&mut atlas.prefs.ui_scale, crate::ui::atlas::UI_SCALE_MIN..=crate::ui::atlas::UI_SCALE_MAX)
@@ -471,9 +489,6 @@ impl App {
                             if ui.button(theme::ic(theme::icon::BUG, "Zgłoś błąd lub sugestię…")).clicked() {
                                 report = true;
                             }
-                            if ui.button(theme::ic(theme::icon::FILE_TEXT, if crate::platform::MOBILE { "Udostępnij dziennik programu" } else { "Pokaż dziennik programu" })).on_hover_text(crate::i18n::tr("Plik gran.log – przydaje się przy zgłaszaniu błędów")).clicked() {
-                                crate::platform::show_log(&crate::log_path());
-                            }
                             ui.add_space(12.0);
                             ui.label(theme::kicker(crate::i18n::tr("Autor")));
                             if ui.link("redzikowski.com").clicked() {
@@ -487,6 +502,7 @@ impl App {
                             ui.label(theme::kicker(crate::i18n::tr("Źródła danych")));
                             theme::para(ui, crate::i18n::tr("Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), opcjonalne ortofoto: GUGiK, ČÚZK, ÚGKK SR, basemap.at, swisstopo (SWISSIMAGE), Provincia autonoma di Bolzano. Komunikat turystyczny: TPN. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim."));
                         }
+                      }
                     });
                 });
             });
@@ -840,6 +856,21 @@ impl eframe::App for App {
         eframe::set_value(storage, PREFS_KEY, &self.atlas.save_prefs());
     }
 
+    /// Paski systemu (stan u góry, nawigacja u dołu) jako bezpieczny obszar egui: żadne okno,
+    /// menu ani panel nie wchodzi pod nie, a pod spodem jest ciemne tło (`clear_color`).
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if !crate::platform::MOBILE {
+            return;
+        }
+        let [it, ib] = crate::platform::insets();
+        let ppp = ctx.pixels_per_point().max(0.1);
+        raw_input.safe_area_insets = Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { left: 0.0, right: 0.0, top: it / ppp, bottom: ib / ppp }));
+    }
+
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        theme::INK_0.to_normalized_gamma_f32()
+    }
+
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.capture_frame(ctx);
         self.system_events(ctx);
@@ -877,13 +908,15 @@ impl eframe::App for App {
         theme::set_high_contrast(ctx, self.atlas.prefs.high_contrast);
         // telefon: arkusz szczegółów od dołu zamiast panelu bocznego
         self.atlas.compact = theme::compact(ctx);
-        let [it, ib] = crate::platform::insets();
-        let ppp = ctx.pixels_per_point().max(0.1);
-        self.atlas.safe_top = it / ppp;
-        self.atlas.safe_bottom = ib / ppp;
-        let sh = ctx.screen_rect().height() - self.atlas.safe_top - self.atlas.safe_bottom;
-        let max_sheet = (sh - crate::ui::panels::TOP_BAR_H - crate::ui::panels::STATUS_H - crate::ui::panels::TOOLBAR_H - 8.0).max(200.0);
-        self.atlas.sheet_h = if self.atlas.sheet_full { max_sheet } else { (sh * 0.46).max(240.0).min(max_sheet) };
+        // paski systemu są już odjęte od obszaru egui (`raw_input_hook`)
+        self.atlas.safe_top = 0.0;
+        self.atlas.safe_bottom = 0.0;
+        let sh = ctx.screen_rect().height();
+        let below = crate::ui::panels::STATUS_H + crate::ui::panels::TOOLBAR_H;
+        // rozwinięty arkusz zajmuje cały ekran nad paskiem stanu i narzędziami (zakrywa górny pasek)
+        let full_sheet = (sh - below).max(200.0);
+        let max_sheet = (sh - crate::ui::panels::TOP_BAR_H - below - 8.0).max(200.0);
+        self.atlas.sheet_h = if self.atlas.sheet_full { full_sheet } else { (sh * 0.46).max(240.0).min(max_sheet) };
         self.update_ui(ctx);
 
         self.top_bar(ctx);
@@ -945,7 +978,10 @@ impl App {
         if !ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::BrowserBack)) {
             return;
         }
-        if self.settings_open.is_some() {
+        if egui::Popup::is_any_open(ctx) {
+            // rozwinięte menu paska (warstwy, styl, pora dnia) zamyka się pierwsze
+            egui::Popup::close_all(ctx);
+        } else if self.settings_open.is_some() {
             self.settings_open = None;
         } else if self.feedback.is_open() {
             self.feedback.close();
@@ -971,6 +1007,35 @@ impl App {
 }
 
 /// Przeniesienie zawartości folderu: zmiana nazwy na tym samym dysku, kopia + usunięcie między dyskami.
+/// Sama ikona do kliknięcia, bez tła i ramki (np. X zamykający okno); pod palcem lekko jaśnieje.
+fn bare_icon(ui: &mut egui::Ui, glyph: &str) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(40.0, 40.0), egui::Sense::click());
+    theme::focus_ring(ui, &resp, rect, 10.0);
+    let color = if resp.hovered() || resp.is_pointer_button_down_on() { theme::PAPER } else { theme::paper_2() };
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(20.0), color);
+    resp
+}
+
+/// Strona ustawień na telefonie: sama ikona, a otwarta strona – ikona z nazwą na podświetleniu.
+fn page_tab(ui: &mut egui::Ui, glyph: &str, name: &str, on: bool) -> egui::Response {
+    let font = egui::FontId::proportional(14.0);
+    let text = on.then(|| ui.painter().layout_no_wrap(name.to_string(), font, theme::PAPER));
+    let w = 44.0 + text.as_ref().map_or(0.0, |g| g.size().x + 12.0);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 44.0), egui::Sense::click());
+    theme::focus_ring(ui, &resp, rect, 12.0);
+    let p = ui.painter();
+    if on {
+        p.rect_filled(rect, 12.0, egui::Color32::from_rgba_unmultiplied(122, 176, 255, 40));
+    } else if resp.hovered() {
+        p.rect_filled(rect, 12.0, egui::Color32::from_white_alpha(16));
+    }
+    p.text(rect.left_center() + egui::vec2(22.0, 0.0), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(20.0), if on { theme::BRASS } else { theme::paper_2() });
+    if let Some(g) = text {
+        p.galley(egui::pos2(rect.left() + 42.0, rect.center().y - g.size().y / 2.0), g, theme::PAPER);
+    }
+    resp.on_hover_text(name)
+}
+
 fn move_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
     for e in std::fs::read_dir(from)? {
