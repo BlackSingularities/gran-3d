@@ -374,32 +374,43 @@ pub fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
 
     // punkty trasy
     section(ui, theme::icon::MAP_PIN, &tf!("Punkty ({})", n));
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        if ui.add_enabled(a.can_undo(), egui::Button::new(theme::icon::ARROW_COUNTER_CLOCKWISE).small()).on_hover_text(tr("Cofnij (Ctrl+Z)")).clicked() {
-            a.undo_route();
+    // działania na punktach: równe kafelki z ikoną i podpisem (wygodne także palcem)
+    let closed = a.waypoints.first().zip(a.waypoints.last()).is_some_and(|(f, l)| haversine(f.lon, f.lat, l.lon, l.lat) < 30.0);
+    let mut items: Vec<(&str, &str, &str, bool, u8)> = vec![
+        (theme::icon::ARROW_COUNTER_CLOCKWISE, "Cofnij", "Cofnij (Ctrl+Z)", a.can_undo(), 0),
+        (theme::icon::ARROW_CLOCKWISE, "Ponów", "Ponów (Ctrl+Y)", a.can_redo(), 1),
+    ];
+    if n >= 2 {
+        items.push((theme::icon::ARROWS_DOWN_UP, "Odwróć", "Odwróć kierunek trasy", true, 2));
+        if !closed {
+            items.push((theme::icon::REPEAT, "Pętla", "Dodaje powrót do punktu startu", true, 3));
+            items.push((theme::icon::ARROW_U_DOWN_LEFT, "Tam i z pow.", "Powrót do startu przez te same punkty", true, 4));
         }
-        if ui.add_enabled(a.can_redo(), egui::Button::new(theme::icon::ARROW_CLOCKWISE).small()).on_hover_text(tr("Ponów (Ctrl+Y)")).clicked() {
-            a.redo_route();
-        }
-        if n >= 2 {
-            if ui.small_button(theme::ic(theme::icon::ARROWS_DOWN_UP, "Odwróć")).on_hover_text(tr("Odwróć kierunek trasy")).clicked() {
-                a.reverse_route();
+    }
+    if n > 0 {
+        items.push((theme::icon::TRASH, "Wyczyść", "Usuń wszystkie punkty trasy", true, 5));
+    }
+    let gap = 4.0;
+    let w = ((ui.available_width() - gap * (items.len() as f32 - 1.0)) / items.len() as f32).floor();
+    let mut act = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = gap;
+        for (glyph, label, hint, enabled, k) in &items {
+            let r = ui.add_enabled_ui(*enabled, |ui| theme::action(ui, glyph, label, w)).inner;
+            if r.on_hover_text(tr(hint)).clicked() {
+                act = Some(*k);
             }
-            let closed = a.waypoints.first().zip(a.waypoints.last()).is_some_and(|(f, l)| haversine(f.lon, f.lat, l.lon, l.lat) < 30.0);
-            if !closed {
-                if ui.small_button(theme::ic(theme::icon::REPEAT, "Pętla")).on_hover_text(tr("Dodaje powrót do punktu startu")).clicked() {
-                    a.close_loop();
-                }
-                if ui.small_button(theme::ic(theme::icon::ARROW_U_DOWN_LEFT, "Tam i z powrotem")).on_hover_text(tr("Powrót do startu przez te same punkty")).clicked() {
-                    a.there_and_back();
-                }
-            }
-        }
-        if n > 0 && ui.small_button(theme::ic(theme::icon::TRASH, "Wyczyść")).clicked() {
-            a.clear_route();
         }
     });
+    match act {
+        Some(0) => a.undo_route(),
+        Some(1) => a.redo_route(),
+        Some(2) => a.reverse_route(),
+        Some(3) => a.close_loop(),
+        Some(4) => a.there_and_back(),
+        Some(5) => a.clear_route(),
+        _ => {}
+    }
     if a.waypoints.is_empty() {
         theme::para(ui, tr("Klikaj na mapie, żeby dodać punkty trasy (start, przez, cel). Punkty można przeciągać; prawy przycisk daje więcej opcji."));
     } else {

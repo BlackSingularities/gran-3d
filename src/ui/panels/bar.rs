@@ -96,11 +96,17 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
                     layers_button(a, ui);
                     style_button(a, ui);
                     sun_button(a, ui);
-                    if a.search.is_none() {
-                        let w = ui.available_width() - 4.0;
-                        search_field_w(a, ui, w);
+                    if theme::tool_tile(ui, theme::icon::MAGNIFYING_GLASS, crate::i18n::tr("Szukaj"), a.search.is_some(), 46.0).clicked() {
+                        a.search = Some(Default::default());
                     }
                 });
+                // zamykanie wyszukiwarki: pole zwija się z powrotem do przycisku
+                let t = ctx.animate_bool_with_time(egui::Id::new("szukaj-rozwiniecie"), a.search.is_some(), SEARCH_ANIM);
+                if a.search.is_none() && t > 0.01 {
+                    let r = search_rect(ctx, a.safe_top, t);
+                    ui.painter().rect_filled(r, 14.0, theme::POPUP_FILL);
+                    ctx.request_repaint();
+                }
                 return;
             }
             row(ui, inner, egui::Layout::left_to_right(egui::Align::Center), &mut |ui| tools(a, ui));
@@ -120,6 +126,18 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
                 sun_button(a, ui);
             });
         });
+}
+
+/// Czas rozwijania i zwijania wyszukiwarki na telefonie (s).
+pub const SEARCH_ANIM: f32 = 0.22;
+
+/// Wyszukiwarka na telefonie: od przycisku przy lewej krawędzi (`t` = 0) do całego paska (`t` = 1).
+pub fn search_rect(ctx: &egui::Context, safe_top: f32, t: f32) -> egui::Rect {
+    let s = ctx.screen_rect();
+    let e = egui::emath::easing::cubic_out(t.clamp(0.0, 1.0));
+    let (x0, w0, w1) = (s.left() + 12.0, 46.0, s.width() - 16.0);
+    let x = x0 + (s.left() + 8.0 - x0) * e;
+    egui::Rect::from_min_size(egui::pos2(x, s.top() + safe_top + 4.0), egui::vec2(w0 + (w1 - w0) * e, TOP_BAR_H - 8.0))
 }
 
 /// Wysokość górnego paska.
