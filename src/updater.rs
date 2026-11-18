@@ -50,13 +50,16 @@ pub fn current() -> &'static str {
     crate::app_version()
 }
 
-/// Prefiks tagów osobnych wydań Androida (`android-v1.0.0`).
+/// Prefiks tagów osobnych wydań Androida (`android-v1.0.0`) i iOS (`ios-v1.0.0`).
 const ANDROID_TAG: &str = "android-v";
+const IOS_TAG: &str = "ios-v";
 
 /// Wersja z tagu wydania tej platformy (`v4.0.1` na Windows, `android-v1.0.0` na Androidzie);
 /// `None` – wydanie innej platformy.
 pub fn tag_version(tag: &str) -> Option<&str> {
-    if crate::platform::MOBILE {
+    if crate::platform::IOS {
+        tag.strip_prefix(IOS_TAG)
+    } else if crate::platform::MOBILE {
         tag.strip_prefix(ANDROID_TAG)
     } else {
         tag.strip_prefix('v').filter(|v| v.starts_with(|c: char| c.is_ascii_digit()))
@@ -99,7 +102,9 @@ pub fn latest() -> Result<Release, String> {
 /// Plik aktualizacji dla tego systemu.
 pub fn is_package(name: &str) -> bool {
     let n = name.to_lowercase();
-    if crate::platform::MOBILE {
+    if crate::platform::IOS {
+        n.starts_with("gran-") && n.ends_with(".ipa")
+    } else if crate::platform::MOBILE {
         n.starts_with("gran-") && !n.starts_with("gran-setup-") && n.ends_with(".apk")
     } else {
         n.starts_with("gran-setup-") && n.ends_with(".exe")
@@ -194,8 +199,8 @@ mod tests {
     #[test]
     fn package_for_platform() {
         assert!(is_package("GRAN-Setup-4.0.0.exe") != crate::platform::MOBILE);
-        assert!(is_package("GRAN-4.0.0.apk") == crate::platform::MOBILE);
-        assert!(is_package("GRAN-Android-1.0.0.apk") == crate::platform::MOBILE);
+        assert!(!is_package("GRAN-4.0.0.apk") || crate::platform::MOBILE);
+        assert!(!is_package("GRAN-Android-1.0.0.apk") || crate::platform::MOBILE);
         assert!(!is_package("latest.yml"));
     }
 

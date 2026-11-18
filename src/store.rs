@@ -221,7 +221,7 @@ fn free_space_impl(dir: &Path) -> Option<u64> {
     (ok != 0).then_some(avail)
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 fn free_space_impl(dir: &Path) -> Option<u64> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
@@ -231,7 +231,7 @@ fn free_space_impl(dir: &Path) -> Option<u64> {
     (r == 0).then(|| st.f_bavail as u64 * st.f_frsize as u64)
 }
 
-#[cfg(not(any(windows, target_os = "android")))]
+#[cfg(not(any(windows, target_os = "android", target_os = "ios")))]
 fn free_space_impl(_dir: &Path) -> Option<u64> {
     None
 }
