@@ -23,6 +23,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - uses: actions/checkout@v4
       - name: APK z wydania
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,19 +45,9 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
-            adb install -r "$(cat apk.txt)"
-            mkdir -p shots
-            adb shell am start -n com.blacksingularities.gran3d/.GranActivity --ez gran_capture true --es gran_link 'gran://widok?lat=49.1930&lon=20.0720&az=200&nach=38&odl=5200&styl=4'
-            sleep 150
-            adb exec-out screencap -p > shots/01-teren.png
-            adb shell am start -n com.blacksingularities.gran3d/.GranActivity --ez gran_capture true --es gran_link 'gran://widok?lat=49.2320&lon=19.9820&az=160&nach=45&odl=7000&styl=0&trasa=49.2700,19.9800;49.2318,19.9817;49.2210,20.0090'
-            sleep 120
-            adb exec-out screencap -p > shots/02-trasa.png
-            adb shell am start -n com.blacksingularities.gran3d/.GranActivity --ez gran_capture true --es gran_link 'gran://widok?lat=49.1790&lon=20.0880&az=320&nach=52&odl=4200&styl=2'
-            sleep 90
-            adb exec-out screencap -p > shots/03-nachylenie.png
-            adb logcat -d -s GRAN > shots/logcat.txt || true
+            adb install -r "$(cat apk.txt)" && mkdir -p shots && adb logcat -c && sh .github/emulator-shots.sh
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: android-screenshots
           path: shots/
