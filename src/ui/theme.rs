@@ -78,8 +78,14 @@ pub fn apply(ctx: &egui::Context) {
     // obce pisma w nazwach z OSM (dewanagari, tybetańskie, chińskie, japońskie, koreańskie, arabskie…):
     // zapasowe czcionki systemowe Windows, o ile są
     let win = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
-    for file in ["Nirmala.ttf", "himalaya.ttf", "msyh.ttc", "YuGothR.ttc", "malgun.ttf", "segoeui.ttf", "seguisym.ttf", "ebrima.ttf", "taile.ttf", "mmrtext.ttf"] {
-        let Ok(data) = std::fs::read(std::path::Path::new(&win).join("Fonts").join(file)) else { continue };
+    let (dir, files): (std::path::PathBuf, &[&str]) = if crate::platform::MOBILE {
+        // Android: czcionki Noto systemu
+        ("/system/fonts".into(), &["NotoSansDevanagari-VF.ttf", "NotoSerifTibetan-VF.ttf", "NotoSansCJK-Regular.ttc", "NotoNaskhArabic-Regular.ttf", "NotoSansSymbols-Regular-Subsetted.ttf", "NotoSansEthiopic-VF.ttf", "NotoSansThai-Regular.ttf", "NotoSansMyanmar-Regular.otf", "NotoSansGeorgian-VF.ttf", "NotoSansArmenian-VF.ttf", "NotoSansHebrew-Regular.ttf"])
+    } else {
+        (std::path::Path::new(&win).join("Fonts"), &["Nirmala.ttf", "himalaya.ttf", "msyh.ttc", "YuGothR.ttc", "malgun.ttf", "segoeui.ttf", "seguisym.ttf", "ebrima.ttf", "taile.ttf", "mmrtext.ttf"])
+    };
+    for &file in files {
+        let Ok(data) = std::fs::read(dir.join(file)) else { continue };
         fonts.font_data.insert(file.into(), std::sync::Arc::new(egui::FontData::from_owned(data)));
         for fam in [FontFamily::Proportional, FontFamily::Monospace] {
             fonts.families.entry(fam).or_default().push(file.into());
@@ -101,6 +107,19 @@ pub fn apply(ctx: &egui::Context) {
         s.text_styles.insert(TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace));
     });
 }
+
+/// Wąski ekran (telefon w pionie): panele jako arkusze od dołu, narzędzia w dolnym pasku.
+pub fn compact(ctx: &egui::Context) -> bool {
+    ctx.screen_rect().width() < 720.0
+}
+
+/// Szerokość okna lub menu dopasowana do ekranu (marginesy po 12 pt).
+pub fn fit(ctx: &egui::Context, w: f32) -> f32 {
+    w.min(ctx.screen_rect().width() - 24.0).max(200.0)
+}
+
+/// Najmniejszy wygodny cel dotyku (pt): przyciski na telefonie nie mogą być mniejsze.
+pub const TOUCH: f32 = 44.0;
 
 /// Miejsce zajmowane przez pasek przewijania obok treści (treść nigdy nie leży pod paskiem).
 pub const SCROLL_GUTTER: f32 = 12.0;

@@ -939,3 +939,131 @@ godziny słońca {} · dzień trwa {}	sunshine hours {} · day length {}
 Widok ukośny (V)	Oblique view (V)
 Widok z góry (V)	Top-down view (V)
 Zamknij pełny ekran (F11)	Exit full screen (F11)
+# GRAŃ 4.0: Android, mapy offline, punkty społeczności
+Nowe miejsce na dane	New data location
+Przenieść zapisane dane do nowego miejsca?\n\nZ: {}\nDo: {}\n\n„Przenieś” – dane trafią do nowego miejsca, a stare zostanie usunięte.\n„Zacznij od nowa” – nowe miejsce wypełni się od początku, stare dane zostaną na miejscu.	Move the saved data to the new location?\n\nFrom: {}\nTo: {}\n\n“Move” – the data goes to the new location and the old one is removed.\n“Start fresh” – the new location fills up from scratch, the old data stays where it is.
+wolne: {}	free: {}
+Dane na karcie pamięci znikną po wyjęciu karty albo odinstalowaniu GRANI.	Data on a memory card disappears when the card is removed or GRAŃ is uninstalled.
+Sprzątanie	Cleanup
+Usuwa najdawniej używane dane ponad limit (obszary offline zostają)	Removes the least recently used data above the limit (offline areas stay)
+Mapy offline	Offline maps
+Instalację potwierdzisz w oknie systemu Android.	You will confirm the installation in an Android system window.
+Instalacja wymaga potwierdzenia uprawnień administratora.	Installation requires administrator confirmation.
+Dostępna jest nowa wersja {}. Masz wersję {}.\n\nPobrać i zainstalować aktualizację{}? Dane map i ustawienia zostaną zachowane.	A new version {} is available. You have version {}.\n\nDownload and install the update{}? Map data and settings will be kept.
+Aktualizacja GRANI	GRAŃ update
+Jeden palec – przesuwanie. Dwa palce: rozsuwanie przybliża, obrót palców obraca mapę, przesuwanie w górę i w dół zmienia nachylenie. Dwukrotne dotknięcie przybliża, przytrzymanie palca otwiera menu punktu.	One finger – pan. Two fingers: spread to zoom in, twist to rotate the map, slide up and down to change the tilt. Double-tap zooms in, a long press opens the point menu.
+Wybierz narzędzie trasy w dolnym pasku i dotykaj mapy: start, punkty pośrednie, cel. Punkty można przeciągać. Trasę zapiszesz w bibliotece albo wyeksportujesz do GPX, KML lub FIT.	Pick the route tool in the bottom bar and tap the map: start, via points, destination. Points can be dragged. Save the route in the library or export it to GPX, KML or FIT.
+Punkty i mapy offline	Points and offline maps
+Narzędzie „Punkty i komentarze” pozwala opisać miejsce dla innych turystów (źródło, utrudnienie, widok). „Mapy offline” pobiera wybrany obszar, żeby działał bez internetu.	The “Points and comments” tool lets you describe a place for other hikers (a spring, an obstacle, a view). “Offline maps” downloads a chosen area so it works without the internet.
+Przycisk z idącą postacią stawia Cię na terenie: lewy drążek na ekranie – chodzenie, przeciąganie palcem – rozglądanie, „wstecz” – wyjście.	The walking-figure button puts you on the ground: the on-screen stick – walk, drag with a finger – look around, “back” – exit.
+Biblioteka trzyma zapisane trasy, ulubione miejsca i widoki. Przycisk „wstecz” zamyka kolejne okna i panele. Przewodnik obejrzysz ponownie z ustawień.	The library keeps saved routes, favourite places and views. The “back” button closes windows and panels one by one. You can replay this guide from the settings.
+Nie było czego sprzątać.	There was nothing to clean up.
+Usunięto {} paczek danych, zwolniono {}.	Removed {} data packs, freed {}.
+Miejsce na dane	Data location
+Wyczyść stare dane teraz	Clean up old data now
+Udostępnij dziennik programu	Share the program log
+Przenieś	Move
+Zacznij od nowa	Start fresh
+Pobierz i zainstaluj	Download and install
+Później	Later
+tryb offline	offline mode
+Przegląd	Overview
+Wędrówka	Hiking
+Pełna szczegółowość	Full detail
+zdjęcia ok. 19 m/piksel – najmniej miejsca	imagery about 19 m/pixel – least space
+zdjęcia ok. 5 m/piksel – wygodne planowanie	imagery about 5 m/pixel – comfortable planning
+zdjęcia ok. 1 m/piksel, teren LiDAR – najwięcej miejsca	imagery about 1 m/pixel, LiDAR terrain – most space
+Zezwól GRANI na instalowanie aplikacji (okno ustawień), a potem ponów aktualizację.	Allow GRAŃ to install apps (settings window), then retry the update.
+Pamięć wewnętrzna (tylko dla GRANI)	Internal storage (GRAŃ only)
+Pamięć urządzenia	Device storage
+Karta pamięci	Memory card
+Informacja	Information
+Utrudnienie	Obstacle
+Woda	Water
+Nocleg i schronienie	Accommodation and shelter
+Miejsce na zdjęcie	Photo spot
+Inne	Other
+opublikowany	published
+czeka na zatwierdzenie	awaiting approval
+czeka na połączenie z siecią	waiting for a network connection
+niewidoczny dla innych	not visible to others
+Tryb offline – zgłoszenie wyślesz po połączeniu z siecią.	Offline mode – you can send the report once you are online.
+punkt nie został jeszcze wysłany	the point has not been sent yet
+Za dużo wpisów naraz – spróbuj za kilka minut.	Too many entries at once – try again in a few minutes.
+brak połączenia z redzikowski.com: {}	no connection to redzikowski.com: {}
+Tryb offline (bez internetu)	Offline mode (no internet)
+chodzenie	walking
+Tryb offline: mapa korzysta tylko z zapisanych danych.	Offline mode: the map uses saved data only.
+Tryb online: brakujące dane znów będą pobierane.	Online mode: missing data will be downloaded again.
+Dodaj punkt z komentarzem	Add a point with a comment
+Pobierz okolicę do użytku offline	Download this area for offline use
+Punkty i komentarze	Points and comments
+Dodaj punkt z komentarzem dla innych turystów	Add a point with a comment for other hikers
+Pobierz obszar do użytku bez internetu	Download an area to use without the internet
+W kolejce do wysłania: {}	Waiting to be sent: {}
+Dotknij mapy w miejscu, które chcesz opisać: źródło, utrudnienie na szlaku, punkt widokowy, parking. Wpis zobaczą inni turyści korzystający z GRANI.	Tap the place on the map you want to describe: a spring, an obstacle on the trail, a viewpoint, a car park. Other hikers using GRAŃ will see your entry.
+Kliknij na mapie miejsce, które chcesz opisać: źródło, utrudnienie na szlaku, punkt widokowy, parking. Wpis zobaczą inni turyści korzystający z GRANI.	Click the place on the map you want to describe: a spring, an obstacle on the trail, a viewpoint, a car park. Other hikers using GRAŃ will see your entry.
+Pokazuj punkty społeczności na mapie	Show community points on the map
+W okolicy	Nearby
+Wczytywanie punktów…	Loading points…
+Brak punktów w promieniu 30 km. Bądź pierwszy!	No points within 30 km. Be the first!
+Moje wpisy	My entries
+komentarze: {}	comments: {}
+Nowy punkt	New point
+Dotknij mapy albo przeciągnij szpilkę, żeby przesunąć punkt.	Tap the map or drag the pin to move the point.
+Kliknij na mapie albo przeciągnij szpilkę, żeby przesunąć punkt.	Click the map or drag the pin to move the point.
+Rodzaj	Type
+Tytuł	Title
+Komentarz	Comment
+Podpis (opcjonalnie)	Signature (optional)
+Wpis trafi na redzikowski.com i po zatwierdzeniu zobaczą go inni użytkownicy GRANI. Nie wpisuj danych osobowych ani numerów telefonów.	Your entry goes to redzikowski.com and, once approved, other GRAŃ users will see it. Do not include personal data or phone numbers.
+Wpisz tytuł i komentarz (co najmniej 3 znaki).	Enter a title and a comment (at least 3 characters).
+Zapisano – wpis wyśle się po połączeniu z siecią.	Saved – the entry will be sent once you are online.
+Dziękujemy! Wpis pojawi się dla innych po zatwierdzeniu.	Thank you! Your entry will appear for others once approved.
+Ten punkt nie jest już dostępny.	This point is no longer available.
+anonim	anonymous
+Zgłoś punkt	Report point
+Zgłosić ten punkt do sprawdzenia? Moderator zobaczy go w panelu redzikowski.com (np. nieprawdziwy, nieaktualny albo obraźliwy wpis).	Report this point for review? A moderator will see it in the redzikowski.com panel (e.g. a false, outdated or offensive entry).
+Dziękujemy – moderator sprawdzi ten wpis.	Thank you – a moderator will review this entry.
+Komentarze ({})	Comments ({})
+Dodaj komentarz	Add a comment
+Dziękujemy! Komentarz pojawi się dla innych po zatwierdzeniu.	Thank you! Your comment will appear for others once approved.
+Nowy obszar	New area
+Dotknij mapy w dwóch przeciwległych narożnikach obszaru albo weź obszar z bieżącego widoku.	Tap the map at two opposite corners of the area, or take the area from the current view.
+Kliknij na mapie dwa przeciwległe narożniki obszaru albo weź obszar z bieżącego widoku.	Click two opposite corners of the area on the map, or take the area from the current view.
+Szczegółowość	Detail
+Także ortofoto krajowe (więcej miejsca)	Also national orthophotos (more space)
+{} kafli · ok. {}	{} tiles · about {}
+Obszar jest za duży – zmniejsz go albo wybierz mniejszą szczegółowość.	The area is too large – make it smaller or pick a lower detail level.
+Za mało wolnego miejsca na dysku.	Not enough free disk space.
+Pobrane obszary nie są usuwane przy sprzątaniu do limitu danych. Wliczają się jednak do zajętego miejsca.	Downloaded areas are not removed when cleaning up to the data limit. They do count towards the space used.
+Obszar offline	Offline area
+Pobieranie obszaru rozpoczęte – postęp w liście poniżej.	Area download started – progress in the list below.
+Tryb offline – tylko zapisane dane	Offline mode – saved data only
+W trybie offline GRAŃ nie łączy się z internetem: mapa, szlaki i nazwy pochodzą z dysku, a komentarze czekają w kolejce.	In offline mode GRAŃ does not connect to the internet: the map, trails and names come from disk, and comments wait in a queue.
+Pobrane obszary	Downloaded areas
+Nie masz jeszcze obszarów offline. Wybierz narzędzie „Mapy offline” i zaznacz prostokąt na mapie.	You have no offline areas yet. Pick the “Offline maps” tool and mark a rectangle on the map.
+Szlaki, nazwy, drogi i lasy…	Trails, names, roads and forests…
+{} z {} kafli	{} of {} tiles
+nieudane: {} (uzupełnisz później)	failed: {} (you can complete them later)
+niepełny: {} z {} kafli	incomplete: {} of {} tiles
+Uzupełnia brakujące dane (np. po zmianie źródeł)	Fills in missing data (e.g. after a source change)
+Usunąć obszar „{}”? Jego dane przestaną być chronione i zostaną usunięte przy sprzątaniu do limitu.	Remove the area “{}”? Its data will no longer be protected and will be removed when cleaning up to the limit.
+Tryb offline – nowe wpisy wyślą się po połączeniu z siecią.	Offline mode – new entries will be sent once you are online.
+Wróć do nowego punktu	Back to the new point
+Dodaj punkt na środku widoku	Add a point at the centre of the view
+np. Źródło przy szlaku, zwalone drzewa	e.g. Spring by the trail, fallen trees
+Co warto wiedzieć o tym miejscu? Kiedy to sprawdzałeś?	What is worth knowing about this place? When did you check it?
+Imię lub pseudonim	Name or nickname
+Zgłoś	Report
+Aktualne informacje, odpowiedź, uwagi	Current information, a reply, remarks
+Wyślij komentarz	Send comment
+Usuń mój wpis z tego urządzenia	Remove my entry from this device
+Obszar z bieżącego widoku	Area from the current view
+Nazwa obszaru	Area name
+Pobierz	Download
+Przerwij	Stop
+Wznów	Resume
+Odśwież	Refresh
+Wszystkie punkty	All points
+Punkty społeczności	Community points

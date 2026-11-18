@@ -6,3 +6,4 @@ pub mod search;
 pub mod theme;
 pub mod library;
 pub mod conditions;
+pub mod dialog;

@@ -2,13 +2,14 @@
 
 <!-- posters:start -->
 <p align="center">
-  <img src="docs/posters/windows.png" alt="GRAŃ – Windows" width="460">
+  <img src="docs/posters/windows.png" alt="GRAŃ – Windows" width="400">
+  <img src="docs/posters/android.png" alt="GRAŃ – Android" width="400">
 </p>
 
 <p align="center"><a href="https://redzikowski.com/portfolio/gran-3d">redzikowski.com/portfolio/gran-3d</a></p>
 <!-- posters:end -->
 
-Natywny program dla Windows (Rust, wgpu, egui): trójwymiarowy atlas gór łączący rzeczywisty model terenu z siecią znakowanych szlaków z OpenStreetMap, z narzędziami analitycznymi — wysokością względną, wyznaczaniem tras z wariantami, polem widoczności, linią wzroku, cieniami o dowolnej porze dnia i przelotem kamery nad trasą.
+Natywny program dla Windows i Androida (Rust, wgpu, egui – ten sam kod na obu systemach): trójwymiarowy atlas gór łączący rzeczywisty model terenu z siecią znakowanych szlaków z OpenStreetMap, z narzędziami analitycznymi — wysokością względną, wyznaczaniem tras z wariantami, polem widoczności, linią wzroku, cieniami o dowolnej porze dnia i przelotem kamery nad trasą.
 
 Jeden plik `Gran.exe`, bez przeglądarki, Node i lokalnego serwera. Dystrybucja przez [redzikowski.com](https://redzikowski.com/portfolio/gran-3d) (pliki z GitHub Releases tego repozytorium). Repozytorium nie zawiera danych gór: teren, zdjęcia, szlaki i punkty pobierane są w miarę oglądania mapy, a w menedżerze map (przycisk „Mapy” albo `D`) można zapisać obszary do pracy bez internetu.
 
@@ -17,10 +18,16 @@ Jeden plik `Gran.exe`, bez przeglądarki, Node i lokalnego serwera. Dystrybucja 
 | platforma | plik | uwagi |
 | --- | --- | --- |
 | Windows 10/11 (64-bit) | `GRAN-Setup-<wersja>.exe` | instalator dla wszystkich użytkowników (`Program Files`, okno UAC, wybór folderu), skróty, deinstalacja z Panelu sterowania, aktualizacje z redzikowski.com |
+| Android 8+ (ARM 64-bit, OpenGL ES 3 lub Vulkan) | `GRAN-<wersja>.apk` | ta sama funkcjonalność, układ na telefon (dolny pasek narzędzi, arkusz szczegółów), gesty, miejsce na dane w pamięci albo na karcie SD, aktualizacje z redzikowski.com (podpis zgodny z wersją 1.x) |
 
 Instalacja na wersji 1.x (Electron) usuwa ją jej własnym deinstalatorem i zachowuje dane. Przy pierwszym uruchomieniu kreator pyta o **folder na dane map** (podfolder `GRAN-dane`), **maksymalny rozmiar** (1–500 GB) i obszary do pobrania na start. Kafle terenu wersji 1.x (także LiDAR) są importowane w tle.
 
 ## Funkcje
+
+### Nowe w 4.0
+- **Android** – pełna wersja programu z układem na telefon i gestami.
+- **Mapy offline** – pobieranie zaznaczonego obszaru (teren, zdjęcia, szlaki, nazwy, drogi, lasy) w wybranej szczegółowości; pobrane obszary są chronione przed sprzątaniem, a tryb offline odcina sieć.
+- **Punkty i komentarze** – punkty na mapie z komentarzami dla innych turystów, publikowane przez redzikowski.com po moderacji, z kolejką do wysłania bez internetu.
 
 ### Teren
 - Teren kaflowy z poziomami szczegółów (drzewo czwórkowe Web Mercator, siatka 64×64 na kafel, fartuchy maskujące szczeliny, krzywizna Ziemi), dane wczytywane w wątkach wokół kamery, a do czasu wczytania – fragmenty kafli nadrzędnych.

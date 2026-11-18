@@ -78,6 +78,14 @@ pub fn agent() -> &'static ureq::Agent {
             .timeout_connect(Duration::from_secs(10))
             .timeout_read(Duration::from_secs(30))
             .max_idle_connections_per_host(32)
+            // tryb offline: żadnych połączeń (odpowiedź 503 bez wychodzenia do sieci)
+            .middleware(|req: ureq::Request, next: ureq::MiddlewareNext| {
+                if crate::offline::is_offline() {
+                    let r = ureq::Response::new(503, "Offline", "tryb offline")?;
+                    return Err(ureq::Error::Status(503, r));
+                }
+                next.handle(req)
+            })
             .build()
     })
 }
@@ -104,6 +112,9 @@ pub fn fetch(layer: Layer, t: TileId) -> Result<Vec<u8>, FetchError> {
 }
 
 fn fetch_url(url: &str) -> Result<Vec<u8>, FetchError> {
+    if crate::offline::is_offline() {
+        return Err(FetchError::Network(crate::i18n::tr("tryb offline").into()));
+    }
     let mut last = String::new();
     for attempt in 0..3 {
         if attempt > 0 {

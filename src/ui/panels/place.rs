@@ -163,12 +163,12 @@ pub(super) fn poi_info(a: &mut Atlas, ui: &mut egui::Ui, i: usize) {
     poi_details(a, ui, &p.poi);
     ui.horizontal(|ui| {
         if !p.poi.osm.is_empty() && ui.link("OpenStreetMap").clicked() {
-            let _ = open::that(format!("https://www.openstreetmap.org/{}", p.poi.osm));
+            crate::platform::open_url(&format!("https://www.openstreetmap.org/{}", p.poi.osm));
         }
         if !p.poi.wiki.is_empty() {
             if let Some((lang, title)) = p.poi.wiki.split_once(':') {
                 if ui.link(crate::i18n::tr("Wikipedia")).clicked() {
-                    let _ = open::that(format!("https://{lang}.wikipedia.org/wiki/{}", crate::osm::urlencode(title)));
+                    crate::platform::open_url(&format!("https://{lang}.wikipedia.org/wiki/{}", crate::osm::urlencode(title)));
                 }
             }
         }
@@ -282,7 +282,7 @@ pub(super) fn trail_info(a: &mut Atlas, ui: &mut egui::Ui, e: u32) {
                 ui.label(RichText::new(&r.r#ref).small().color(theme::paper_3()));
             }
             if ui.small_button("OSM").clicked() {
-                let _ = open::that(format!("https://www.openstreetmap.org/relation/{}", r.id));
+                crate::platform::open_url(&format!("https://www.openstreetmap.org/relation/{}", r.id));
             }
         });
     }
@@ -409,12 +409,12 @@ pub(super) fn poi_details(a: &mut Atlas, ui: &mut egui::Ui, p: &crate::osm::Poi)
         if let Some(w) = get("website") {
             let url = if w.starts_with("http") { w } else { format!("https://{w}") };
             if ui.button(theme::ic(theme::icon::GLOBE, "Strona")).on_hover_text(&url).clicked() {
-                let _ = open::that(&url);
+                crate::platform::open_url(&url);
             }
         }
         if let Some(m) = get("email") {
             if ui.button(theme::ic(theme::icon::ENVELOPE, "E-mail")).on_hover_text(&m).clicked() {
-                let _ = open::that(format!("mailto:{m}"));
+                crate::platform::open_url(&format!("mailto:{m}"));
             }
         }
     });
@@ -448,6 +448,6 @@ pub(super) fn webcam(a: &mut Atlas, ui: &mut egui::Ui, url: &str) {
         }
     }
     if ui.link(tr("Otwórz stronę kamery")).clicked() {
-        let _ = open::that(url);
+        crate::platform::open_url(&url);
     }
 }

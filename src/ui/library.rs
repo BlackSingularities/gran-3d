@@ -194,12 +194,9 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
                     Kind::View => a.library.views.get(i).map(|v| v.name.clone()),
                 }
                 .unwrap_or_default();
-                let ok = rfd::MessageDialog::new()
-                    .set_title(crate::i18n::tr("GRAŃ"))
-                    .set_description(tf!("Usunąć „{}” z biblioteki?", name))
-                    .set_buttons(rfd::MessageButtons::YesNo)
-                    .show();
-                if ok == rfd::MessageDialogResult::Yes {
+                editing = None;
+                let ask = crate::ui::dialog::Ask::new(tr("Biblioteka"), tf!("Usunąć „{}” z biblioteki?", name), &["Usuń", "Anuluj"]).danger();
+                a.ask(ask, move |a| {
                     match kind {
                         Kind::Route if i < a.library.routes.len() => {
                             a.library.routes.remove(i);
@@ -212,9 +209,8 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
                         }
                         _ => {}
                     }
-                    editing = None;
                     a.save_library();
-                }
+                });
             }
             Action::ExportRoute(i) => {
                 a.open_saved_route(i);

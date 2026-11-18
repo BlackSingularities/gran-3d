@@ -242,13 +242,15 @@ impl Atlas {
 
     /// Spacer po terenie: W/S – przód/tył, A/D – w bok, Shift – bieg, spacja – skok (z grawitacją).
     pub(super) fn walk(&mut self, ctx: &egui::Context) {
+        let stick = self.walk_stick;
         let (dt, fwd, side, run, jump) = ctx.input(|i| {
             let k = |a: egui::Key| i.key_down(a) as i32 as f64;
             (
                 i.stable_dt.min(0.05) as f64,
-                k(egui::Key::W) - k(egui::Key::S),
-                k(egui::Key::D) - k(egui::Key::A),
-                i.modifiers.shift,
+                (k(egui::Key::W) - k(egui::Key::S) - stick.y as f64).clamp(-1.0, 1.0),
+                (k(egui::Key::D) - k(egui::Key::A) + stick.x as f64).clamp(-1.0, 1.0),
+                // drążek wychylony do końca – bieg
+                i.modifiers.shift || stick.length() > 0.92,
                 i.key_pressed(egui::Key::Space),
             )
         });

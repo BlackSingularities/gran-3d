@@ -124,12 +124,12 @@ pub fn discard_pending_crash() {
 }
 
 fn os_name() -> String {
-    // Numer kompilacji z rejestru wymagałby dodatkowych zależności – wystarcza rodzina i architektura.
-    format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)
+    // Windows: rodzina i architektura; Android: wersja systemu i model urządzenia
+    crate::platform::device()
 }
 
 fn locale() -> String {
-    std::env::var("LANG").ok().filter(|s| !s.is_empty()).unwrap_or_default()
+    std::env::var("LANG").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| crate::i18n::current().to_string())
 }
 
 fn base(include_device: bool) -> serde_json::Map<String, serde_json::Value> {
@@ -138,7 +138,7 @@ fn base(include_device: bool) -> serde_json::Map<String, serde_json::Value> {
     m.insert("app".into(), c.map(|c| c.slug).unwrap_or("").into());
     m.insert("appName".into(), c.map(|c| c.name).unwrap_or("").into());
     m.insert("appVersion".into(), c.map(|c| c.version).unwrap_or("").into());
-    m.insert("platform".into(), if cfg!(target_os = "windows") { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "linux" }.into());
+    m.insert("platform".into(), crate::platform::NAME.into());
     m.insert("locale".into(), locale().into());
     if include_device {
         m.insert("os".into(), os_name().into());
@@ -235,6 +235,14 @@ impl FeedbackUi {
         self.job = None;
     }
 
+    pub fn is_open(&self) -> bool {
+        !matches!(self.mode, Mode::Closed)
+    }
+
+    pub fn close(&mut self) {
+        self.mode = Mode::Closed;
+    }
+
     pub fn show(&mut self, ctx: &egui::Context) {
         if !self.checked_crash {
             self.checked_crash = true;
@@ -311,7 +319,7 @@ impl FeedbackUi {
         let mut keep = true;
         let busy = self.job.is_some();
         Self::window(crate::i18n::tr("Zgłoś błąd lub sugestię")).show(ctx, |ui| {
-            ui.set_width(440.0);
+            ui.set_width(crate::ui::theme::fit(ui.ctx(), 440.0));
             if self.sent {
                 ui.label(egui::RichText::new(crate::i18n::tr("Dziękuję! Zgłoszenie dotarło.")).strong());
                 ui.label(if self.email.trim().is_empty() {
@@ -364,7 +372,7 @@ impl FeedbackUi {
         let mut keep = true;
         let busy = self.job.is_some();
         Self::window(crate::i18n::tr("Aplikacja została nieoczekiwanie zamknięta")).show(ctx, |ui| {
-            ui.set_width(440.0);
+            ui.set_width(crate::ui::theme::fit(ui.ctx(), 440.0));
             if self.sent {
                 ui.label(egui::RichText::new(crate::i18n::tr("Dziękuję! Raport został wysłany.")).strong());
                 ui.add_space(8.0);

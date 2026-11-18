@@ -10,7 +10,7 @@ pub const PROFILE_BAR_H: f32 = 22.0;
 
 /// Profil wysokości na dole okna.
 pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
-    let open = a.prefs.profile_open;
+    let open = profile_expanded(a);
     if !open {
         a.profile_cursor = a.flight.as_ref().map(|f| f.dist);
     }
@@ -26,7 +26,7 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
     let size = egui::vec2((screen.width() - 28.0).max(320.0), h);
     glass_area(a, ctx, egui::Id::new("profil"), 1.0);
     egui::Area::new(egui::Id::new("profil"))
-        .fixed_pos([screen.left(), screen.bottom() - STATUS_H - h - 20.0])
+        .fixed_pos([screen.left(), screen.bottom() - STATUS_H - toolbar_h(a) - if sheet_open(a) { a.sheet_h } else { 0.0 } - h - 20.0])
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
             egui::Frame::new().fill(theme::glass_fill()).inner_margin(egui::Margin::symmetric(14, 10)).show(ui, |ui| {
@@ -227,7 +227,7 @@ pub fn help(a: &mut Atlas, ctx: &egui::Context) {
         cards.push((glyph, g.label().to_string(), rows));
     }
     let screen = ctx.screen_rect();
-    let width = (screen.width() - 80.0).clamp(420.0, 900.0);
+    let width = (screen.width() - 80.0).clamp(420.0, 900.0).min(screen.width() - 60.0);
     let n_cols = if width < 700.0 { 1 } else { 2 };
     // karty po kolei do krótszej kolumny
     let mut cols: Vec<Vec<usize>> = vec![Vec::new(); n_cols];
@@ -295,14 +295,9 @@ pub fn help(a: &mut Atlas, ctx: &egui::Context) {
     }
 }
 
-/// Okno wyboru pliku śladu (GPX, KML, GeoJSON).
+/// Okno wyboru pliku śladu (GPX, KML, GeoJSON); na Androidzie plik przyjdzie później jako zdarzenie.
 pub fn pick_track_file() -> Option<std::path::PathBuf> {
-    rfd::FileDialog::new()
-        .add_filter(crate::i18n::tr("Ślady (GPX, KML, GeoJSON)"), &crate::formats::EXTENSIONS)
-        .add_filter("GPX", &["gpx"])
-        .add_filter("KML", &["kml"])
-        .add_filter("GeoJSON", &["geojson", "json"])
-        .pick_file()
+    crate::platform::pick_track_file()
 }
 
 /// Okno „Wczytywanie danych”: mapka sektorów okolicy w barwach stanu i paski postępu.
@@ -321,7 +316,7 @@ pub fn load_window(a: &mut Atlas, ctx: &egui::Context) {
     egui::Window::new(title)
         .collapsible(false)
         .resizable(false)
-        .anchor(egui::Align2::RIGHT_BOTTOM, [-80.0 - right_inset(a), -16.0 - bottom_inset(a)])
+        .anchor(egui::Align2::RIGHT_BOTTOM, [if a.compact { -12.0 } else { -80.0 - right_inset(a) }, -16.0 - bottom_inset(a)])
         .open(&mut open)
         .show(ctx, |ui| {
             ui.set_width(330.0);

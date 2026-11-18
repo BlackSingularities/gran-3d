@@ -4,12 +4,7 @@ use super::*;
 
 impl Atlas {
     pub(super) fn screenshot(&mut self, ctx: &egui::Context) {
-        if let Some(p) = rfd::FileDialog::new()
-            .set_title(crate::i18n::tr("Zapisz zrzut ekranu"))
-            .set_file_name("gran.png")
-            .add_filter("PNG", &["png"])
-            .save_file()
-        {
+        if let Some(p) = crate::platform::screenshot_target() {
             self.screenshot = Some(p);
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
@@ -29,6 +24,8 @@ impl Atlas {
             let [w, h] = img.size;
             let raw: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
             let msg = match image::RgbaImage::from_raw(w as u32, h as u32, raw).map(|b| b.save(&path)) {
+                // Android: plik trafia jeszcze do okna systemu „Zapisz jako”
+                Some(Ok(())) if crate::platform::deliver(&path, "gran.png") => return,
                 Some(Ok(())) => tf!("Zapisano zrzut: {}", path.display()),
                 _ => crate::i18n::tr("Nie udało się zapisać zrzutu.").to_string(),
             };
@@ -152,7 +149,14 @@ impl Atlas {
         // kursor nad terenem
         let pointer = resp.hover_pos();
         let local_px = |p: Pos2| [p.x - rect.left(), p.y - rect.top()];
-        self.hover = pointer.and_then(|p| self.ground(&view, local_px(p)));
+        // dotyk: w klatce podniesienia palca wskaźnika już nie ma – zostaje punkt z poprzedniej klatki
+        let lifted = crate::platform::MOBILE && pointer.is_none() && (resp.clicked() || resp.double_clicked() || resp.long_touched());
+        if !lifted {
+            self.hover = pointer.and_then(|p| self.ground(&view, local_px(p)));
+        }
+        if pointer.is_some() {
+            self.touch_last = pointer;
+        }
 
         // nad etykietą – kursor wskazujący (kliknięcie zaznacza punkt)
         if pointer.is_some_and(|p| self.label_hit(p, rect, &view).is_some()) && self.tool.behavior().picks_labels() {

@@ -73,10 +73,11 @@ pub enum Layer {
     Closures,
     Pistes,
     Roads,
+    UserPoints,
 }
 
 impl Layer {
-    pub const ALL: [Layer; 13] = [
+    pub const ALL: [Layer; 14] = [
         Layer::Trails,
         Layer::Labels,
         Layer::Contours,
@@ -90,6 +91,7 @@ impl Layer {
         Layer::Closures,
         Layer::Pistes,
         Layer::Roads,
+        Layer::UserPoints,
     ];
 
     pub fn flag(self, p: &mut Prefs) -> &mut bool {
@@ -107,6 +109,7 @@ impl Layer {
             Layer::Closures => &mut p.closures,
             Layer::Pistes => &mut p.pistes,
             Layer::Roads => &mut p.roads,
+            Layer::UserPoints => &mut p.user_points,
         }
     }
 
@@ -125,6 +128,7 @@ impl Layer {
             Layer::Closures => p.closures,
             Layer::Pistes => p.pistes,
             Layer::Roads => p.roads,
+            Layer::UserPoints => p.user_points,
         }
     }
 
@@ -145,6 +149,7 @@ impl Layer {
             Layer::Closures => (i::PROHIBIT, "Zamknięte szlaki", k(K::Z)),
             Layer::Pistes => (i::PERSON_SIMPLE_SKI, "Trasy narciarskie", k(K::J)),
             Layer::Roads => (i::ROAD_HORIZON, "Drogi i ulice", None),
+            Layer::UserPoints => (i::MAP_PIN, "Punkty społeczności", None),
         }
     }
 }
@@ -196,6 +201,7 @@ pub enum Action {
     ZoomOut,
     ZoomReset,
     CheckUpdates,
+    Offline,
 }
 
 impl Action {
@@ -237,6 +243,7 @@ impl Action {
             Action::ZoomOut,
             Action::ZoomReset,
             Action::CheckUpdates,
+            Action::Offline,
         ]);
         v
     }
@@ -294,6 +301,7 @@ impl Action {
             Action::ZoomOut => (i::MAGNIFYING_GLASS_MINUS, tr("Pomniejsz interfejs"), Group::Interface),
             Action::ZoomReset => (i::TEXT_AA, tr("Domyślny rozmiar interfejsu"), Group::Interface),
             Action::CheckUpdates => (i::ARROW_CIRCLE_UP, tr("Sprawdź aktualizacje"), Group::Interface),
+            Action::Offline => (i::CLOUD_SLASH, tr("Tryb offline (bez internetu)"), Group::Interface),
         }
     }
 
@@ -304,6 +312,8 @@ impl Action {
             Action::Tool(Tool::Explore) => k(K::Num1),
             Action::Tool(Tool::Route) => k(K::Num2),
             Action::Tool(Tool::Measure) => k(K::Num3),
+            Action::Tool(Tool::Point) => k(K::Num4),
+            Action::Tool(Tool::Area) => k(K::Num5),
             Action::Lens(Lens::Band) => k(K::H),
             Action::Lens(Lens::Rel) => k(K::W),
             Action::Lens(Lens::Vis) => k(K::O),
@@ -373,6 +383,7 @@ impl Action {
             Action::Panel => p.panel_open,
             Action::Fullscreen => return None,
             Action::HighContrast => p.high_contrast,
+            Action::Offline => p.offline_mode,
             _ => return None,
         })
     }
@@ -468,6 +479,7 @@ impl Atlas {
             Action::Conditions => self.toggle_tab(Tab::Conditions),
             Action::Search => self.search = Some(crate::ui::search::Search::default()),
             Action::Palette => self.palette = Some(Default::default()),
+            Action::Offline => self.set_offline(!self.prefs.offline_mode),
             Action::Help => self.help = !self.help,
             Action::Settings => self.requests.open_preferences = true,
             Action::LoadDetails => self.load_details = !self.load_details,

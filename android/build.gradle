@@ -1,0 +1,5 @@
+// GRAŃ na Androida: cienka powłoka Javy (GranActivity) wokół biblioteki natywnej z Rusta
+// (`android/rust`, budowanej przez cargo-ndk do app/src/main/jniLibs przed Gradle).
+plugins {
+    id 'com.android.application' version '8.7.3' apply false
+}

@@ -1,15 +1,25 @@
 [package]
 name = "gran"
-version = "3.0.0"
+version = "4.0.0"
 edition = "2021"
 rust-version = "1.88"
-description = "GRAŃ — atlas szlaków górskich 3D dla Windows"
+description = "GRAŃ — atlas szlaków górskich 3D dla Windows i Androida"
 authors = ["BlackSingularities"]
 build = "build.rs"
+
+[lib]
+name = "gran"
+path = "src/lib.rs"
 
 [[bin]]
 name = "Gran"
 path = "src/main.rs"
+
+# Android: biblioteka natywna (cdylib) z punktem wejścia `android_main` – osobny pakiet w tym samym
+# obszarze roboczym, żeby kompilacja Windows nie budowała biblioteki dynamicznej.
+[workspace]
+members = [".", "android/rust"]
+default-members = ["."]
 
 [dependencies]
 eframe = { version = "0.33", default-features = false, features = ["wgpu", "default_fonts", "persistence"] }
@@ -19,7 +29,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = { version = "2.12", default-features = false, features = ["tls", "gzip", "proxy-from-env"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
-rfd = "0.15"
 egui-phosphor = "0.11"
 lz4_flex = "0.11"
 crc32fast = "1.4"
@@ -29,12 +38,23 @@ rayon = "1.10"
 sha2 = "0.10"
 base64 = "0.22"
 roxmltree = "0.21"
-open = "5"
 log = "0.4"
 tzf-rs = { version = "2.3", default-features = false, features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 chrono-tz = "0.10"
 env_logger = { version = "0.11", default-features = false, features = ["humantime"] }
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+rfd = "0.15"
+open = "5"
+
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.33", default-features = false, features = ["wgpu", "default_fonts", "persistence", "android-native-activity"] }
+jni = "0.21"
+ndk-context = "0.1"
+android_logger = "0.14"
+android-activity = { version = "0.6", features = ["native-activity"] }
+libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Globalization"] }
