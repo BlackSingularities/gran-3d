@@ -342,6 +342,8 @@ pub struct Atlas {
     /// Pasek stanu i pasek nawigacji systemu (punkty) – interfejs zaczyna się pod i kończy nad nimi.
     pub safe_top: f32,
     pub safe_bottom: f32,
+    /// Przewinięcie dolnego paska stanu na wąskim ekranie (punkty).
+    status_scroll: f32,
 }
 
 /// Stan planowania do historii: punkty i tryb wyznaczania.
@@ -490,6 +492,7 @@ impl Atlas {
             sheet_full: false,
             safe_top: 0.0,
             safe_bottom: 0.0,
+            status_scroll: 0.0,
         }
     }
 
