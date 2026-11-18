@@ -35,6 +35,8 @@
 		<integer>1</integer>
 		<integer>2</integer>
 	</array>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>GRAŃ dodaje wybrane zdjęcie do punktu na mapie (najwyżej 2048 px, bez danych o położeniu).</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arm64</string>

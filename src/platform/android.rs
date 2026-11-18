@@ -152,6 +152,7 @@ pub fn poll() {
     for line in text.lines() {
         match line.split_once('\t') {
             Some(("open", p)) => super::push(Event::Opened(PathBuf::from(p))),
+            Some(("photo", p)) => super::push(Event::Photo(PathBuf::from(p))),
             Some(("msg", m)) => super::push(Event::Message(crate::i18n::tr(m).to_string())),
             Some(("link", l)) => super::push(Event::Link(l.to_string())),
             Some(("capture", _)) => super::push(Event::Capture),
@@ -175,6 +176,12 @@ pub fn show_log(log: &Path) {
 pub fn pick_track_file() -> Option<PathBuf> {
     call_args("pickTrack", &[]);
     None
+}
+
+/// Okno systemu z wyborem zdjęcia; Java odczytuje je dekoderem systemu (także HEIC), obraca według
+/// EXIF i zmniejsza do 2048 px. Wynik przyjdzie jako [`Event::Photo`].
+pub fn pick_photo() {
+    call_args("pickPhoto", &[]);
 }
 
 /// Zapis przez okno systemu „Zapisz jako” w pierwszym formacie z listy. Wynik przyjdzie jako komunikat.

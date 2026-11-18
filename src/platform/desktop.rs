@@ -37,6 +37,17 @@ pub fn pick_track_file() -> Option<PathBuf> {
         .pick_file()
 }
 
+/// Okno wyboru zdjęcia do punktu społeczności; wynik przychodzi jako [`super::Event::Photo`].
+pub fn pick_photo() {
+    if let Some(p) = rfd::FileDialog::new()
+        .set_title(crate::i18n::tr("Wybierz zdjęcie"))
+        .add_filter(crate::i18n::tr("Zdjęcia (JPEG, PNG, WEBP)"), &["jpg", "jpeg", "png", "webp"])
+        .pick_file()
+    {
+        super::push(super::Event::Photo(p));
+    }
+}
+
 /// Zapis pliku przez okno „Zapisz jako”: `formats` – (rozszerzenie, opis), pierwszy jest domyślny;
 /// `bytes` dostaje rozszerzenie wybrane przez użytkownika. `None` – anulowano.
 pub fn save_file(title: &str, stem: &str, formats: &[(&str, &str)], bytes: impl FnOnce(&str) -> Vec<u8>) -> Option<Result<String, String>> {

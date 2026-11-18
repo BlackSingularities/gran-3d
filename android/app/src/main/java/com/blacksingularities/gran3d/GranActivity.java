@@ -5,6 +5,10 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -34,6 +38,9 @@ import java.util.Locale;
 public class GranActivity extends NativeActivity {
     private static final int PICK_TRACK = 41;
     private static final int CREATE_DOCUMENT = 42;
+    private static final int PICK_PHOTO = 43;
+    /** Dłuższy bok zdjęcia przekazywanego programowi (ten sam co na serwerze). */
+    private static final int PHOTO_MAX = 2048;
 
     private final ArrayList<String> events = new ArrayList<>();
     /** Wymuszony interfejs grafiki z intencji (`--es gran_backend vulkan|gl`) – testy w emulatorze. */
@@ -208,6 +215,21 @@ public class GranActivity extends NativeActivity {
         return "";
     }
 
+    /** Okno wyboru zdjęcia do punktu społeczności. */
+    public String pickPhoto() {
+        runOnUiThread(() -> {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("image/*");
+            try {
+                startActivityForResult(i, PICK_PHOTO);
+            } catch (ActivityNotFoundException e) {
+                push("msg", "Brak okna wyboru plików.");
+            }
+        });
+        return "";
+    }
+
     /** Okno „Zapisz jako”: plik z folderu tymczasowego trafia pod adres wskazany przez użytkownika. */
     public String createDocument(String path, String name, String mime) {
         runOnUiThread(() -> {
@@ -258,6 +280,8 @@ public class GranActivity extends NativeActivity {
         Uri uri = data.getData();
         if (request == PICK_TRACK) {
             importUri(uri);
+        } else if (request == PICK_PHOTO) {
+            importPhoto(uri);
         } else if (request == CREATE_DOCUMENT && pendingSource != null) {
             String src = pendingSource;
             String name = pendingName;
@@ -270,6 +294,62 @@ public class GranActivity extends NativeActivity {
                 }
             }).start();
         }
+    }
+
+    /**
+     * Zdjęcie: odczyt dekoderem systemu (JPEG, PNG, WEBP, HEIC), obrót według EXIF, najwyżej
+     * 2048 px na dłuższym boku, zapis jako JPEG w folderze tymczasowym (bez metadanych).
+     * Program zapisuje je potem ostatecznie jako JPEG 75%.
+     */
+    private void importPhoto(Uri uri) {
+        new Thread(() -> {
+            Bitmap bmp = null;
+            try {
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                try (InputStream in = getContentResolver().openInputStream(uri)) {
+                    BitmapFactory.decodeStream(in, null, bounds);
+                }
+                int longest = Math.max(bounds.outWidth, bounds.outHeight);
+                if (longest <= 0) throw new IllegalStateException("format");
+                BitmapFactory.Options opts = new BitmapFactory.Options();
+                opts.inSampleSize = 1;
+                while (longest / (opts.inSampleSize * 2) >= PHOTO_MAX) opts.inSampleSize *= 2;
+                try (InputStream in = getContentResolver().openInputStream(uri)) {
+                    bmp = BitmapFactory.decodeStream(in, null, opts);
+                }
+                if (bmp == null) throw new IllegalStateException("decode");
+                int rotation = 0;
+                try (InputStream in = getContentResolver().openInputStream(uri)) {
+                    if (in != null) {
+                        int o = new ExifInterface(in).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+                        rotation = o == ExifInterface.ORIENTATION_ROTATE_90 ? 90 : o == ExifInterface.ORIENTATION_ROTATE_180 ? 180 : o == ExifInterface.ORIENTATION_ROTATE_270 ? 270 : 0;
+                    }
+                } catch (Exception ignored) {
+                }
+                float scale = Math.min(1f, (float) PHOTO_MAX / Math.max(bmp.getWidth(), bmp.getHeight()));
+                if (rotation != 0 || scale < 1f) {
+                    Matrix m = new Matrix();
+                    m.postScale(scale, scale);
+                    m.postRotate(rotation);
+                    Bitmap t = Bitmap.createBitmap(bmp, 0, 0, bmp.getWidth(), bmp.getHeight(), m, true);
+                    if (t != bmp) bmp.recycle();
+                    bmp = t;
+                }
+                File dir = new File(getCacheDir(), "zdjecia");
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+                File out = new File(dir, "zdjecie-" + System.currentTimeMillis() + ".jpg");
+                try (OutputStream o = new FileOutputStream(out)) {
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 92, o);
+                }
+                push("photo", out.getAbsolutePath());
+            } catch (Exception | OutOfMemoryError e) {
+                push("msg", "Nie udało się wczytać zdjęcia.");
+            } finally {
+                if (bmp != null) bmp.recycle();
+            }
+        }).start();
     }
 
     /** Kopia wskazanego pliku do folderu tymczasowego i zgłoszenie programowi. */

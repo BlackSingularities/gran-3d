@@ -74,7 +74,29 @@ pub struct PointDraft {
     pub category: crate::points::Category,
     pub title: String,
     pub text: String,
-    pub author: String,
+    /// Przygotowane zdjęcia (JPEG 2048 px) do wysłania razem z punktem.
+    pub photos: Vec<std::path::PathBuf>,
+}
+
+/// Okno konta: logowanie, rejestracja, nowe hasło albo usunięcie konta.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum AccountMode {
+    #[default]
+    Login,
+    Register,
+    Forgot,
+    Delete,
+}
+
+/// Formularz okna konta (hasła żyją tylko tutaj, do wysłania).
+#[derive(Clone, Debug, Default)]
+pub struct AccountForm {
+    pub mode: AccountMode,
+    pub email: String,
+    pub password: String,
+    pub password2: String,
+    pub name: String,
+    pub consent: bool,
 }
 
 /// Szkic obszaru offline: narożniki i ustawienia pobierania.
@@ -323,6 +345,9 @@ pub struct Atlas {
     /// Punkty społeczności, szkic nowego punktu i klikalne znaczniki na mapie.
     pub points: crate::points::Points,
     pub point_draft: Option<PointDraft>,
+    /// Okno konta (logowanie, rejestracja) i polityka prywatności.
+    pub account_form: Option<AccountForm>,
+    pub privacy_open: bool,
     point_hits: Vec<(Rect, String)>,
     /// Obszary offline i szkic nowego obszaru.
     pub offline: crate::offline::Offline,
@@ -481,6 +506,8 @@ impl Atlas {
             roads_ver: 0,
             points: crate::points::Points::load(),
             point_draft: None,
+            account_form: None,
+            privacy_open: false,
             point_hits: Vec::new(),
             offline: crate::offline::Offline::new(heights_store),
             area_draft: None,
@@ -500,7 +527,6 @@ impl Atlas {
     /// Nowy szkic punktu społeczności w (`lon`, `lat`).
     pub fn start_point_draft(&mut self, lon: f64, lat: f64) {
         let ele = self.heights.sample_cached(lon, lat).unwrap_or(0.0);
-        let author = self.points.author();
         match self.point_draft.as_mut() {
             // przeniesienie szkicu – wpisany tekst zostaje
             Some(d) => {
@@ -510,7 +536,7 @@ impl Atlas {
             }
             None => {
                 let title = self.name_near(lon, lat, 120.0).unwrap_or_default();
-                self.point_draft = Some(PointDraft { lon, lat, ele, category: crate::points::Category::Info, title, text: String::new(), author });
+                self.point_draft = Some(PointDraft { lon, lat, ele, category: crate::points::Category::Info, title, text: String::new(), photos: Vec::new() });
             }
         }
         self.tool = Tool::Point;
