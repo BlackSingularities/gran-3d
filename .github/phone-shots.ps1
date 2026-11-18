@@ -16,8 +16,13 @@ foreach ($s in $shots) {
   $env:GRAN_WINDOW = '360x760'
   $env:GRAN_ZOOM = '1'
   $env:WGPU_BACKEND = 'dx12'
+  $env:GRAN_LANG = 'pl'
   $p = Start-Process $env:GRAN_EXE -ArgumentList $s[1] -PassThru
   if (-not $p.WaitForExit(($s[2] + 90) * 1000)) { Stop-Process $p -Force; Write-Host "::warning::$($s[0]): przekroczony czas" }
   Write-Host "$($s[0]): $(Test-Path $env:GRAN_CAPTURE)"
+  # awaria w trakcie zrzutu: raport do artefaktu, a kolejny widok bez okna zgłoszenia
+  $crash = "$env:LOCALAPPDATA\GRAN\feedback-pending-crash.json"
+  if (Test-Path $crash) { Write-Host "::warning::$($s[0]): awaria"; Copy-Item $crash "shots\$($s[0])-awaria.json"; Remove-Item $crash }
+  Copy-Item "$env:LOCALAPPDATA\GRAN\gran.log" "shots\$($s[0]).log" -ErrorAction SilentlyContinue
 }
 Copy-Item "$env:LOCALAPPDATA\GRAN\gran.log" shots\gran.log -ErrorAction SilentlyContinue

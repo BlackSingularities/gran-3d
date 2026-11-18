@@ -104,6 +104,10 @@ fn prepare() -> settings::Settings {
     feedback::install("gran-3d", "GRAŃ", app_version(), "GRAN");
     let s = settings::Settings::load();
     i18n::set(if s.lang.is_empty() { i18n::system() } else { &s.lang });
+    // zrzuty do dokumentacji w wybranym języku niezależnie od systemu
+    if let Ok(l) = std::env::var("GRAN_LANG") {
+        i18n::set(&l);
+    }
     init_log();
     tz::warm_up();
     s

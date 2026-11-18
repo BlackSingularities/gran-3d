@@ -18,7 +18,7 @@ Jeden plik `Gran.exe`, bez przeglądarki, Node i lokalnego serwera. Dystrybucja 
 | platforma | plik | uwagi |
 | --- | --- | --- |
 | Windows 10/11 (64-bit) | `GRAN-Setup-<wersja>.exe` | instalator dla wszystkich użytkowników (`Program Files`, okno UAC, wybór folderu), skróty, deinstalacja z Panelu sterowania, aktualizacje z redzikowski.com |
-| Android 8+ (ARM 64-bit, OpenGL ES 3 lub Vulkan) | `GRAN-<wersja>.apk` | ta sama funkcjonalność, układ na telefon (dolny pasek narzędzi, arkusz szczegółów), gesty, miejsce na dane w pamięci albo na karcie SD, aktualizacje z redzikowski.com (podpis zgodny z wersją 1.x) |
+| Android 8+ (ARM 64-bit, Vulkan lub OpenGL ES 3) | `GRAN-Android-<wersja>.apk` (osobne wydania `android-v…`, numeracja od 1.0.0) | ta sama funkcjonalność, układ na telefon (dolny pasek narzędzi, arkusz szczegółów), gesty, miejsce na dane w pamięci albo na karcie SD, aktualizacje z redzikowski.com (podpis zgodny z wersją 1.x) |
 
 Instalacja na wersji 1.x (Electron) usuwa ją jej własnym deinstalatorem i zachowuje dane. Przy pierwszym uruchomieniu kreator pyta o **folder na dane map** (podfolder `GRAN-dane`), **maksymalny rozmiar** (1–500 GB) i obszary do pobrania na start. Kafle terenu wersji 1.x (także LiDAR) są importowane w tle.
 
