@@ -159,6 +159,9 @@ fn nav_divider(ui: &mut egui::Ui) {
 
 /// Sterowanie kamerą w prawym dolnym rogu.
 pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
+    if sheet_covers(a) {
+        return;
+    }
     let alpha = controls_alpha(a, ctx);
     // nad profilem trasy, gdy jest otwarty
     egui::Area::new(egui::Id::new("kamera"))

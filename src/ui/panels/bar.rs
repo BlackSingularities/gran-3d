@@ -60,6 +60,10 @@ pub fn controls_alpha(a: &Atlas, ctx: &egui::Context) -> f32 {
 pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut Atlas, &mut egui::Ui)) {
     // zegar przy porze „teraz” ma iść także przy nieruchomym widoku
     ctx.request_repaint_after(std::time::Duration::from_secs(20));
+    // telefon: rozwinięty arkusz szczegółów zakrywa cały ekran razem z paskiem
+    if sheet_covers(a) {
+        return;
+    }
     let alpha = controls_alpha(a, ctx);
     let screen = ctx.screen_rect();
     // pod paskiem stanu systemu (Android), który dostaje własne ciemne tło
@@ -88,18 +92,31 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
                 });
             };
             if a.compact {
+                // przyciski na środku paska: szerokość rzędu z poprzedniej klatki
+                let wid = egui::Id::new("gorny-pasek-szerokosc");
+                let last: f32 = ctx.data(|d| d.get_temp(wid)).unwrap_or(inner.width());
+                let x = (inner.center().x - last / 2.0).max(inner.left());
+                let r = egui::Rect::from_min_max(egui::pos2(x, inner.top()), inner.max);
                 let mut trailing = Some(trailing);
-                row(ui, inner, egui::Layout::right_to_left(egui::Align::Center), &mut |ui| {
+                let mut used = last;
+                row(ui, r, egui::Layout::left_to_right(egui::Align::Center), &mut |ui| {
+                    let b = theme::tool_tile(ui, theme::icon::MAGNIFYING_GLASS, crate::i18n::tr("Szukaj"), a.search.is_some(), 46.0);
+                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("szukaj-x"), b.rect.left()));
+                    if b.clicked() {
+                        a.search = Some(Default::default());
+                    }
+                    sun_button(a, ui);
+                    style_button(a, ui);
+                    layers_button(a, ui);
                     if let Some(t) = trailing.take() {
                         t(a, ui);
                     }
-                    layers_button(a, ui);
-                    style_button(a, ui);
-                    sun_button(a, ui);
-                    if theme::tool_tile(ui, theme::icon::MAGNIFYING_GLASS, crate::i18n::tr("Szukaj"), a.search.is_some(), 46.0).clicked() {
-                        a.search = Some(Default::default());
-                    }
+                    used = ui.min_rect().width();
                 });
+                if (used - last).abs() > 0.5 {
+                    ctx.data_mut(|d| d.insert_temp(wid, used));
+                    ctx.request_repaint();
+                }
                 // zamykanie wyszukiwarki: pole zwija się z powrotem do przycisku
                 let t = ctx.animate_bool_with_time(egui::Id::new("szukaj-rozwiniecie"), a.search.is_some(), SEARCH_ANIM);
                 if a.search.is_none() && t > 0.01 {
@@ -135,7 +152,8 @@ pub const SEARCH_ANIM: f32 = 0.22;
 pub fn search_rect(ctx: &egui::Context, safe_top: f32, t: f32) -> egui::Rect {
     let s = ctx.screen_rect();
     let e = egui::emath::easing::cubic_out(t.clamp(0.0, 1.0));
-    let (x0, w0, w1) = (s.left() + 12.0, 46.0, s.width() - 16.0);
+    let x0 = ctx.data(|d| d.get_temp::<f32>(egui::Id::new("szukaj-x"))).unwrap_or(s.left() + 12.0);
+    let (w0, w1) = (46.0, s.width() - 16.0);
     let x = x0 + (s.left() + 8.0 - x0) * e;
     egui::Rect::from_min_size(egui::pos2(x, s.top() + safe_top + 4.0), egui::vec2(w0 + (w1 - w0) * e, TOP_BAR_H - 8.0))
 }
@@ -152,6 +170,34 @@ pub const TOOLBAR_H: f32 = 60.0;
 /// Dolny pasek narzędzi (tylko wąski ekran).
 pub fn toolbar_h(a: &Atlas) -> f32 {
     if a.compact { TOOLBAR_H } else { 0.0 }
+}
+
+/// Arkusz rozwinięty na cały ekran (telefon): kontrolki mapy pod nim się nie rysują.
+pub fn sheet_covers(a: &Atlas) -> bool {
+    sheet_open(a) && a.sheet_full
+}
+
+/// Treść menu paska; na telefonie z nagłówkiem, przyciskiem zamknięcia i przewijaniem, żeby
+/// zawsze dało się z niego wyjść i nic nie wystawało poza ekran.
+fn menu_body(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
+    if !theme::compact(ui.ctx()) {
+        body(ui);
+        return;
+    }
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(title).size(16.0).strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(40.0, 36.0), egui::Sense::click());
+            let color = if resp.hovered() || resp.is_pointer_button_down_on() { theme::PAPER } else { theme::paper_2() };
+            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, theme::icon::X, egui::FontId::proportional(20.0), color);
+            if resp.on_hover_text(crate::i18n::tr("Zamknij")).clicked() {
+                egui::Popup::close_all(ui.ctx());
+            }
+        });
+    });
+    ui.add_space(4.0);
+    let max_h = (ui.ctx().screen_rect().bottom() - ui.cursor().top() - TOOLBAR_H - STATUS_H - 16.0).max(160.0);
+    egui::ScrollArea::vertical().id_salt("menu-paska").max_height(max_h).show(ui, body);
 }
 
 /// Arkusz szczegółów otwarty od dołu (wąski ekran).
@@ -368,7 +414,7 @@ pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
     let pw = theme::fit(ui.ctx(), 360.0);
     egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).frame(theme::glass().inner_margin(egui::Margin::same(14))).show(|ui| {
         ui.set_width(pw);
-        light_tab(a, ui);
+        menu_body(ui, crate::i18n::tr("Pora dnia i światło"), |ui| light_tab(a, ui));
     });
     let pid = egui::Popup::default_response_id(&resp);
     if egui::Popup::is_id_open(ui.ctx(), pid) {
@@ -401,7 +447,7 @@ pub(super) fn bar_menu(ui: &mut egui::Ui, glyph: &str, glyph_color: Color32, tit
     let width = theme::fit(ui.ctx(), width);
     egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).frame(theme::glass().inner_margin(egui::Margin::same(14))).show(|ui| {
         ui.set_width(width);
-        body(ui);
+        menu_body(ui, title, body);
     });
     let pid = egui::Popup::default_response_id(&resp);
     if egui::Popup::is_id_open(ui.ctx(), pid) {

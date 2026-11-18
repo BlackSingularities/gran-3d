@@ -203,7 +203,7 @@ fn active(a: &Atlas) -> bool {
 
 /// Legenda w lewym dolnym rogu mapy (nad paskiem stanu i profilem).
 pub fn legend(a: &mut Atlas, ctx: &egui::Context) {
-    if !active(a) {
+    if !active(a) || sheet_covers(a) {
         return;
     }
     let id = egui::Id::new("legenda");

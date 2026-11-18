@@ -14,6 +14,9 @@ pub fn profile_panel(a: &mut Atlas, ctx: &egui::Context) {
     if !open {
         a.profile_cursor = a.flight.as_ref().map(|f| f.dist);
     }
+    if sheet_covers(a) {
+        return;
+    }
     let is_section = a.current_route().is_none();
     let Some(route) = a.profile_route().cloned() else {
         // profil pomiaru (2+ punktów)
