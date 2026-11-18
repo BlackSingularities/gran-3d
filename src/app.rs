@@ -489,6 +489,28 @@ impl App {
                             if ui.button(theme::ic(theme::icon::BUG, "Zgłoś błąd lub sugestię…")).clicked() {
                                 report = true;
                             }
+                            if ui.button(theme::ic(theme::icon::SHIELD_CHECK, "Polityka prywatności")).clicked() {
+                                atlas.privacy_open = true;
+                            }
+                            ui.add_space(12.0);
+                            ui.label(theme::kicker(crate::i18n::tr("Konto")));
+                            let acc = atlas.points.account().clone();
+                            if acc.logged_in() {
+                                ui.label(RichText::new(tf!("Zalogowano jako {} ({})", acc.name(), acc.email())).small().color(theme::paper_3()));
+                                ui.horizontal_wrapped(|ui| {
+                                    if ui.button(theme::ic(theme::icon::SIGN_OUT, "Wyloguj")).clicked() {
+                                        acc.logout();
+                                    }
+                                    if ui.button(theme::ic(theme::icon::TRASH, "Usuń konto…")).clicked() {
+                                        crate::ui::panels::open_account(atlas, crate::ui::atlas::AccountMode::Delete);
+                                    }
+                                });
+                            } else {
+                                theme::para(ui, crate::i18n::tr("Konto jest potrzebne tylko do dodawania punktów, komentarzy, zdjęć i ocen."));
+                                if ui.button(theme::ic(theme::icon::SIGN_IN, "Zaloguj się lub załóż konto")).clicked() {
+                                    crate::ui::panels::open_account(atlas, crate::ui::atlas::AccountMode::Login);
+                                }
+                            }
                             ui.add_space(12.0);
                             ui.label(theme::kicker(crate::i18n::tr("Autor")));
                             if ui.link("redzikowski.com").clicked() {
@@ -939,6 +961,7 @@ impl eframe::App for App {
         self.feedback.show(ctx);
         self.tour_ui(ctx);
         self.atlas.confirm_ui(ctx);
+        crate::ui::panels::community_windows(&mut self.atlas, ctx);
         self.ask_ui(ctx);
     }
 }
@@ -950,6 +973,7 @@ impl App {
         for e in crate::platform::drain() {
             match e {
                 crate::platform::Event::Opened(p) => self.atlas.import_track(&p),
+                crate::platform::Event::Photo(p) => self.atlas.points.prepare(p),
                 crate::platform::Event::Message(m) => self.atlas.notify(m),
                 crate::platform::Event::Link(l) => {
                     self.atlas.apply_link(&l);

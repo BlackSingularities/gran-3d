@@ -1099,3 +1099,121 @@ Otwórz stronę pobierania	Open the download page
 Przycisk „Spacer” stawia Cię na terenie: drążek na ekranie – chodzenie, przeciąganie palcem – rozglądanie. Biblioteka trzyma zapisane trasy, miejsca i widoki.	The “Walk” button puts you on the ground: the on-screen stick – walk, drag with a finger – look around. The library keeps saved routes, places and views.
 Nie udało się wczytać pliku: {}	Could not load the file: {}
 Pora dnia i światło	Time of day and light
+
+# Konto, zdjęcia i scalanie punktów społeczności (4.0.3)
+Za dużo prób – spróbuj za kilka minut.	Too many attempts – try again in a few minutes.
+Tryb offline – wyłącz go, żeby połączyć się z kontem.	Offline mode – turn it off to connect to your account.
+czeka na wysłanie	waiting to be sent
+Nieobsługiwany format zdjęcia – wybierz JPEG, PNG albo WEBP.	Unsupported photo format – choose JPEG, PNG or WEBP.
+Zaloguj się, żeby oceniać punkty.	Sign in to rate points.
+Sesja wygasła – zaloguj się ponownie, a wpisy wyślą się same.	Your session has expired – sign in again and your posts will be sent automatically.
+Zdjęcia (do {})	Photos (up to {})
+Wpis trafi na redzikowski.com i po zatwierdzeniu zobaczą go inni użytkownicy GRANI razem z Twoją nazwą. Nie wpisuj danych osobowych ani numerów telefonów, nie dodawaj zdjęć z rozpoznawalnymi osobami.	Your post goes to redzikowski.com and, once approved, other GRAŃ users will see it with your name. Do not include personal data or phone numbers, and do not add photos with recognisable people.
+W pobliżu jest już podobny punkt	There is already a similar point nearby
+„{}” ({}, {}) – zamiast tworzyć nowy punkt możesz dodać swój komentarz i zdjęcia do niego. Dzięki temu informacje o jednym miejscu są razem.	“{}” ({}, {}) – instead of creating a new point you can add your comment and photos to it. This keeps information about one place together.
+Punktów w promieniu {} m: {}	Points within {} m: {}
+Dołącz do tego punktu	Add to this point
+Utwórz nowy punkt	Create a new point
+Zaloguj się, żeby wysłać	Sign in to send
+Szkic zostanie tutaj – po zalogowaniu wyślesz go jednym przyciskiem.	The draft stays here – after signing in you can send it with one tap.
+Szkic przeniesiony do komentarza – sprawdź go i wyślij.	Draft moved to a comment – check it and send it.
+Konto	Account
+Wyloguj	Sign out
+Wylogowano. Nowe wpisy poczekają na ponowne zalogowanie.	Signed out. New posts will wait until you sign in again.
+Usuń konto…	Delete account…
+Prywatność	Privacy
+Przeglądanie punktów nie wymaga konta. Żeby dodawać punkty, komentarze, zdjęcia i oceny, załóż darmowe konto – potwierdzisz je linkiem z wiadomości e-mail.	Browsing points does not require an account. To add points, comments, photos and ratings, create a free account – you confirm it with a link sent by e-mail.
+Zaloguj się	Sign in
+Załóż konto	Create account
+Najwyżej {} zdjęcia.	At most {} photos.
+Nie udało się dodać zdjęcia: {}	Could not add the photo: {}
+Usuń zdjęcie	Remove photo
+Dodaj	Add
+Dodaj zdjęcie (zmniejszone do 2048 px, bez danych o położeniu)	Add a photo (scaled to 2048 px, without location data)
+Zdjęcia ({})	Photos ({})
+Dodaj komentarz lub zdjęcia	Add a comment or photos
+Dodałeś już {} zdjęcia do tego punktu (najwięcej).	You have already added {} photos to this point (the maximum).
+Wpisz komentarz (co najmniej 3 znaki) albo dodaj zdjęcie.	Write a comment (at least 3 characters) or add a photo.
+Zaloguj się, żeby dodać wpis	Sign in to post
+Zdjęcie · {}	Photo · {}
+Nie udało się wczytać zdjęcia.	Could not load the photo.
+Zalogowano jako {}.	Signed in as {}.
+Konto zostało usunięte.	The account has been deleted.
+Nowe hasło	New password
+Usuń konto	Delete account
+Sprawdź skrzynkę	Check your inbox
+Wysłaliśmy wiadomość na {}. Kliknij w niej link aktywacyjny (sprawdź też folder spam), a potem zaloguj się tutaj.	We sent a message to {}. Click the activation link in it (check your spam folder too), then sign in here.
+Wyślij link ponownie	Send the link again
+Jeśli konto z adresem {} istnieje, wysłaliśmy link do ustawienia nowego hasła (ważny 2 godziny). Po zmianie zaloguj się nowym hasłem.	If an account with the address {} exists, we sent a link to set a new password (valid for 2 hours). Afterwards sign in with the new password.
+Adres e-mail	E-mail address
+Hasło	Password
+Nie masz konta? Załóż je	No account? Create one
+Nie pamiętasz hasła?	Forgot your password?
+Nazwa widoczna przy wpisach	Name shown with your posts
+imię lub pseudonim	first name or nickname
+Hasło (co najmniej 8 znaków)	Password (at least 8 characters)
+Powtórz hasło	Repeat password
+Mam co najmniej 16 lat i akceptuję politykę prywatności GRANI	I am at least 16 years old and accept the GRAŃ privacy policy
+Przeczytaj politykę prywatności	Read the privacy policy
+Podaj nazwę (co najmniej 2 znaki).	Enter a name (at least 2 characters).
+Podaj poprawny adres e-mail.	Enter a valid e-mail address.
+Hasło musi mieć co najmniej 8 znaków.	The password must have at least 8 characters.
+Hasła się różnią.	The passwords do not match.
+Zaakceptuj politykę prywatności.	Accept the privacy policy.
+Nazwa jest publiczna – zobaczą ją inni przy Twoich wpisach. Adresu e-mail nikt poza administratorem nie widzi.	The name is public – others will see it with your posts. Nobody but the administrator sees your e-mail address.
+Masz już konto? Zaloguj się	Already have an account? Sign in
+Podaj adres konta – wyślemy link do ustawienia nowego hasła.	Enter your account address – we will send a link to set a new password.
+Wyślij link	Send link
+Wróć do logowania	Back to sign-in
+Usunięcie konta jest nieodwracalne. Twoje zdjęcia zostaną usunięte z serwera, a punkty i komentarze zostaną jako anonimowe (bez Twojej nazwy). Wpisy czekające w kolejce na tym urządzeniu nie zostaną wysłane bez ponownego logowania.	Deleting the account cannot be undone. Your photos will be removed from the server, and your points and comments will remain anonymous (without your name). Posts waiting in the queue on this device will not be sent unless you sign in again.
+Hasło (potwierdzenie)	Password (confirmation)
+Usuń konto na zawsze	Delete account permanently
+Łączę z redzikowski.com…	Connecting to redzikowski.com…
+Polityka prywatności	Privacy policy
+Zalogowano jako {} ({})	Signed in as {} ({})
+Konto jest potrzebne tylko do dodawania punktów, komentarzy, zdjęć i ocen.	An account is only needed to add points, comments, photos and ratings.
+Zaloguj się lub załóż konto	Sign in or create an account
+Wybierz zdjęcie	Choose a photo
+Zdjęcia (JPEG, PNG, WEBP)	Photos (JPEG, PNG, WEBP)
+Brak okna wyboru plików.	No file picker available.
+Brak aplikacji do otwarcia tego adresu.	No app can open this address.
+Nie udało się udostępnić pliku.	Could not share the file.
+Brak okna zapisu plików.	No file save dialog available.
+Nie udało się zapisać pliku.	Could not save the file.
+Nie udało się wczytać pliku.	Could not load the file.
+# Polityka prywatności (ui/privacy.rs)
+Polityka prywatności aplikacji GRAŃ	GRAŃ privacy policy
+GRAŃ to darmowy atlas szlaków 3D na Windows, Androida i iOS. Ta polityka opisuje, jakie dane aplikacja i konto na redzikowski.com przetwarzają, po co, jak długo i jakie masz prawa. Większość danych zostaje na Twoim urządzeniu – na serwer trafia tylko to, co sam wyślesz.	GRAŃ is a free 3D trail atlas for Windows, Android and iOS. This policy explains what data the app and your account on redzikowski.com process, why, for how long and what your rights are. Most data stays on your device – only what you send yourself reaches the server.
+1. Administrator danych	1. Data controller
+Administratorem danych jest Adam Rędzikowski, autor aplikacji GRAŃ, prowadzący serwis redzikowski.com. W sprawach danych osobowych napisz na adres obsługi aplikacji podany poniżej albo przez formularz kontaktowy na redzikowski.com.	The controller is Adam Rędzikowski, author of GRAŃ and operator of redzikowski.com. For any matter concerning your personal data, write to the app support address below or use the contact form on redzikowski.com.
+2. Co zostaje na urządzeniu	2. What stays on your device
+Ustawienia, biblioteka tras, miejsc i widoków, pobrane mapy i obszary offline, dziennik programu oraz dane konta (adres e-mail, nazwa i token sesji – bez hasła) są zapisywane tylko na Twoim urządzeniu. Aplikacja nie używa GPS ani lokalizacji urządzenia, nie ma reklam, analityki ani śledzenia.	Settings, your library of routes, places and views, downloaded maps and offline areas, the app log and your account details (e-mail, name and session token – never the password) are stored only on your device. The app does not use GPS or device location and has no ads, analytics or tracking.
+3. Konto użytkownika	3. User account
+Konto jest potrzebne tylko do dodawania punktów, komentarzy, zdjęć i ocen. Przeglądanie mapy i punktów innych osób działa bez konta.	An account is only needed to add points, comments, photos and ratings. Browsing the map and other people’s points works without one.
+Przy rejestracji zapisujemy: adres e-mail, nazwę widoczną przy Twoich wpisach, skrót hasła (scrypt – samego hasła nie znamy), datę rejestracji i akceptacji tej polityki, datę ostatniego logowania, system i wersję aplikacji oraz skróty tokenów sesji. Na adres e-mail wysyłamy wyłącznie wiadomości o koncie: link aktywacyjny i link do ustawienia nowego hasła – bez newslettera i reklam.	When you register we store: your e-mail address, the name shown with your posts, a password hash (scrypt – we never know the password itself), the date of registration and of accepting this policy, the last sign-in date, the system and app version, and hashes of session tokens. We only send account e-mails: the activation link and the password reset link – no newsletters or ads.
+Podstawa prawna: art. 6 ust. 1 lit. b RODO (świadczenie usługi, o którą prosisz, zakładając konto).	Legal basis: Art. 6(1)(b) GDPR (providing the service you request by creating an account).
+Konto, którego nie aktywujesz linkiem z wiadomości, jest usuwane po kilku dniach. Konto możesz w każdej chwili usunąć sam w aplikacji (narzędzie „Punkty i komentarze” → Konto → Usuń konto).	An account that is not activated via the e-mail link is deleted after a few days. You can delete your account at any time in the app (the “Points and comments” tool → Account → Delete account).
+4. Punkty, komentarze, zdjęcia i oceny	4. Points, comments, photos and ratings
+Wpisy są publiczne: po zatwierdzeniu przez moderatora zobaczą je wszyscy użytkownicy GRANI razem z Twoją nazwą (nie adresem e-mail). Zapisujemy położenie i wysokość punktu, rodzaj, tytuł, treść, datę, Twoją nazwę i powiązanie z kontem, a do ochrony przed nadużyciami także system, wersję aplikacji, język i skrót identyfikatora instalacji.	Posts are public: once approved by a moderator, every GRAŃ user sees them together with your name (never your e-mail). We store the point’s location and elevation, type, title, text, date, your name and account link, and – to prevent abuse – the system, app version, language and a hash of the installation identifier.
+Zdjęcia aplikacja przed wysłaniem zmniejsza do najwyżej 2048 pikseli i zapisuje jako JPEG (jakość 75%). Serwer przelicza je ponownie i usuwa wszystkie metadane, w tym położenie GPS, datę i model aparatu. Jedna osoba może dodać najwyżej 3 zdjęcia do punktu. Nie publikuj zdjęć, na których da się rozpoznać inne osoby bez ich zgody, ani danych osobowych w treści wpisów.	Before upload the app scales photos down to at most 2048 pixels and saves them as JPEG (quality 75%). The server re-encodes them and removes all metadata, including GPS location, date and camera model. One person can add at most 3 photos to a point. Do not publish photos in which other people can be recognised without their consent, or personal data in your posts.
+Gdy w pobliżu jest już podobny punkt, aplikacja zaproponuje dołączenie wpisu do niego, a moderator może scalić dwa punkty w jeden – komentarze i zdjęcia obu punktów trafiają wtedy do jednego.	If a similar point already exists nearby, the app suggests adding your post to it, and a moderator can merge two points into one – comments and photos of both then end up in a single point.
+Podstawa prawna: art. 6 ust. 1 lit. b RODO (publikacja wpisów, które dodajesz) i art. 6 ust. 1 lit. f RODO (moderacja i bezpieczeństwo serwisu).	Legal basis: Art. 6(1)(b) GDPR (publishing the posts you add) and Art. 6(1)(f) GDPR (moderation and security of the service).
+5. Dane techniczne i bezpieczeństwo	5. Technical data and security
+Serwer nie zapisuje Twojego adresu IP. Do limitów (np. liczby wpisów na kwadrans) i blokowania nadużyć używa jego skrótu z losową solą, którego nie da się zamienić z powrotem na adres. Połączenia są szyfrowane (HTTPS), hasła i tokeny sesji przechowujemy wyłącznie jako skróty.	The server does not store your IP address. For limits (e.g. posts per quarter of an hour) and abuse prevention it uses a hash with a random salt that cannot be turned back into the address. Connections are encrypted (HTTPS); passwords and session tokens are stored only as hashes.
+Podstawa prawna: art. 6 ust. 1 lit. f RODO (uzasadniony interes – bezpieczeństwo serwisu i użytkowników).	Legal basis: Art. 6(1)(f) GDPR (legitimate interest – security of the service and its users).
+6. Zgłoszenia błędów i sugestie	6. Bug reports and suggestions
+Gdy sam wyślesz zgłoszenie z aplikacji („Zgłoś błąd lub sugestię”) albo zgodzisz się wysłać raport po awarii, trafiają do nas: treść, wersja aplikacji, system, opis urządzenia, przy raporcie o awarii – opis błędu i koniec dziennika programu, a opcjonalnie Twój adres e-mail do odpowiedzi. Nic nie jest wysyłane bez Twojej decyzji. Zgłoszenia usuwamy po ich obsłużeniu.	When you send a report from the app (“Report a bug or suggestion”) or agree to send a crash report, we receive: the text, app version, system, device description, for crash reports – the error and the end of the app log, and optionally your e-mail for a reply. Nothing is sent without your decision. Reports are deleted once handled.
+7. Usługi zewnętrzne	7. Third-party services
+Żeby pokazać mapę, aplikacja pobiera dane bezpośrednio od ich dostawców: kafle i dane OpenStreetMap (OpenFreeMap, serwery Overpass, wyszukiwarka Nominatim), modele terenu (m.in. Mapterhorn, AWS Terrain Tiles), ortofotomapy i mapy krajowe (np. Geoportal, ČÚZK, ZBGIS, swisstopo, Esri), pogodę (Open-Meteo) i komunikaty lawinowe (np. TOPR, laviny.sk, EAWS). Jak przy każdym połączeniu internetowym dostawcy widzą adres IP urządzenia i żądany fragment mapy – nie przekazujemy im żadnych danych konta. Aktualizacje i pliki instalacyjne idą przez redzikowski.com z serwisu GitHub.	To show the map, the app downloads data directly from its providers: OpenStreetMap tiles and data (OpenFreeMap, Overpass servers, Nominatim search), terrain models (e.g. Mapterhorn, AWS Terrain Tiles), orthophotos and national maps (e.g. Geoportal, ČÚZK, ZBGIS, swisstopo, Esri), weather (Open-Meteo) and avalanche bulletins (e.g. TOPR, laviny.sk, EAWS). As with any internet connection, providers see the device’s IP address and the requested map area – we never pass them any account data. Updates and installers are delivered through redzikowski.com from GitHub.
+Dane konta i wpisów przechowujemy na serwerze redzikowski.com; dostęp do nich ma tylko administrator. Dostawca serwera i poczty e-mail przetwarza je wyłącznie na nasze zlecenie. Nie sprzedajemy danych i nie udostępniamy ich do celów marketingowych.	Account and post data are stored on the redzikowski.com server and only the administrator has access to them. The server and e-mail provider process them solely on our behalf. We do not sell data or share it for marketing.
+8. Jak długo przechowujemy dane	8. Retention
+Konto i jego dane – do usunięcia konta. Wpisy – dopóki są potrzebne użytkownikom mapy albo do ich usunięcia przez Ciebie lub moderatora. Po usunięciu konta usuwamy Twoje zdjęcia, a punkty i komentarze zostają jako anonimowe (bez nazwy i powiązania z kontem); jeśli chcesz usunąć także je, napisz do nas. Skróty adresów IP do limitów są trzymane w pamięci serwera najwyżej kilkanaście minut.	Account data – until the account is deleted. Posts – as long as they are useful to map users or until you or a moderator remove them. When you delete your account we delete your photos; points and comments remain anonymous (without your name or account link) – write to us if you want them removed too. IP hashes used for limits are kept in server memory for at most a quarter of an hour.
+9. Twoje prawa	9. Your rights
+Masz prawo dostępu do swoich danych, ich sprostowania, usunięcia, ograniczenia przetwarzania, przeniesienia oraz sprzeciwu wobec przetwarzania opartego na uzasadnionym interesie. Masz też prawo wnieść skargę do Prezesa Urzędu Ochrony Danych Osobowych (ul. Stawki 2, 00-193 Warszawa, uodo.gov.pl). Podanie danych jest dobrowolne, ale bez adresu e-mail i hasła nie założysz konta.	You have the right to access, rectify and erase your data, to restrict processing, to data portability and to object to processing based on legitimate interest. You may also lodge a complaint with a supervisory authority – in Poland the President of the Personal Data Protection Office (UODO, ul. Stawki 2, 00-193 Warsaw, uodo.gov.pl). Providing data is voluntary, but an account requires an e-mail address and a password.
+Konto mogą zakładać osoby, które ukończyły 16 lat.	You must be at least 16 years old to create an account.
+10. Zmiany polityki	10. Changes
+O istotnych zmianach poinformujemy w aplikacji. Aktualna wersja jest zawsze w aplikacji i na redzikowski.com/aplikacje/gran/prywatnosc.	We will announce significant changes in the app. The current version is always available in the app and at redzikowski.com/aplikacje/gran/prywatnosc.
+Wersja z {}	Version of {}
+Obsługa aplikacji:	App support:
+Polityka na redzikowski.com	Policy on redzikowski.com
+19 listopada 2026	19 November 2026

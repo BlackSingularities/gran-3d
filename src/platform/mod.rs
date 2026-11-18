@@ -36,6 +36,8 @@ pub const NAME: &str = if IOS { "ios" } else if MOBILE { "android" } else if cfg
 pub enum Event {
     /// Wybrany plik śladu (kopia w folderze tymczasowym) – do wczytania.
     Opened(PathBuf),
+    /// Wybrane zdjęcie do punktu społeczności (kopia w folderze tymczasowym albo oryginał).
+    Photo(PathBuf),
     /// Komunikat dla użytkownika (zapisano plik, odmowa uprawnień…).
     Message(String),
     /// Link `gran://widok?…` otwarty z innej aplikacji.

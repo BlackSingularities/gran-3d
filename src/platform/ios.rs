@@ -264,6 +264,81 @@ thread_local! {
     static PICKER: std::cell::RefCell<Option<Retained<PickerDelegate>>> = const { std::cell::RefCell::new(None) };
 }
 
+#[link(name = "UIKit", kind = "framework")]
+extern "C" {
+    /// `NSData *UIImageJPEGRepresentation(UIImage *image, CGFloat quality)`.
+    fn UIImageJPEGRepresentation(image: *mut AnyObject, quality: f64) -> *mut AnyObject;
+}
+
+define_class!(
+    // SAFETY: NSObject nie ma wymagań przy dziedziczeniu, klasa nie implementuje Drop
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "GranImagePickerDelegate"]
+    struct ImagePickerDelegate;
+
+    impl ImagePickerDelegate {
+        #[unsafe(method(imagePickerController:didFinishPickingMediaWithInfo:))]
+        fn did_pick(&self, picker: *mut AnyObject, info: *mut AnyObject) {
+            // SAFETY: obiekty UIKit przekazane przez system w wątku głównym
+            unsafe {
+                let key = NSString::from_str("UIImagePickerControllerOriginalImage");
+                let image: *mut AnyObject = msg_send![info, objectForKey: &*key];
+                // JPEG przez UIKit: działa też dla zdjęć HEIC; GRAŃ zmniejsza je potem do 2048 px
+                let data = if image.is_null() { std::ptr::null_mut() } else { UIImageJPEGRepresentation(image, 0.92) };
+                let dir = std::env::temp_dir().join("zdjecia");
+                let _ = std::fs::create_dir_all(&dir);
+                let file = dir.join(format!("zdjecie-{}.jpg", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)));
+                let ok: bool = !data.is_null() && msg_send![data, writeToFile: &*NSString::from_str(&file.to_string_lossy()), atomically: true];
+                if ok {
+                    super::push(Event::Photo(file));
+                } else {
+                    super::push(Event::Message(crate::i18n::tr("Nie udało się wczytać zdjęcia.").to_string()));
+                }
+                let _: () = msg_send![picker, dismissViewControllerAnimated: true, completion: std::ptr::null::<AnyObject>()];
+            }
+        }
+
+        #[unsafe(method(imagePickerControllerDidCancel:))]
+        fn cancelled(&self, picker: *mut AnyObject) {
+            // SAFETY: okno systemu zamykane w wątku głównym
+            unsafe {
+                let _: () = msg_send![picker, dismissViewControllerAnimated: true, completion: std::ptr::null::<AnyObject>()];
+            }
+        }
+    }
+);
+
+impl ImagePickerDelegate {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(());
+        // SAFETY: init NSObject
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+thread_local! {
+    /// Delegat okna zdjęć (UIKit trzyma go słabo – musi żyć tutaj).
+    static IMAGE_PICKER: std::cell::RefCell<Option<Retained<ImagePickerDelegate>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Okno zdjęć systemu (biblioteka zdjęć, bez prośby o dostęp – działa poza procesem GRANI);
+/// wybrane zdjęcie przyjdzie jako [`Event::Photo`].
+pub fn pick_photo() {
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let delegate = IMAGE_PICKER.with(|p| p.borrow_mut().get_or_insert_with(|| ImagePickerDelegate::new(mtm)).clone());
+    // SAFETY: obiekty UIKit tworzone w wątku głównym
+    unsafe {
+        let vc: *mut AnyObject = msg_send![class!(UIImagePickerController), alloc];
+        let vc: *mut AnyObject = msg_send![vc, init];
+        if vc.is_null() {
+            return;
+        }
+        let _: () = msg_send![vc, setDelegate: &*delegate];
+        present(vc);
+    }
+}
+
 /// Okno systemu „Pliki”; wybrany ślad przyjdzie jako [`Event::Opened`].
 pub fn pick_track_file() -> Option<PathBuf> {
     let Some(mtm) = MainThreadMarker::new() else { return None };

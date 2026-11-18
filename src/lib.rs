@@ -4,6 +4,7 @@
 #[macro_use]
 mod i18n;
 
+mod account;
 mod analysis;
 mod avalanche;
 mod app;
