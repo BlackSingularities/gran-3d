@@ -234,6 +234,9 @@ pub struct Renderer {
     pick_inflight: Option<PickReq>,
     /// Ostatnie wskazanie (punkt pod kursorem odczytany z głębi).
     pub pick: Option<Pick>,
+    /// GPU umie liczyć (shadery obliczeniowe z buforami storage) – inaczej, np. OpenGL ES 3.0,
+    /// punkt pod kursorem bierze się z modelu terenu.
+    pick_ok: bool,
     vbuf: wgpu::Buffer,
     ibuf: wgpu::Buffer,
     index_count: u32,
@@ -271,6 +274,8 @@ fn overlay_view(device: &wgpu::Device, queue: &wgpu::Queue, w: u32, h: u32, data
 impl Renderer {
     pub fn new(rs: &egui_wgpu::RenderState, heights: Heights, ctx: egui::Context) -> Self {
         let device = rs.device.clone();
+        // błąd walidacji (np. po utracie urządzenia na telefonie) trafia do dziennika zamiast zamykać program
+        device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| log::error!("wgpu: {e}")));
         let queue = rs.queue.clone();
         let tiles = Tiles::new(&device, &queue, heights, ctx);
         let uniform = |binding, vis, dynamic| wgpu::BindGroupLayoutEntry {
@@ -359,6 +364,10 @@ impl Renderer {
         let line_params = buf("line-params", 16, wgpu::BufferUsages::UNIFORM);
         let glass_buf = buf("szklo", std::mem::size_of::<GlassUniform>() as u64, wgpu::BufferUsages::UNIFORM);
         // wskazywanie: głębia piksela pod kursorem kopiowana do bufora odczytu
+        let pick_ok = device.limits().max_storage_buffers_per_shader_stage > 0 && rs.adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::COMPUTE_SHADERS);
+        if !pick_ok {
+            log::warn!("GPU bez shaderów obliczeniowych – wskazanie punktu z modelu terenu");
+        }
         let pick_out = buf("wskazanie", 16, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC);
         let pick_read = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("wskazanie-odczyt"),
@@ -656,6 +665,7 @@ impl Renderer {
             pick_state: Arc::default(),
             pick_inflight: None,
             pick: None,
+            pick_ok,
             vbuf,
             ibuf,
             index_count: idx.len() as u32,
@@ -756,6 +766,8 @@ impl Renderer {
     }
 
     fn ensure_targets(&mut self, size: [u32; 2]) {
+        let max = self.device.limits().max_texture_dimension_2d.max(1);
+        let size = [size[0].clamp(1, max), size[1].clamp(1, max)];
         if self.targets.as_ref().is_some_and(|t| t.size == size) {
             return;
         }
@@ -1063,6 +1075,9 @@ impl Renderer {
     /// Wskazywanie: odczyt głębi piksela pod kursorem z właśnie narysowanego obrazu. Czeka na kartę
     /// graficzną najwyżej kilkadziesiąt milisekund, więc wynik dotyczy tej samej klatki co obraz.
     fn do_pick(&mut self, view: &View, scale: f32, at: Option<[f32; 2]>) {
+        if !self.pick_ok {
+            return;
+        }
         use std::sync::atomic::Ordering::*;
         // spóźniony odczyt z poprzedniej klatki: przejąć wynik (zamiast go wyrzucać – inaczej przy
         // wolnej karcie kursor co chwilę wracał do przybliżenia i znacznik przeskakiwał) i zwolnić bufor

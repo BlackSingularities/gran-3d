@@ -34,10 +34,14 @@ pub struct Settings {
     /// Przewodnik pierwszego uruchomienia obejrzany.
     #[serde(default)]
     pub tour_done: bool,
+    /// Android: grafika przez OpenGL ES zamiast Vulkana (tryb zgodności; po ponownym uruchomieniu).
+    #[serde(default)]
+    pub gles: bool,
 }
 
 fn res_level() -> u8 {
-    crate::limits::DEFAULT_LEVEL
+    // telefon: mniej pamięci RAM i GPU niż na komputerze
+    if crate::platform::MOBILE { 1 } else { crate::limits::DEFAULT_LEVEL }
 }
 
 fn yes() -> bool {
@@ -83,6 +87,7 @@ impl Default for Settings {
             resources: res_level(),
             lang: String::new(),
             tour_done: false,
+            gles: false,
         }
     }
 }

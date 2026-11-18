@@ -11,12 +11,17 @@ use jni::{JNIEnv, JavaVM};
 
 use super::{Event, Storage};
 
+/// Obiekt `GranActivity` (globalna referencja trzymana przez NativeActivity przez cały czas życia
+/// procesu). Kontekst z `ndk_context` to `Application`, nie aktywność – stąd osobny wskaźnik.
+static ACTIVITY: OnceLock<usize> = OnceLock::new();
+
 /// Wywołanie na aktywności; błędy Javy trafiają do dziennika i dają `None`.
 fn with_activity<R>(what: &str, f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<R>) -> Option<R> {
     let ctx = ndk_context::android_context();
-    // SAFETY: wskaźniki z kontekstu ndk są ważne przez cały czas życia procesu
+    let ptr = *ACTIVITY.get()?;
+    // SAFETY: maszyna wirtualna z kontekstu ndk i aktywność z android-activity żyją do końca procesu
     let vm = unsafe { JavaVM::from_raw(ctx.vm().cast()) }.ok()?;
-    let activity = unsafe { JObject::from_raw(ctx.context().cast()) };
+    let activity = unsafe { JObject::from_raw(ptr as jni::sys::jobject) };
     let mut env = vm.attach_current_thread().ok()?;
     let r = f(&mut env, &activity);
     if env.exception_check().unwrap_or(false) {
@@ -84,6 +89,7 @@ static DEVICE: OnceLock<String> = OnceLock::new();
 
 /// Foldery aplikacji jako zmienne środowiska (te same nazwy co w Windows), język systemu.
 pub fn init(app: &android_activity::AndroidApp) {
+    let _ = ACTIVITY.set(app.activity_as_ptr() as usize);
     let internal = app.internal_data_path().unwrap_or_else(|| PathBuf::from(call_str("filesDir")));
     let external = app.external_data_path().filter(|p| std::fs::create_dir_all(p).is_ok());
     let cache = PathBuf::from(call_str("cacheDir"));
@@ -98,6 +104,11 @@ pub fn init(app: &android_activity::AndroidApp) {
         std::env::set_var("LANG", lang.replace('-', "_"));
     }
     let _ = DEVICE.set(call_str("deviceInfo"));
+}
+
+/// Emulator Androida (grafika programowa – tylko OpenGL ES działa pewnie).
+pub fn is_emulator() -> bool {
+    call_str("isEmulator") == "1"
 }
 
 pub fn device() -> String {

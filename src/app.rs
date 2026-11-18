@@ -351,6 +351,10 @@ impl App {
                             ui.add_space(12.0);
                             ui.label(theme::kicker(crate::i18n::tr("Program")));
                             theme::switch(ui, &mut view.draft.auto_update, crate::i18n::tr("Sprawdzaj aktualizacje"));
+                            if crate::platform::MOBILE {
+                                theme::switch(ui, &mut view.draft.gles, crate::i18n::tr("Tryb zgodności grafiki (OpenGL ES)"));
+                                theme::para(ui, crate::i18n::tr("Włącz, jeśli mapa miga, jest czarna albo program się zamyka. Zmiana działa po ponownym uruchomieniu."));
+                            }
                             if !crate::platform::MOBILE {
                                 theme::switch(ui, &mut view.draft.vsync, crate::i18n::tr("Synchronizacja z monitorem"));
                                 theme::para(ui, crate::i18n::tr("Bez synchronizacji więcej klatek na sekundę, ale możliwe rozrywanie obrazu. Zmiana działa po ponownym uruchomieniu."));

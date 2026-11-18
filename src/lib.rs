@@ -127,13 +127,46 @@ pub fn run_desktop() -> eframe::Result<()> {
 /// Android: foldery aplikacji zamiast `%APPDATA%`/`%LOCALAPPDATA%`, potem ten sam program co w Windows.
 #[cfg(target_os = "android")]
 pub fn run_android(app: AndroidApp) {
+    use eframe::egui_wgpu::{self, SurfaceErrorAction, WgpuSetup, WgpuSetupCreateNew};
+    use eframe::wgpu;
     platform::init(&app);
-    let s = prepare();
+    let mut s = prepare();
+    // Vulkan, a w trybie zgodności OpenGL ES. Tryb zgodności włącza się sam w emulatorze i po awarii
+    // grafiki w poprzednim uruchomieniu (sterowniki Vulkana bywają zawodne).
+    let gpu_crash = feedback::pending_crash().is_some_and(|c| c.stack.contains("wgpu"));
+    if !s.gles && gpu_crash {
+        log::warn!("poprzednio awaria grafiki – włączam tryb zgodności (OpenGL ES)");
+        s.gles = true;
+        let _ = s.save();
+    }
+    let gles = s.gles || platform::is_emulator();
+    log::info!("grafika: {}", if gles { "OpenGL ES" } else { "Vulkan" });
+    let mut setup = WgpuSetupCreateNew::default();
+    setup.instance_descriptor.backends = if gles { wgpu::Backends::GL } else { wgpu::Backends::VULKAN | wgpu::Backends::GL };
+    // limity takie, jakie GPU naprawdę ma (domyślne dla OpenGL ES to limity WebGL2 – bez obliczeń
+    // i buforów storage, z których korzysta odczyt punktu pod palcem)
+    setup.device_descriptor = std::sync::Arc::new(|adapter: &wgpu::Adapter| {
+        let info = adapter.get_info();
+        log::info!("GPU: {} ({:?}, {})", info.name, info.backend, info.driver_info);
+        wgpu::DeviceDescriptor { label: Some("GRAŃ"), required_limits: adapter.limits(), ..Default::default() }
+    });
+    let wgpu_options = egui_wgpu::WgpuConfiguration {
+        wgpu_setup: WgpuSetup::CreateNew(setup),
+        on_surface_error: std::sync::Arc::new(|e| match e {
+            wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => SurfaceErrorAction::RecreateSurface,
+            e => {
+                log::warn!("powierzchnia: {e}");
+                SurfaceErrorAction::SkipFrame
+            }
+        }),
+        ..Default::default()
+    };
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         vsync: s.vsync,
         android_app: Some(app),
         persistence_path: Some(settings::config_dir().join("widok.ron")),
+        wgpu_options,
         ..Default::default()
     };
     if let Err(e) = eframe::run_native("GRAŃ", options, creator()) {

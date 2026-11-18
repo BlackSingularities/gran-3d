@@ -1067,3 +1067,5 @@ Wznów	Resume
 Odśwież	Refresh
 Wszystkie punkty	All points
 Punkty społeczności	Community points
+Tryb zgodności grafiki (OpenGL ES)	Graphics compatibility mode (OpenGL ES)
+Włącz, jeśli mapa miga, jest czarna albo program się zamyka. Zmiana działa po ponownym uruchomieniu.	Turn on if the map flickers, stays black or the app closes. Takes effect after a restart.
