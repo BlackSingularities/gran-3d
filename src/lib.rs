@@ -143,6 +143,13 @@ pub fn run_android(app: AndroidApp) {
     log::info!("grafika: {}", if gles { "OpenGL ES" } else { "Vulkan" });
     let mut setup = WgpuSetupCreateNew::default();
     setup.instance_descriptor.backends = if gles { wgpu::Backends::GL } else { wgpu::Backends::VULKAN | wgpu::Backends::GL };
+    // limity takie, jakie GPU naprawdę ma (domyślne dla OpenGL ES to limity WebGL2 – bez obliczeń
+    // i buforów storage, z których korzysta odczyt punktu pod palcem)
+    setup.device_descriptor = std::sync::Arc::new(|adapter: &wgpu::Adapter| {
+        let info = adapter.get_info();
+        log::info!("GPU: {} ({:?}, {})", info.name, info.backend, info.driver_info);
+        wgpu::DeviceDescriptor { label: Some("GRAŃ"), required_limits: adapter.limits(), ..Default::default() }
+    });
     let wgpu_options = egui_wgpu::WgpuConfiguration {
         wgpu_setup: WgpuSetup::CreateNew(setup),
         on_surface_error: std::sync::Arc::new(|e| match e {
