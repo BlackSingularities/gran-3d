@@ -62,6 +62,35 @@
         "aktualizacje z redzikowski.com"
       ],
       "meta": "Android 8+ · ARM 64-bit"
+    },
+    {
+      "platform": "ios",
+      "file": "ios.png",
+      "title": "Góry *na iPhonie*",
+      "lead": "Ten sam trójwymiarowy atlas co na komputerze i Androidzie: prawdziwy teren, znakowane szlaki, trasy z wariantami, mapy offline i punkty od innych turystów.",
+      "shots": [
+        {
+          "src": "../screenshots/android/01-teren.png",
+          "caption": "Teren 3D i szlaki"
+        },
+        {
+          "src": "../screenshots/android/04-punkty.png",
+          "caption": "Punkty od turystów"
+        },
+        {
+          "src": "../screenshots/android/03-warunki.png",
+          "caption": "Pogoda i lawiny"
+        }
+      ],
+      "features": [
+        "mapy offline",
+        "punkty i komentarze",
+        "gesty i przytrzymanie",
+        "pogoda 48 h",
+        "eksport GPX i FIT",
+        "iPhone i iPad"
+      ],
+      "meta": "iOS i iPadOS 15+ · instalacja przez AltStore lub Sideloadly"
     }
   ]
 }
