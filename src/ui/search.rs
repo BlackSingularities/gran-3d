@@ -164,7 +164,7 @@ pub fn show(a: &mut Atlas, ctx: &egui::Context) {
         .title_bar(false)
         .collapsible(false)
         .resizable(false)
-        .anchor(egui::Align2::CENTER_TOP, [0.0, 12.0])
+        .anchor(egui::Align2::CENTER_TOP, [0.0, 12.0 + a.safe_top])
         .fixed_size([crate::ui::theme::fit(ctx, 460.0), 10.0])
         .frame(crate::ui::theme::glass().inner_margin(egui::Margin::same(10)))
         .show(ctx, |ui| {

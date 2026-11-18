@@ -100,6 +100,18 @@ public class GranActivity extends NativeActivity {
         return Locale.getDefault().toLanguageTag();
     }
 
+    /** Pasek stanu i pasek nawigacji (piksele): „góra dół lewo prawo”. */
+    public String insets() {
+        android.view.WindowInsets in = getWindow().getDecorView().getRootWindowInsets();
+        if (in == null) return "0 0 0 0";
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.graphics.Insets i = in.getInsets(android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
+            return i.top + " " + i.bottom + " " + i.left + " " + i.right;
+        }
+        return in.getSystemWindowInsetTop() + " " + in.getSystemWindowInsetBottom() + " "
+                + in.getSystemWindowInsetLeft() + " " + in.getSystemWindowInsetRight();
+    }
+
     public String isEmulator() {
         String f = Build.FINGERPRINT + " " + Build.MODEL + " " + Build.HARDWARE + " " + Build.PRODUCT;
         boolean emu = f.contains("generic") || f.contains("emulator") || f.contains("sdk_gphone") || f.contains("ranchu") || f.contains("goldfish") || f.contains("Emulator");

@@ -47,19 +47,38 @@ pub fn cmp_version(a: &str, b: &str) -> i64 {
 }
 
 pub fn current() -> &'static str {
-    env!("CARGO_PKG_VERSION")
+    crate::app_version()
+}
+
+/// Prefiks tagów osobnych wydań Androida (`android-v1.0.0`).
+const ANDROID_TAG: &str = "android-v";
+
+/// Wersja z tagu wydania tej platformy (`v4.0.1` na Windows, `android-v1.0.0` na Androidzie);
+/// `None` – wydanie innej platformy.
+pub fn tag_version(tag: &str) -> Option<&str> {
+    if crate::platform::MOBILE {
+        tag.strip_prefix(ANDROID_TAG)
+    } else {
+        tag.strip_prefix('v').filter(|v| v.starts_with(|c: char| c.is_ascii_digit()))
+    }
 }
 
 pub fn latest() -> Result<Release, String> {
-    let body = agent()
-        .get(FEED)
-        .timeout(Duration::from_secs(20))
-        .call()
-        .map_err(|e| format!("redzikowski.com: {e}"))?
-        .into_string()
-        .map_err(|e| e.to_string())?;
-    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    let version = v["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
+    let get = |url: &str| -> Result<serde_json::Value, String> {
+        let body = agent().get(url).timeout(Duration::from_secs(20)).call().map_err(|e| format!("redzikowski.com: {e}"))?.into_string().map_err(|e| e.to_string())?;
+        serde_json::from_str(&body).map_err(|e| e.to_string())
+    };
+    // Windows: najnowsze wydanie główne; Android: najnowsze z listy z tagiem `android-v…`
+    let v = if crate::platform::MOBILE {
+        let list = get(&format!("{}?per_page=30", FEED.trim_end_matches("/latest")))?;
+        list.as_array()
+            .and_then(|l| l.iter().find(|r| !r["prerelease"].as_bool().unwrap_or(false) && r["tag_name"].as_str().is_some_and(|t| tag_version(t).is_some())).cloned())
+            .ok_or(crate::i18n::tr("Brak wydania dla tego systemu."))?
+    } else {
+        get(FEED)?
+    };
+    let tag = v["tag_name"].as_str().unwrap_or("");
+    let version = tag_version(tag).unwrap_or(tag.trim_start_matches('v')).to_string();
     let empty = Vec::new();
     let assets = v["assets"].as_array().unwrap_or(&empty);
     let exe = assets
@@ -162,9 +181,21 @@ mod tests {
     }
 
     #[test]
+    fn tags_per_platform() {
+        if crate::platform::MOBILE {
+            assert_eq!(tag_version("android-v1.0.0"), Some("1.0.0"));
+            assert_eq!(tag_version("v4.0.1"), None);
+        } else {
+            assert_eq!(tag_version("v4.0.1"), Some("4.0.1"));
+            assert_eq!(tag_version("android-v1.0.0"), None);
+        }
+    }
+
+    #[test]
     fn package_for_platform() {
         assert!(is_package("GRAN-Setup-4.0.0.exe") != crate::platform::MOBILE);
         assert!(is_package("GRAN-4.0.0.apk") == crate::platform::MOBILE);
+        assert!(is_package("GRAN-Android-1.0.0.apk") == crate::platform::MOBILE);
         assert!(!is_package("latest.yml"));
     }
 

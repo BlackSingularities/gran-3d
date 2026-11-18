@@ -10,7 +10,7 @@ impl Atlas {
         // górnym paskiem ani pod profilem i paskiem stanu na dole
         let shown = crate::ui::panels::controls_alpha(self, ui.ctx()) > 0.05;
         let side = if shown { crate::ui::panels::right_inset(self) } else { 0.0 };
-        let top = if shown { crate::ui::panels::TOP_BAR_H } else { 0.0 };
+        let top = self.safe_top + if shown { crate::ui::panels::TOP_BAR_H } else { 0.0 };
         // profil i pasek stanu nie chowają się razem z kontrolkami
         let bottom = crate::ui::panels::bottom_inset(self);
         let visible = Rect::from_min_max(
@@ -267,7 +267,7 @@ impl Atlas {
         pc.multiply_opacity(alpha);
         let r = 30.0;
         // pod górnym paskiem, obok panelu bocznego
-        let c = rect.right_top() + Vec2::new(-51.0 - crate::ui::panels::right_inset(self), 51.0 + crate::ui::panels::TOP_BAR_H);
+        let c = rect.right_top() + Vec2::new(-51.0 - crate::ui::panels::right_inset(self), 51.0 + self.safe_top + crate::ui::panels::TOP_BAR_H);
         let compass = Rect::from_center_size(c, Vec2::splat(r * 2.0 + 4.0));
         let resp = ui.interact(compass, ui.id().with("kompas"), if alpha > 0.05 { Sense::click_and_drag() } else { Sense::hover() });
         let hot = resp.hovered() || resp.dragged();
@@ -376,7 +376,9 @@ impl Atlas {
                 ));
             }
         }
-        let bar = Rect::from_min_max(rect.left_bottom() - Vec2::new(0.0, 24.0), rect.right_bottom());
+        // telefon: pasek stanu nad dolnym paskiem narzędzi i nad paskiem nawigacji systemu
+        let bar_bottom = rect.bottom() - self.safe_bottom - crate::ui::panels::toolbar_h(self);
+        let bar = Rect::from_min_max(Pos2::new(rect.left(), bar_bottom - 24.0), Pos2::new(rect.right(), bar_bottom));
         self.glass.push((bar, 1.0));
         p.rect_filled(bar, 0.0, theme::glass_fill());
         // cały pasek jednym pismem i jedną barwą: odczyt kursora, stan wczytywania, źródła danych

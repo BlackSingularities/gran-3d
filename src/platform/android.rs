@@ -86,6 +86,22 @@ impl log::Log for TeeLogger {
 }
 
 static DEVICE: OnceLock<String> = OnceLock::new();
+/// Pasek stanu i pasek nawigacji (piksele), odświeżane w [`poll`].
+static INSETS: std::sync::Mutex<[f32; 2]> = std::sync::Mutex::new([0.0, 0.0]);
+
+/// Paski systemu nad obrazem programu: [góra, dół] w pikselach. Okno NativeActivity zajmuje cały
+/// ekran, więc interfejs musi sam ominąć pasek stanu i pasek nawigacji.
+pub fn insets() -> [f32; 2] {
+    *INSETS.lock().unwrap()
+}
+
+fn refresh_insets() {
+    let t = call_str("insets");
+    let v: Vec<f32> = t.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+    if v.len() >= 2 {
+        *INSETS.lock().unwrap() = [v[0], v[1]];
+    }
+}
 
 /// Foldery aplikacji jako zmienne środowiska (te same nazwy co w Windows), język systemu.
 pub fn init(app: &android_activity::AndroidApp) {
@@ -104,6 +120,7 @@ pub fn init(app: &android_activity::AndroidApp) {
         std::env::set_var("LANG", lang.replace('-', "_"));
     }
     let _ = DEVICE.set(call_str("deviceInfo"));
+    refresh_insets();
 }
 
 /// Emulator Androida (grafika programowa – tylko OpenGL ES działa pewnie).
@@ -125,6 +142,7 @@ pub fn poll() {
         }
         *last = Some(Instant::now());
     }
+    refresh_insets();
     let text = call_str("pollEvents");
     for line in text.lines() {
         match line.split_once('\t') {

@@ -44,9 +44,9 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
     // telefon: arkusz od dołu na całą szerokość (nad paskiem narzędzi), komputer: panel po prawej
     let (pos, sw, height) = if a.compact {
         let h = a.sheet_h;
-        (egui::pos2(screen.left(), screen.bottom() - STATUS_H - TOOLBAR_H - h), screen.width(), h)
+        (egui::pos2(screen.left(), screen.bottom() - a.safe_bottom - STATUS_H - TOOLBAR_H - h), screen.width(), h)
     } else {
-        (egui::pos2(screen.right() - SIDEBAR_W, screen.top() + TOP_BAR_H), SIDEBAR_W, (screen.height() - TOP_BAR_H - bottom_inset(a)).max(200.0))
+        (egui::pos2(screen.right() - SIDEBAR_W, screen.top() + a.safe_top + TOP_BAR_H), SIDEBAR_W, (screen.height() - a.safe_top - TOP_BAR_H - bottom_inset(a)).max(200.0))
     };
     let alpha = controls_alpha(a, ctx);
     a.glass.push((egui::Rect::from_min_size(pos, egui::vec2(sw, height)), alpha));
@@ -182,11 +182,12 @@ pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
                     }
                     nav_divider(ui);
                     // ikona mówi, dokąd przełączy: z góry → ukośnie, ukośnie → z góry
+                    // napis mówi, dokąd przełączy: z góry (2D) → ukośnie (3D) i odwrotnie
                     let top = a.cam.pitch > 75.0;
                     let (glyph, hint) = if top {
-                        (theme::icon::PERSPECTIVE, crate::i18n::tr("Widok ukośny (V)"))
+                        ("3D", crate::i18n::tr("Widok ukośny (V)"))
                     } else {
-                        (theme::icon::SQUARE, crate::i18n::tr("Widok z góry (V)"))
+                        ("2D", crate::i18n::tr("Widok z góry (V)"))
                     };
                     if nav_button(ui, glyph, hint).clicked() {
                         let mut to = a.cam;

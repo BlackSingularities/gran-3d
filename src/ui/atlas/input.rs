@@ -175,12 +175,9 @@ impl Atlas {
             }
             ctx.request_repaint();
         }
-        // przytrzymanie palca – menu punktu (jak prawy przycisk myszy)
-        if resp.long_touched() && !self.pinch {
-            if let (Some(p), Some((lon, lat, e))) = (pointer, self.hover) {
-                self.ctx_menu = Some((p, lon, lat, e));
-            }
-        }
+        // dotyk: punkt zaznacza się dopiero po chwilowym przytrzymaniu (zwykłe dotknięcie przy
+        // przesuwaniu mapy niczego nie zmienia); działania z menu punktu są w panelu szczegółów
+        let select = if crate::platform::MOBILE { resp.long_touched() } else { resp.clicked() };
         // kółko: przybliżanie do kursora
         if let Some(p) = resp.hover_pos() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y + (i.zoom_delta() - 1.0) * 300.0) as f64;
@@ -280,7 +277,7 @@ impl Atlas {
             }
             return;
         }
-        if resp.clicked() && !self.pinch {
+        if select && !self.pinch {
             self.ctx_menu = None;
             // punkt społeczności pod palcem lub kursorem
             if let Some(p) = pointer {

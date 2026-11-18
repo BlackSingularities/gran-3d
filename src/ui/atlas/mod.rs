@@ -339,6 +339,9 @@ pub struct Atlas {
     /// Wysokość arkusza szczegółów na wąskim ekranie; arkusz rozwinięty na cały ekran.
     pub sheet_h: f32,
     pub sheet_full: bool,
+    /// Pasek stanu i pasek nawigacji systemu (punkty) – interfejs zaczyna się pod i kończy nad nimi.
+    pub safe_top: f32,
+    pub safe_bottom: f32,
 }
 
 /// Stan planowania do historii: punkty i tryb wyznaczania.
@@ -485,6 +488,8 @@ impl Atlas {
             compact: false,
             sheet_h: 0.0,
             sheet_full: false,
+            safe_top: 0.0,
+            safe_bottom: 0.0,
         }
     }
 

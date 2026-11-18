@@ -1069,3 +1069,25 @@ Wszystkie punkty	All points
 Punkty społeczności	Community points
 Tryb zgodności grafiki (OpenGL ES)	Graphics compatibility mode (OpenGL ES)
 Włącz, jeśli mapa miga, jest czarna albo program się zamyka. Zmiana działa po ponownym uruchomieniu.	Turn on if the map flickers, stays black or the app closes. Takes effect after a restart.
+Tryb offline – ocenisz punkt po połączeniu z siecią.	Offline mode – you can rate the point once you are online.
+Wpis jest prawdziwy i przydatny	The entry is accurate and useful
+Wpis jest nieaktualny albo nieprzydatny	The entry is outdated or not useful
+ocena: {}	score: {}
+Wybór	Select
+Offline	Offline
+Poziom	Level
+Względna	Relative
+Widok stąd	View from
+Punkt z komentarzem	Point with comment
+Pobierz okolicę	Download area
+Trójwymiarowy atlas gór z prawdziwym modelem terenu, znakowanymi szlakami i trasami z wariantami – na Windows i Androida. W kilku krokach pokażę, jak z niego korzystać.	A 3D mountain atlas with a real terrain model, waymarked trails and route variants – for Windows and Android. In a few steps I will show you how to use it.
+Jeden palec – przesuwanie. Dwa palce: rozsuwanie przybliża, obrót palców obraca mapę, przesuwanie w górę i w dół zmienia nachylenie. Przytrzymaj palec na miejscu, żeby je zaznaczyć i zobaczyć szczegóły.	One finger – pan. Two fingers: spread to zoom in, twist to rotate the map, slide up and down to tilt. Press and hold a place to select it and see its details.
+Wybierz „Trasa” w dolnym pasku i przytrzymuj palec na mapie: start, punkty pośrednie, cel. Punkty można przeciągać. Trasę zapiszesz w bibliotece albo wyeksportujesz do GPX, KML lub FIT.	Pick “Route” in the bottom bar and press and hold on the map: start, via points, destination. Points can be dragged. Save the route in the library or export it to GPX, KML or FIT.
+Narzędzie „Punkty” pozwala opisać miejsce dla innych turystów: utrudnienie na szlaku, źródło, punkt widokowy. Cudze punkty możesz ocenić (+1 / −1) i skomentować, a nieprawdziwy albo obraźliwy wpis – zgłosić przyciskiem „Zgłoś” w szczegółach punktu. Wpisy sprawdzam przed publikacją.	The “Points” tool lets you describe a place for other hikers: an obstacle on the trail, a spring, a viewpoint. You can rate (+1 / −1) and comment on other people’s points, and report a false or offensive entry with the “Report” button in the point details. I check entries before they are published.
+„Mapy offline” pobiera zaznaczony obszar – teren, zdjęcia, szlaki i nazwy – żeby działał bez internetu. Pobrane obszary nie znikają przy sprzątaniu danych, a tryb offline całkowicie odcina sieć.	“Offline maps” downloads a marked area – terrain, imagery, trails and names – so it works without the internet. Downloaded areas are not removed by data cleanup, and offline mode cuts off the network completely.
+Spacer i biblioteka	Walk and library
+Przycisk „Spacer” stawia Cię na terenie: drążek na ekranie – chodzenie, przeciąganie palcem – rozglądanie. Biblioteka trzyma zapisane trasy, miejsca i widoki. Przycisk „wstecz” zamyka kolejne okna i panele.	The “Walk” button puts you on the ground: the on-screen stick – walk, drag with a finger – look around. The library keeps saved routes, places and views. The “back” button closes windows and panels one by one.
+Spacer i skróty	Walk and shortcuts
+Przycisk z idącą postacią stawia Cię na terenie: W A S D – chodzenie, Shift – bieg, spacja – skok. Biblioteka (B) trzyma zapisane trasy, miejsca i widoki. F11 – pełny ekran, ? – wszystkie skróty.	The walking-figure button puts you on the ground: W A S D – walk, Shift – run, space – jump. The library (B) keeps saved routes, places and views. F11 – full screen, ? – all shortcuts.
+Wsparcie i kontakt	Support and contact
+GRAŃ tworzę sam, po godzinach, i udostępniam za darmo. Jeśli program Ci się przydaje, możesz postawić mi kawę. Błąd albo pomysł na nową funkcję zgłosisz z ustawień (O programie → Zgłoś błąd lub sugestię) – zgłoszenie trafia prosto do mnie. Przewodnik obejrzysz ponownie z ustawień.	I build GRAŃ on my own, after hours, and share it for free. If it is useful to you, you can buy me a coffee. Report a bug or suggest a feature from the settings (About → Report a bug or suggestion) – it comes straight to me. You can replay this guide from the settings.
