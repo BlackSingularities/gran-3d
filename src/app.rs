@@ -870,7 +870,7 @@ impl eframe::App for App {
         self.atlas.safe_bottom = ib / ppp;
         let sh = ctx.screen_rect().height() - self.atlas.safe_top - self.atlas.safe_bottom;
         let max_sheet = (sh - crate::ui::panels::TOP_BAR_H - crate::ui::panels::STATUS_H - crate::ui::panels::TOOLBAR_H - 8.0).max(200.0);
-        self.atlas.sheet_h = if self.atlas.sheet_full { max_sheet } else { (sh * 0.46).clamp(240.0, max_sheet) };
+        self.atlas.sheet_h = if self.atlas.sheet_full { max_sheet } else { (sh * 0.46).max(240.0).min(max_sheet) };
         self.update_ui(ctx);
 
         self.top_bar(ctx);

@@ -13,8 +13,8 @@ $shots = @(
 foreach ($s in $shots) {
   $env:GRAN_CAPTURE = (Join-Path (Resolve-Path shots) ($s[0] + '.png'))
   $env:GRAN_CAPTURE_AFTER = [string]$s[2]
-  $env:GRAN_WINDOW = '824x1830'
-  $env:GRAN_ZOOM = '2'
+  $env:GRAN_WINDOW = '360x760'
+  $env:GRAN_ZOOM = '1'
   $env:WGPU_BACKEND = 'dx12'
   $p = Start-Process $env:GRAN_EXE -ArgumentList $s[1] -PassThru
   if (-not $p.WaitForExit(($s[2] + 90) * 1000)) { Stop-Process $p -Force; Write-Host "::warning::$($s[0]): przekroczony czas" }
