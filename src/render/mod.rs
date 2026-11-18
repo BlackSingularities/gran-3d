@@ -271,6 +271,8 @@ fn overlay_view(device: &wgpu::Device, queue: &wgpu::Queue, w: u32, h: u32, data
 impl Renderer {
     pub fn new(rs: &egui_wgpu::RenderState, heights: Heights, ctx: egui::Context) -> Self {
         let device = rs.device.clone();
+        // błąd walidacji (np. po utracie urządzenia na telefonie) trafia do dziennika zamiast zamykać program
+        device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| log::error!("wgpu: {e}")));
         let queue = rs.queue.clone();
         let tiles = Tiles::new(&device, &queue, heights, ctx);
         let uniform = |binding, vis, dynamic| wgpu::BindGroupLayoutEntry {
@@ -756,6 +758,8 @@ impl Renderer {
     }
 
     fn ensure_targets(&mut self, size: [u32; 2]) {
+        let max = self.device.limits().max_texture_dimension_2d.max(1);
+        let size = [size[0].clamp(1, max), size[1].clamp(1, max)];
         if self.targets.as_ref().is_some_and(|t| t.size == size) {
             return;
         }

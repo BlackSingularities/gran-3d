@@ -37,7 +37,8 @@ pub struct Settings {
 }
 
 fn res_level() -> u8 {
-    crate::limits::DEFAULT_LEVEL
+    // telefon: mniej pamięci RAM i GPU niż na komputerze
+    if crate::platform::MOBILE { 1 } else { crate::limits::DEFAULT_LEVEL }
 }
 
 fn yes() -> bool {

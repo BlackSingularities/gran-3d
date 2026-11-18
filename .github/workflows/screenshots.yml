@@ -9,6 +9,9 @@ on:
       version:
         description: Wersja wydania (np. 4.0.0); pusta – najnowsze
         required: false
+      run_id:
+        description: Zamiast wydania – APK z przebiegu Build o tym numerze (test przed wydaniem)
+        required: false
 
 permissions:
   contents: read
@@ -29,8 +32,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${{ inputs.version }}"
-          if [ -n "$v" ]; then tag="v$v"; else tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName); fi
-          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern 'GRAN-*.apk' --dir .
+          run="${{ inputs.run_id }}"
+          if [ -n "$run" ]; then
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" -n android --dir .
+          else
+            if [ -n "$v" ]; then tag="v$v"; else tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName); fi
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern 'GRAN-*.apk' --dir .
+          fi
           grep -v Setup <<< "$(ls GRAN-*.apk)" | head -1 > apk.txt
           cat apk.txt
       - uses: reactivecircus/android-emulator-runner@v2
@@ -39,7 +47,7 @@ jobs:
           arch: x86_64
           target: google_apis
           cores: 2
-          ram-size: 3072M
+          ram-size: 4096M
           disk-size: 4G
           profile: pixel_6
           disable-animations: true
