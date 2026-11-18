@@ -92,6 +92,10 @@ pub fn apply(ctx: &egui::Context) {
         }
     }
     ctx.set_fonts(fonts);
+    // zawsze ciemny motyw programu – przy jasnym motywie systemu (np. domyślnie na Androidzie)
+    // egui przełączało się na jasne kolory: czarne pogrubienia i jasne przyciski na ciemnym szkle
+    ctx.set_theme(egui::ThemePreference::Dark);
+    ctx.set_visuals_of(egui::Theme::Dark, visuals());
     ctx.set_visuals(visuals());
     ctx.style_mut(|s| {
         // tekst nie zawija się w wiersze interfejsu; akapity zawija jawnie `para`

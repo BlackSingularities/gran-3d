@@ -160,6 +160,10 @@ impl App {
         // przewodnik dla nowych, a powitanie (autor, wsparcie, zgłoszenia) raz także dla dotychczasowych
         let unseen = !app.settings.tour_done || app.settings.welcome < WELCOME;
         app.tour = if unseen && std::env::var_os("GRAN_CAPTURE").is_none() { Some(0) } else { None };
+        // zrzuty do dokumentacji: przewodnik na wybranym kroku (GRAN_TOUR=0…)
+        if let Some(n) = std::env::var("GRAN_TOUR").ok().and_then(|n| n.parse::<usize>().ok()) {
+            app.tour = Some(n);
+        }
         if app.settings.auto_update && std::env::var_os("GRAN_CAPTURE").is_none() {
             app.check_updates(false);
         }
