@@ -42,6 +42,7 @@ pub use actions::*;
 pub use prefs::*;
 pub use tools::*;
 pub use webcam::CamState;
+use jobs::RoadLook;
 use overlays::*;
 use scene::*;
 use webcam::*;
@@ -176,7 +177,7 @@ enum JobResult {
 }
 
 /// Kratka położenia celu kamery, przedział oddalenia, wersja dróg, wersja ramki, styl papierowy, skala pikseli.
-type RoadsKey = (i64, i64, i64, u64, u64, bool, u32);
+type RoadsKey = (i64, i64, i64, u64, u64, RoadLook, u32);
 
 /// Położenie (co 200 m), oko (co 150 m), wersja pokrycia i ramki – po zmianie drzewa liczone od nowa.
 type TreesKey = (i64, i64, i64, i64, u64, u64);

@@ -224,6 +224,20 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let depth = max(wa.y - bed, 0.0);
     let h = select(bed, max(bed, wa.y), wa.x > 0.0);
     let grad = select(textureSample(grad_tex, samp, in.dem_uv).xy, vec2(0.0), on_water);
+    // rzeźba z daleka: krzywizna w skali tego, co widać na ekranie (grzbiety i granie jaśniej, doliny
+    // i żleby ciemniej). Odstęp próbek rośnie z oddaleniem, więc grań jest czytelna przy każdym
+    // poziomie kafli – z daleka sam światłocień z wygładzonego modelu zlewał góry w jedną plamę.
+    let ro = max(1.5 / 256.0, max(fwidth(in.dem_uv.x), fwidth(in.dem_uv.y)) * 2.5);
+    let gxp = textureSample(grad_tex, samp, in.dem_uv + vec2(ro, 0.0)).x;
+    let gxm = textureSample(grad_tex, samp, in.dem_uv - vec2(ro, 0.0)).x;
+    let gyp = textureSample(grad_tex, samp, in.dem_uv + vec2(0.0, ro)).y;
+    let gym = textureSample(grad_tex, samp, in.dem_uv - vec2(0.0, ro)).y;
+    // > 0 dolina (wklęsło), < 0 grzbiet (wypukło); bez wody i z dala od oka (z bliska wystarcza światło)
+    let curv = select(clamp((gxp - gxm + gyp - gym) * 0.9, -1.0, 1.0), 0.0, on_water);
+    let far = smoothstep(1200.0, 9000.0, in.dist);
+    let relief_on = g.flags.w * far;
+    // z daleka model terenu jest wygładzony (stoki łagodniejsze), więc cieniowanie dostaje mocniejszą normalną
+    let relief_k = 1.0 + 0.9 * g.flags.w * smoothstep(4000.0, 70000.0, in.dist);
     // lekka mapa normalnych z bliska, we wszystkich stylach ta sama: drobny szum w metrach terenu,
     // zmienia tylko normalną (światło), nie kształt ani położenie. Na zdjęciu nie z jasności obrazu –
     // tłoczenie zdjęcia dawało podwójne krawędzie, jakby teren był przesunięty względem obrazu.
@@ -236,7 +250,8 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
         let mz = fbm((in.wp + vec2(0.0, 2.0)) / 11.0) - fbm((in.wp - vec2(0.0, 2.0)) / 11.0);
         detail = vec2(mx, mz) * 2.2 * detail_on;
     }
-    let n = normalize(vec3(-grad.x * exag - detail.x, 1.0, -grad.y * exag - detail.y));
+    let sg = grad * relief_k;
+    let n = normalize(vec3(-sg.x * exag - detail.x, 1.0, -sg.y * exag - detail.y));
     let slope = length(grad);
     let slope_deg = degrees(atan(slope));
     // ekspozycja: kierunek spadku (0 = N)
@@ -439,29 +454,64 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (style == 4 && tile.img.w > 0.5) {
         // zdjęcie: łagodne dodatkowe światło z rzeźby, żeby bryła była czytelna
         let shade = mix(0.7, 1.16, ndl) * mix(0.6, 1.0, shadow);
-        col = base * shade * mix(vec3(1.0), g.sun_color.rgb * 0.8 + g.sky_color.rgb * 0.35, 0.35);
+        // z daleka zdjęcia są zamglone i płaskie: odrobina kontrastu i nasycenia
+        let lum = dot(base, vec3(0.3, 0.59, 0.11));
+        let pf = smoothstep(5000.0, 60000.0, in.dist);
+        let rich = max(mix(vec3(lum), base, 1.0 + 0.25 * pf) * (1.0 + 0.12 * pf) - vec3(0.02 * pf), vec3(0.0));
+        col = rich * shade * mix(vec3(1.0), g.sun_color.rgb * 0.8 + g.sky_color.rgb * 0.35, 0.35);
     } else if (style == 0) {
         col = base * light;
     } else if (style == 6) {
         // cieniowanie szwajcarskie: światło z północnego zachodu, stoki w cieniu szaroniebieskie, oświetlone ciepłe
-        let nc = normalize(vec3(-(grad.x + detail.x) * 1.8, 1.0, -(grad.y + detail.y) * 1.8));
+        let nc = normalize(vec3(-(sg.x + detail.x) * 1.8, 1.0, -(sg.y + detail.y) * 1.8));
         let l = max(dot(nc, normalize(vec3(-0.6, 0.75, -0.6))), 0.0) / 0.665;
         let shade = mix(srgb(vec3(0.50, 0.56, 0.62)), vec3(1.0), clamp(l, 0.0, 1.0));
         let warm = clamp(l - 1.0, 0.0, 0.5) * srgb(vec3(1.0, 0.96, 0.80)) * 0.35;
         col = base * shade + warm * base;
+    } else if (style == 5) {
+        // mapa turystyczna: papier zostaje jasny na płaskim, stoki od światła z północnego zachodu
+        // dostają szarofioletowy cień (jak cieniowanie na mapach drukowanych), oświetlone – lekko ciepłe
+        let nc = normalize(vec3(-(sg.x + detail.x) * 1.7, 1.0, -(sg.y + detail.y) * 1.7));
+        let l1 = max(dot(nc, normalize(vec3(-0.6, 0.75, -0.6))), 0.0) / 0.665;
+        let l2 = max(dot(nc, normalize(vec3(-0.85, 0.85, 0.2))), 0.0) / 0.85;
+        let l = clamp(l1 * 0.75 + l2 * 0.25, 0.0, 1.4);
+        let shade = mix(srgb(vec3(0.58, 0.58, 0.66)), vec3(1.0), clamp(l, 0.0, 1.0));
+        let warm = clamp(l - 1.0, 0.0, 0.4) * srgb(vec3(1.0, 0.95, 0.82)) * 0.3;
+        col = base * shade + warm * base;
     } else if (style == 7) {
-        // rycina: tylko lekki ton cieniowania pod kreskami
-        let nc = normalize(vec3(-grad.x * 1.4, 1.0, -grad.y * 1.4));
+        // rycina: lekki ton cieniowania pod kreskami; z daleka, gdy kreski zlewają się w szary ton,
+        // cieniowanie przejmuje rysunek bryły (inaczej góry robią się płaską szarą plamą)
+        let nc = normalize(vec3(-sg.x * 1.4, 1.0, -sg.y * 1.4));
         let l = max(dot(nc, normalize(vec3(-0.6, 0.75, -0.6))), 0.0) / 0.665;
-        col = base * mix(0.9, 1.03, clamp(l, 0.0, 1.5) / 1.5);
+        let strong = smoothstep(4000.0, 30000.0, in.dist);
+        col = base * mix(mix(0.9, 0.62, strong), 1.03, clamp(l, 0.0, 1.5) / 1.5);
+        ink *= 1.0 - 0.55 * strong;
     } else {
         // style analityczne: cieniowanie z wielu kierunków (czytelna rzeźba), bez kolorów pory dnia
-        let nc = normalize(vec3(-(grad.x + detail.x) * 1.6, 1.0, -(grad.y + detail.y) * 1.6));
+        let nc = normalize(vec3(-(sg.x + detail.x) * 1.6, 1.0, -(sg.y + detail.y) * 1.6));
         let h1 = max(dot(nc, normalize(vec3(-0.6, 0.7, -0.6))), 0.0);
         let h2 = max(dot(nc, normalize(vec3(-0.9, 0.9, 0.1))), 0.0);
         let h3 = max(dot(nc, normalize(vec3(0.0, 0.8, -0.8))), 0.0);
         let hs = h1 * 0.55 + h2 * 0.25 + h3 * 0.2;
         col = base * (0.42 + 0.7 * hs) * mix(0.75, 1.0, shadow);
+    }
+    // akcent rzeźby: granie jaśniej, doliny ciemniej, w sile dobranej do stylu
+    if (relief_on > 0.0) {
+        var amt = 0.3;
+        if (style == 0) { amt = 0.42; }
+        else if (photo) { amt = 0.3; }
+        else if (style == 6) { amt = 0.34; }
+        else if (style == 7) { amt = 0.3; }
+        else if (style == 5) { amt = 0.3; }
+        else { amt = 0.22; }
+        let ridge = clamp(-curv, 0.0, 1.0);
+        let valley = clamp(curv, 0.0, 1.0);
+        let acc = 1.0 + amt * (0.45 * ridge - valley) * relief_on;
+        col *= max(acc, 0.4);
+        if (style == 5 || style == 6) {
+            // doliny na papierze w chłodnym tonie, nie w brudnej szarości
+            col = mix(col, col * srgb(vec3(0.86, 0.9, 1.0)), valley * relief_on * 0.35);
+        }
     }
     col = mix(col, ink_col, clamp(ink, 0.0, 1.0));
 
@@ -669,6 +719,12 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
 
     // perspektywa powietrzna (mgła zależna od odległości i wysokości)
     let fog = 1.0 - exp(-in.dist * g.fog_color.w * (1.0 + max(0.0, 900.0 - h) / 1800.0));
-    col = mix(col, g.fog_color.rgb, clamp(fog, 0.0, 0.92));
+    if (paper_style || (style >= 1 && style <= 3) || style == 8) {
+        // mapy i style analityczne: lekka mgiełka w barwie papieru, nigdy nie zakrywa rzeźby
+        let haze = mix(g.fog_color.rgb, srgb(vec3(0.95, 0.95, 0.94)), 0.6);
+        col = mix(col, haze, clamp(fog * 0.7, 0.0, 0.55));
+    } else {
+        col = mix(col, g.fog_color.rgb, clamp(fog, 0.0, 0.92));
+    }
     return vec4(col, 1.0);
 }

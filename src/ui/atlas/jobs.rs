@@ -243,7 +243,7 @@ impl Atlas {
         let radius = (d * 2.4).clamp(3500.0, 60_000.0);
         let (tx, tz) = self.frame.to_local(self.cam.lon, self.cam.lat);
         let cell = radius / 4.0;
-        let paper = self.prefs.style.paper();
+        let paper = RoadLook::of(self.prefs.style);
         let key: RoadsKey = (
             (tx / cell).round() as i64,
             (tz / cell).round() as i64,
@@ -691,9 +691,61 @@ fn road_mask(g: &Grid, roads: &[Arc<Vec<crate::roads::Road>>]) -> Vec<bool> {
     m
 }
 
+/// Rysunek dróg dopasowany do stylu mapy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RoadLook {
+    /// Teren i zdjęcie: jasne kreski widoczne na ciemnym tle.
+    Photo,
+    /// Mapa turystyczna i style analityczne: drogi jak na mapie drukowanej, z obwódkami.
+    Paper,
+    /// Mapa szwajcarska: autostrady i drogi główne w czerwieniach, reszta biała z obwódką.
+    Swiss,
+    /// Rycina: wszystko tuszem, bez kolorów i obwódek.
+    Ink,
+}
+
+impl RoadLook {
+    pub(super) fn of(style: super::Style) -> Self {
+        use super::Style as S;
+        match style {
+            S::Terrain | S::Satellite => RoadLook::Photo,
+            S::Swiss => RoadLook::Swiss,
+            S::Sketch => RoadLook::Ink,
+            _ => RoadLook::Paper,
+        }
+    }
+}
+
 /// Wygląd drogi danego rodzaju: barwa, krycie, szerokość (px) i czy ma ciemną obwódkę.
-fn road_style(class: crate::roads::Class, paper: bool) -> ([u8; 3], f32, f32, bool) {
+fn road_style(class: crate::roads::Class, look: RoadLook) -> ([u8; 3], f32, f32, bool) {
     use crate::roads::Class as C;
+    if look == RoadLook::Ink {
+        const INK: [u8; 3] = [62, 48, 34];
+        return match class {
+            C::Motorway => (INK, 1.0, 2.8, false),
+            C::Trunk => (INK, 1.0, 2.4, false),
+            C::Primary => (INK, 0.95, 2.1, false),
+            C::Secondary => (INK, 0.9, 1.7, false),
+            C::Tertiary => (INK, 0.85, 1.4, false),
+            C::Street => (INK, 0.75, 1.1, false),
+            C::Service => (INK, 0.55, 0.9, false),
+            C::Track => ([115, 88, 60], 0.7, 0.9, false),
+            C::Rail => ([30, 24, 18], 1.0, 1.7, false),
+            C::Tram => ([30, 24, 18], 0.8, 1.1, false),
+        };
+    }
+    if look == RoadLook::Swiss {
+        match class {
+            C::Motorway => return ([205, 70, 58], 1.0, 4.0, true),
+            C::Trunk => return ([222, 104, 70], 1.0, 3.6, true),
+            C::Primary => return ([238, 168, 96], 1.0, 3.2, true),
+            C::Secondary => return ([250, 226, 150], 1.0, 2.6, true),
+            C::Track => return ([96, 82, 70], 0.85, 1.0, false),
+            C::Rail => return ([30, 30, 34], 1.0, 1.8, false),
+            _ => {}
+        }
+    }
+    let paper = look != RoadLook::Photo;
     match class {
         C::Motorway => ([232, 146, 70], 1.0, 4.0, true),
         C::Trunk => ([240, 170, 90], 1.0, 3.6, true),
@@ -731,7 +783,7 @@ fn road_lines(
     (clon, clat): (f64, f64),
     d: f64,
     radius: f64,
-    paper: bool,
+    paper: RoadLook,
     ppp: f32,
 ) -> Vec<LineInst> {
     use crate::roads::Class;
