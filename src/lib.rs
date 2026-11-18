@@ -118,17 +118,22 @@ fn creator() -> eframe::AppCreator<'static> {
 pub fn run_desktop() -> eframe::Result<()> {
     let s = prepare();
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png")).unwrap_or_default();
+    // zrzuty do dokumentacji: GRAN_WINDOW=szer×wys (np. 824x1830 – układ telefonu przy GRAN_ZOOM=2)
+    let window = std::env::var("GRAN_WINDOW").ok().and_then(|w| {
+        let (a, b) = w.split_once(['x', '×'])?;
+        Some([a.trim().parse::<f32>().ok()?, b.trim().parse::<f32>().ok()?])
+    });
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("GRAŃ")
             .with_app_id("gran")
-            .with_inner_size([1440.0, 900.0])
-            .with_min_inner_size([1024.0, 640.0])
+            .with_inner_size(window.unwrap_or([1440.0, 900.0]))
+            .with_min_inner_size(window.map(|_| [320.0, 480.0]).unwrap_or([1024.0, 640.0]))
             .with_drag_and_drop(true)
             .with_icon(icon),
         renderer: eframe::Renderer::Wgpu,
         vsync: s.vsync,
-        persist_window: true,
+        persist_window: window.is_none(),
         ..Default::default()
     };
     eframe::run_native("GRAŃ", options, creator())

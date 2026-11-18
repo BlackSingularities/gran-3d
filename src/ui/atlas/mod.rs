@@ -604,6 +604,27 @@ impl Atlas {
                 }
                 ("prz", Some(x)) => self.prefs.exag = x.clamp(1.0, 3.0),
                 ("teren", _) => terrain = v == "1",
+                // otwarty panel albo narzędzie (zrzuty do dokumentacji, linki z instrukcji)
+                ("panel", _) => match v.as_str() {
+                    "warunki" => {
+                        self.prefs.panel_open = true;
+                        self.tab = crate::ui::panels::Tab::Conditions;
+                    }
+                    "biblioteka" => {
+                        self.prefs.panel_open = true;
+                        self.tab = crate::ui::panels::Tab::Library;
+                    }
+                    "punkty" => {
+                        self.tool = Tool::Point;
+                        self.open_info();
+                    }
+                    "offline" => {
+                        self.tool = Tool::Area;
+                        self.open_info();
+                    }
+                    "szczegoly" => self.open_info(),
+                    _ => {}
+                },
                 ("trasa", _) => {
                     wps = v
                         .split(';')

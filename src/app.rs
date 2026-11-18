@@ -145,6 +145,10 @@ impl App {
             }),
         };
         app.collect_garbage();
+        // zrzuty do dokumentacji: skala interfejsu z GRAN_ZOOM
+        if let Some(z) = std::env::var("GRAN_ZOOM").ok().and_then(|z| z.parse::<f32>().ok()) {
+            app.atlas.prefs.ui_scale = z.clamp(crate::ui::atlas::UI_SCALE_MIN, crate::ui::atlas::UI_SCALE_MAX);
+        }
         // link gran:// z wiersza poleceń (kliknięty w systemie)
         if let Some(l) = std::env::args().find(|a| a.starts_with("gran://")) {
             app.atlas.apply_link(&l);
