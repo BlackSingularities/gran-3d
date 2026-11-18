@@ -5,6 +5,8 @@
 #  • push na main z nową wersją w Cargo.toml (brak tagu v<wersja>) → wydanie Windows automatycznie
 #  • push na main z nową wersją w android/VERSION (brak tagu android-v<wersja>) → osobne wydanie Androida
 #    (APK + latest.yml; nieoznaczane jako „najnowsze”, żeby nie przykryło wydania Windows)
+#  • push na main z nową wersją w ios/VERSION (brak tagu ios-v<wersja>) → osobne wydanie iOS
+#    (niepodpisany IPA do instalacji przez AltStore lub Sideloadly + latest.yml)
 #  • push tagu v*        → wydanie tej wersji
 #  • commit z „[release]” w treści → to samo; tag v<wersja z Cargo.toml> tworzy workflow
 #  • push / pull request → kontrolna kompilacja i testy (artefakty przebiegu, bez publikacji)
@@ -39,6 +41,9 @@ jobs:
       android_tag: ${{ steps.v.outputs.android_tag }}
       android_version: ${{ steps.v.outputs.android_version }}
       android_new: ${{ steps.v.outputs.android_new }}
+      ios_tag: ${{ steps.v.outputs.ios_tag }}
+      ios_version: ${{ steps.v.outputs.ios_version }}
+      ios_new: ${{ steps.v.outputs.ios_new }}
     steps:
       - uses: actions/checkout@v4
       - id: v
@@ -64,6 +69,16 @@ jobs:
           else
             echo "android_new=true" >> "$GITHUB_OUTPUT"
             echo "Nowa wersja Androida $atag – bez wydania."
+          fi
+          iv=$(tr -d ' \r\n' < ios/VERSION)
+          itag="ios-v$iv"
+          echo "ios_version=$iv" >> "$GITHUB_OUTPUT"
+          echo "ios_tag=$itag" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$itag" >/dev/null; then
+            echo "ios_new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ios_new=true" >> "$GITHUB_OUTPUT"
+            echo "Nowa wersja iOS $itag – bez wydania."
           fi
       - name: Wersja tagu zgodna z Cargo.toml
         if: startsWith(github.ref, 'refs/tags/v')
@@ -204,6 +219,84 @@ jobs:
           path: out/*.apk
           if-no-files-found: error
           retention-days: 14
+
+  ios:
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 75
+    env:
+      VERSION: ${{ needs.version.outputs.ios_version }}
+      IPHONEOS_DEPLOYMENT_TARGET: '15.0'
+      CARGO_PROFILE_RELEASE_LTO: thin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+      - name: Program (Rust → aarch64-apple-ios)
+        run: cargo build --release --locked --target aarch64-apple-ios --bin Gran
+      - name: Pakiet .app i niepodpisany .ipa
+        run: |
+          app="Payload/GRAN.app"
+          rm -rf Payload && mkdir -p "$app"
+          cp target/aarch64-apple-ios/release/Gran "$app/Gran"
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@BUILD@/${GITHUB_RUN_NUMBER}/" ios/Info.plist > "$app/Info.plist"
+          cp ios/icons/*.png "$app/"
+          printf 'APPL????' > "$app/PkgInfo"
+          plutil -lint "$app/Info.plist"
+          plutil -convert binary1 "$app/Info.plist"
+          mkdir -p out && zip -qry "out/GRAN-iOS-$VERSION.ipa" Payload
+          ls -la out "$app"
+          file "$app/Gran"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: out/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+  release-ios:
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version.outputs.ios_new == 'true'
+    needs: [version, ios]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios
+          path: dist-ios
+      - name: latest.yml i opis wydania
+        run: |
+          v="${{ needs.version.outputs.ios_version }}"
+          ipa="GRAN-iOS-$v.ipa"
+          sha=$(openssl dgst -sha512 -binary "dist-ios/$ipa" | base64 -w0)
+          {
+            echo "version: $v"
+            echo "files:"
+            echo "  - url: $ipa"
+            echo "    sha512: $sha"
+            echo "    size: $(stat -c %s "dist-ios/$ipa")"
+            echo "path: $ipa"
+            echo "sha512: $sha"
+            echo "releaseDate: '$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+          } > dist-ios/latest.yml
+          f="ios/release-notes/$v.md"
+          if [ -f "$f" ]; then cp "$f" notes.md
+          else printf 'GRAŃ na iPhone’a i iPada `GRAN-iOS-%s.ipa` – instalacja przez AltStore lub Sideloadly, opis na https://redzikowski.com/portfolio/gran-3d.\n' "$v" > notes.md
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.ios_tag }}
+          target_commitish: ${{ github.sha }}
+          name: GRAŃ na iPhone’a i iPada ${{ needs.version.outputs.ios_version }}
+          make_latest: false
+          body_path: notes.md
+          files: dist-ios/*
+          fail_on_unmatched_files: true
 
   release:
     if: >-

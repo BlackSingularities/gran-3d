@@ -49,7 +49,9 @@ pub use android_activity::AndroidApp;
 /// Wersja programu: Windows – z `Cargo.toml`, Android – własna numeracja z `android/VERSION`
 /// (wydania `android-v<wersja>` niezależne od wydań Windows `v<wersja>`).
 pub fn app_version() -> &'static str {
-    if platform::MOBILE {
+    if platform::IOS {
+        include_str!("../ios/VERSION").trim_ascii()
+    } else if platform::MOBILE {
         include_str!("../android/VERSION").trim_ascii()
     } else {
         env!("CARGO_PKG_VERSION")
@@ -87,7 +89,14 @@ fn init_log() {
         let _ = log::set_boxed_logger(Box::new(platform::TeeLogger(logger, cat)));
         log::set_max_level(level);
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    {
+        let logger = b.build();
+        let level = logger.filter();
+        let _ = log::set_boxed_logger(Box::new(platform::TeeLogger(logger)));
+        log::set_max_level(level);
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     b.init();
     log::info!(
         "GRAŃ {} · {} {} · {} · język {}",
@@ -117,8 +126,24 @@ fn creator() -> eframe::AppCreator<'static> {
     Box::new(|cc| Ok(Box::new(app::App::new(cc))))
 }
 
+/// iPhone i iPad: foldery aplikacji zamiast `%APPDATA%`/`%LOCALAPPDATA%`, potem ten sam program.
+#[cfg(target_os = "ios")]
+pub fn run_ios() {
+    platform::init();
+    let s = prepare();
+    let options = eframe::NativeOptions {
+        renderer: eframe::Renderer::Wgpu,
+        vsync: s.vsync,
+        persistence_path: Some(settings::config_dir().join("widok.ron")),
+        ..Default::default()
+    };
+    if let Err(e) = eframe::run_native("GRAŃ", options, creator()) {
+        log::error!("eframe: {e}");
+    }
+}
+
 /// Windows (i inne systemy biurkowe).
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> eframe::Result<()> {
     let s = prepare();
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png")).unwrap_or_default();

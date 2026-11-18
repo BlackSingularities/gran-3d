@@ -582,7 +582,9 @@ impl App {
 
     fn offer_update(&mut self, rel: updater::Release) {
         let size = if rel.size > 0 { format!(" ({} MB)", rel.size / (1 << 20)) } else { String::new() };
-        let how = if crate::platform::MOBILE {
+        let how = if crate::platform::IOS {
+            crate::i18n::tr("Otworzę stronę pobierania – nową wersję zainstalujesz tak samo jak poprzednią (AltStore lub Sideloadly).")
+        } else if crate::platform::MOBILE {
             crate::i18n::tr("Instalację potwierdzisz w oknie systemu Android.")
         } else {
             crate::i18n::tr("Instalacja wymaga potwierdzenia uprawnień administratora.")
@@ -595,12 +597,19 @@ impl App {
             text.push_str("\n\n");
             text.push_str(&notes.chars().take(900).collect::<String>());
         }
-        let ask = crate::ui::dialog::Ask::new(crate::i18n::tr("Aktualizacja GRANI"), text, &["Pobierz i zainstaluj", "Później"]);
+        let buttons: &[&str] = if crate::platform::IOS { &["Otwórz stronę pobierania", "Później"] } else { &["Pobierz i zainstaluj", "Później"] };
+        let ask = crate::ui::dialog::Ask::new(crate::i18n::tr("Aktualizacja GRANI"), text, buttons);
         self.update = Update::Available(rel.clone());
         self.ask = Some((ask, AppAsk::Update(rel)));
     }
 
     fn start_update(&mut self, rel: updater::Release) {
+        // iOS: aplikacji spoza App Store nie da się zaktualizować z jej wnętrza
+        if crate::platform::IOS {
+            let _ = crate::platform::install_update(std::path::Path::new(""));
+            self.update = Update::Available(rel);
+            return;
+        }
         let progress = Arc::new(AtomicU64::new(0));
         let slot = Arc::new(Mutex::new(None));
         let (p, s, r) = (progress.clone(), slot.clone(), rel.clone());
@@ -707,7 +716,7 @@ impl App {
             (theme::icon::MAP_PIN_PLUS, "Punkty i komentarze", "Narzędzie „Punkty” pozwala opisać miejsce dla innych turystów: utrudnienie na szlaku, źródło, punkt widokowy. Cudze punkty możesz ocenić (+1 / −1) i skomentować, a nieprawdziwy albo obraźliwy wpis – zgłosić przyciskiem „Zgłoś” w szczegółach punktu. Wpisy sprawdzam przed publikacją."),
             (theme::icon::DOWNLOAD_SIMPLE, "Mapy offline", "„Mapy offline” pobiera zaznaczony obszar – teren, zdjęcia, szlaki i nazwy – żeby działał bez internetu. Pobrane obszary nie znikają przy sprzątaniu danych, a tryb offline całkowicie odcina sieć."),
             if mobile {
-                (theme::icon::PERSON_SIMPLE_WALK, "Spacer i biblioteka", "Przycisk „Spacer” stawia Cię na terenie: drążek na ekranie – chodzenie, przeciąganie palcem – rozglądanie. Biblioteka trzyma zapisane trasy, miejsca i widoki. Przycisk „wstecz” zamyka kolejne okna i panele.")
+                (theme::icon::PERSON_SIMPLE_WALK, "Spacer i biblioteka", if crate::platform::IOS { "Przycisk „Spacer” stawia Cię na terenie: drążek na ekranie – chodzenie, przeciąganie palcem – rozglądanie. Biblioteka trzyma zapisane trasy, miejsca i widoki." } else { "Przycisk „Spacer” stawia Cię na terenie: drążek na ekranie – chodzenie, przeciąganie palcem – rozglądanie. Biblioteka trzyma zapisane trasy, miejsca i widoki. Przycisk „wstecz” zamyka kolejne okna i panele." })
             } else {
                 (theme::icon::PERSON_SIMPLE_WALK, "Spacer i skróty", "Przycisk z idącą postacią stawia Cię na terenie: W A S D – chodzenie, Shift – bieg, spacja – skok. Biblioteka (B) trzyma zapisane trasy, miejsca i widoki. F11 – pełny ekran, ? – wszystkie skróty.")
             },

@@ -78,7 +78,10 @@ pub fn apply(ctx: &egui::Context) {
     // obce pisma w nazwach z OSM (dewanagari, tybetańskie, chińskie, japońskie, koreańskie, arabskie…):
     // zapasowe czcionki systemowe Windows, o ile są
     let win = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
-    let (dir, files): (std::path::PathBuf, &[&str]) = if crate::platform::MOBILE {
+    let (dir, files): (std::path::PathBuf, &[&str]) = if crate::platform::IOS {
+        // iOS: czcionki systemu dla pism spoza łacinki (brakujące pliki są pomijane)
+        ("/System/Library/Fonts".into(), &["LanguageSupport/PingFang.ttc", "Core/PingFang.ttc", "LanguageSupport/KohinoorDevanagari.ttc", "Core/GeezaPro.ttc", "Core/AppleSDGothicNeo.ttc", "LanguageSupport/Thonburi.ttc", "Core/Thonburi.ttc", "CoreUI/AppleColorEmoji.ttc"])
+    } else if crate::platform::MOBILE {
         // Android: czcionki Noto systemu
         ("/system/fonts".into(), &["NotoSansDevanagari-VF.ttf", "NotoSerifTibetan-VF.ttf", "NotoSansCJK-Regular.ttc", "NotoNaskhArabic-Regular.ttf", "NotoSansSymbols-Regular-Subsetted.ttf", "NotoSansEthiopic-VF.ttf", "NotoSansThai-Regular.ttf", "NotoSansMyanmar-Regular.otf", "NotoSansGeorgian-VF.ttf", "NotoSansArmenian-VF.ttf", "NotoSansHebrew-Regular.ttf"])
     } else {

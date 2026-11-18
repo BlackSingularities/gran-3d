@@ -12,16 +12,24 @@ mod android;
 #[cfg(target_os = "android")]
 pub use android::*;
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "ios")]
+mod ios;
+#[cfg(target_os = "ios")]
+pub use ios::*;
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod desktop;
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub use desktop::*;
 
+/// iPhone i iPad (aplikacja spoza App Store: aktualizacje przez stronę pobierania).
+pub const IOS: bool = cfg!(target_os = "ios");
+
 /// Telefon albo tablet: dotyk, brak klawiatury fizycznej, przyciski systemu.
-pub const MOBILE: bool = cfg!(target_os = "android");
+pub const MOBILE: bool = cfg!(any(target_os = "android", target_os = "ios"));
 
 /// Nazwa platformy w zgłoszeniach i komentarzach wysyłanych do redzikowski.com.
-pub const NAME: &str = if MOBILE { "android" } else if cfg!(windows) { "windows" } else { "linux" };
+pub const NAME: &str = if IOS { "ios" } else if MOBILE { "android" } else if cfg!(windows) { "windows" } else { "linux" };
 
 /// Zdarzenie od systemu, odbierane w wątku interfejsu.
 #[derive(Debug, Clone)]
