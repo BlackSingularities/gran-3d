@@ -108,6 +108,7 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
                 let (glyph, title) = match (a.tab, a.tool) {
                     (Tab::Library, _) => (theme::icon::BOOKMARKS, crate::i18n::tr("Biblioteka")),
                     (Tab::Conditions, _) => (theme::icon::CLOUD_SUN, crate::i18n::tr("Warunki")),
+                    (Tab::Record, _) => (theme::icon::RECORD, crate::i18n::tr("Położenie i nagrywanie")),
                     (_, Tool::Explore) => (theme::icon::COMPASS, crate::i18n::tr("Szczegóły")),
                     (_, t) => (t.behavior().icon(), t.behavior().title()),
                 };
@@ -139,6 +140,8 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
                     crate::ui::library::show(a, ui);
                 } else if a.tab == Tab::Conditions {
                     crate::ui::conditions::show(a, ui);
+                } else if a.tab == Tab::Record {
+                    record_panel(a, ui);
                 } else {
                     info(a, ui);
                 }
@@ -163,6 +166,24 @@ fn nav_button(ui: &mut egui::Ui, glyph: &str, hint: &str) -> egui::Response {
     resp.on_hover_text(hint)
 }
 
+/// Przycisk położenia: kolor mówi o trybie (szary – położenie widać, niebieski – mapa za Tobą),
+/// migająca kropka – czeka na sygnał GPS.
+fn loc_button(ui: &mut egui::Ui, glyph: &str, color: Option<Color32>, waiting: bool, hint: &str) -> egui::Response {
+    let resp = nav_button(ui, glyph, hint);
+    if let Some(c) = color {
+        let p = ui.painter();
+        p.rect_filled(resp.rect, 8.0, c.gamma_multiply(0.18));
+        p.text(resp.rect.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(if crate::platform::MOBILE { 20.0 } else { 16.0 }), c);
+    }
+    if waiting {
+        let t = ui.input(|i| i.time);
+        let a = 0.4 + 0.6 * ((t * 4.0).sin() as f32 * 0.5 + 0.5);
+        ui.painter().circle_filled(resp.rect.right_top() + egui::vec2(-7.0, 7.0), 3.0, theme::WARN.gamma_multiply(a));
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(80));
+    }
+    resp
+}
+
 /// Cienka pozioma kreska między grupami przycisków kamery.
 fn nav_divider(ui: &mut egui::Ui) {
     let (r, _) = ui.allocate_exact_size(egui::vec2(if crate::platform::MOBILE { 42.0 } else { 30.0 }, 7.0), egui::Sense::hover());
@@ -184,6 +205,19 @@ pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
             theme::glass_float().corner_radius(egui::CornerRadius::same(11)).inner_margin(egui::Margin::same(3)).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 1.0;
                 ui.vertical(|ui| {
+                    // Twoje położenie (telefon): włącz → mapa za Tobą → kompas → wyłącz
+                    if crate::platform::LOCATION {
+                        let (glyph, color, hint) = match (a.gps.on, a.gps.follow) {
+                            (false, _) => (theme::icon::CROSSHAIR, None, crate::i18n::tr("Pokaż moje położenie")),
+                            (true, crate::ui::atlas::Follow::Free) => (theme::icon::CROSSHAIR, Some(theme::paper_2()), crate::i18n::tr("Wróć do mojego położenia")),
+                            (true, crate::ui::atlas::Follow::Follow) => (theme::icon::CROSSHAIR, Some(theme::BRASS), crate::i18n::tr("Mapa za mną – dotknij, żeby obracać ją kompasem")),
+                            (true, crate::ui::atlas::Follow::Compass) => (theme::icon::NAVIGATION_ARROW, Some(theme::BRASS), crate::i18n::tr("Kompas – dotknij, żeby wyłączyć")),
+                        };
+                        if loc_button(ui, glyph, color, a.gps.on && !a.gps.fresh(), hint).clicked() {
+                            a.toggle_locate();
+                        }
+                        nav_divider(ui);
+                    }
                     let zoom = |a: &mut Atlas, k: f64| {
                         let mut to = a.cam;
                         to.distance = (a.cam.distance * k).clamp(a.min_dist(), 900_000.0);

@@ -1380,7 +1380,7 @@ dependencies = [
 
 [[package]]
 name = "gran"
-version = "4.0.7"
+version = "4.1.0"
 dependencies = [
  "android-activity",
  "android_logger",

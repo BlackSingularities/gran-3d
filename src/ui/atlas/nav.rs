@@ -210,6 +210,31 @@ impl Atlas {
         self.cam.lat = lat.clamp(-84.0, 84.0);
     }
 
+    /// Cel kamery `cam` (kierunek, nachylenie, odległość), przy którym punkt (`lon`, `lat`, `height`)
+    /// leży na środku widocznej części mapy, a nie na środku całego ekranu.
+    pub(super) fn target_for_visible(&self, ctx: &egui::Context, lon: f64, lat: f64, height: f64, cam: &Camera) -> (f64, f64) {
+        let Some(size) = self.last_view.map(|v| v.size) else { return (lon, lat) };
+        let vis = self.visible_map(ctx, Rect::from_min_size(Pos2::ZERO, Vec2::new(size[0], size[1])));
+        let shift = vis.center() - Pos2::new(size[0] * 0.5, size[1] * 0.5);
+        if shift.length() < 0.5 {
+            return (lon, lat);
+        }
+        let mut c = *cam;
+        c.lon = lon;
+        c.lat = lat;
+        c.height = height;
+        let view = c.view(self.frame, self.prefs.exag, size, height);
+        let px = Pos2::new(size[0] * 0.5, size[1] * 0.5) + shift;
+        let dir = view.ray([px.x, px.y]);
+        if dir.y > -1e-3 {
+            return (lon, lat);
+        }
+        let p = view.eye + dir * ((view.target.y - view.eye.y) / dir.y);
+        let to = view.target + (view.target - p);
+        let (l, t) = self.frame.to_lonlat(to.x, to.z);
+        ((l + 540.0).rem_euclid(360.0) - 180.0, t.clamp(-84.0, 84.0))
+    }
+
     /// Część mapy niezasłonięta interfejsem (w układzie `rect`): bez panelu bocznego, górnego paska,
     /// profilu, paska narzędzi i paska stanu.
     pub(super) fn visible_map(&self, ctx: &egui::Context, rect: Rect) -> Rect {

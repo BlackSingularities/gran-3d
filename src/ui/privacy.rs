@@ -25,6 +25,7 @@ const SECTIONS: &[(&str, &[&str])] = &[
         "2. Co zostaje na urządzeniu",
         &[
             "Ustawienia, biblioteka tras, miejsc i widoków, pobrane mapy i obszary offline, dziennik programu oraz dane konta (adres e-mail, nazwa i token sesji – bez hasła) są zapisywane tylko na Twoim urządzeniu. Aplikacja nie używa GPS ani lokalizacji urządzenia, nie ma reklam, analityki ani śledzenia.",
+            "Położenie GPS (Android, iOS) jest używane tylko po Twojej zgodzie w systemie i tylko wtedy, gdy sam je włączysz – żeby pokazać Cię na mapie i nagrać przejście. Odczyty i nagrane przejścia są zapisywane wyłącznie na urządzeniu; aplikacja nie wysyła położenia na serwer i nikomu go nie udostępnia. Podczas nagrywania na Androidzie widać powiadomienie, a na iOS – wskaźnik lokalizacji na pasku stanu. Plik przejścia trafia do innej aplikacji (np. Garmin Connect, Strava) tylko wtedy, gdy sam go wyeksportujesz albo udostępnisz.",
         ],
     ),
     (

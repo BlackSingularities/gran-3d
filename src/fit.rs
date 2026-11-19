@@ -210,6 +210,11 @@ pub fn export(route: &Route, name: &str, points: &[CoursePoint], start_unix: i64
     w.u8(9); // stop_disable_all
     w.u8(0);
 
+    finish(w)
+}
+
+/// Zamknięcie pliku FIT: nagłówek, dane, suma kontrolna.
+fn finish(w: Writer) -> Vec<u8> {
     let mut out = Vec::with_capacity(w.data.len() + 16);
     out.push(14);
     out.push(0x20); // protokół 2.0
@@ -222,6 +227,244 @@ pub fn export(route: &Route, name: &str, points: &[CoursePoint], start_unix: i64
     let c = crc(0, &out);
     out.extend_from_slice(&c.to_le_bytes());
     out
+}
+
+/// Nagrane przejście jako aktywność FIT (piesza wycieczka): file_id, zdarzenia startu i końca
+/// (także przerw), rekordy z czasem, pozycją, wysokością, dystansem i prędkością, okrążenie,
+/// sesja i aktywność – plik przyjmują Garmin Connect, Suunto, Coros i Strava.
+pub fn export_activity(rec: &crate::recording::Recording) -> Vec<u8> {
+    let pts = &rec.points;
+    let fit_ts = |t: f64| (t.round() as i64 - FIT_EPOCH).max(0) as u32;
+    let ts0 = fit_ts(rec.start);
+    let end = fit_ts(rec.end.max(rec.start));
+    let alt = |e: f32| (((e as f64) + 500.0) * 5.0).round().clamp(0.0, 4_000_000_000.0) as u32;
+    let st = &rec.stats;
+    let elapsed_ms = ((end - ts0) as f64 * 1000.0) as u32;
+    let timer_ms = (st.duration * 1000.0).round().clamp(0.0, u32::MAX as f64) as u32;
+    let dist_cm = (st.dist * 100.0).round() as u32;
+    let (lat0, lon0) = pts.first().map(|p| (semicircles(p.lat), semicircles(p.lon))).unwrap_or((0, 0));
+    let (lat1, lon1) = pts.last().map(|p| (semicircles(p.lat), semicircles(p.lon))).unwrap_or((0, 0));
+
+    let mut w = Writer { data: Vec::with_capacity(128 + pts.len() * 22) };
+    // file_id: aktywność
+    w.define(0, 0, &[(0, 1, ENUM), (1, 2, UINT16), (2, 2, UINT16), (3, 4, UINT32Z), (4, 4, UINT32)]);
+    w.header(0);
+    w.u8(4);
+    w.u16(255);
+    w.u16(1);
+    w.u32((ts0 % 0xFFFF_FFF0).max(1));
+    w.u32(ts0);
+    // zdarzenia: licznik start (0) / stop wszystkich (4)
+    w.define(1, 21, &[(253, 4, UINT32), (0, 1, ENUM), (1, 1, ENUM)]);
+    let event = |w: &mut Writer, t: u32, kind: u8| {
+        w.header(1);
+        w.u32(t);
+        w.u8(0);
+        w.u8(kind);
+    };
+    event(&mut w, ts0, 0);
+    // rekordy: czas, pozycja, wysokość (enhanced), dystans, prędkość
+    w.define(2, 20, &[(253, 4, UINT32), (0, 4, SINT32), (1, 4, SINT32), (78, 4, UINT32), (5, 4, UINT32), (6, 2, UINT16)]);
+    let mut dist = 0.0f64;
+    for (i, p) in pts.iter().enumerate() {
+        let mut speed = 0.0;
+        if i > 0 {
+            let a = &pts[i - 1];
+            if a.seg != p.seg {
+                // przerwa: stop i start licznika
+                event(&mut w, fit_ts(a.t), 4);
+                event(&mut w, fit_ts(p.t), 0);
+            } else {
+                let d = crate::geo::haversine(a.lon, a.lat, p.lon, p.lat);
+                dist += d;
+                let dt = p.t - a.t;
+                if dt > 0.0 {
+                    speed = d / dt;
+                }
+            }
+        }
+        let speed = p.speed.map(|s| s as f64).unwrap_or(speed);
+        w.header(2);
+        w.u32(fit_ts(p.t));
+        w.i32(semicircles(p.lat));
+        w.i32(semicircles(p.lon));
+        w.u32(alt(p.ele));
+        w.u32((dist * 100.0).round() as u32);
+        w.u16((speed * 1000.0).round().clamp(0.0, 65_534.0) as u16);
+    }
+    event(&mut w, end, 4);
+    // okrążenie
+    w.define(3, 19, &[(253, 4, UINT32), (0, 1, ENUM), (1, 1, ENUM), (2, 4, UINT32), (3, 4, SINT32), (4, 4, SINT32), (5, 4, SINT32), (6, 4, SINT32), (7, 4, UINT32), (8, 4, UINT32), (9, 4, UINT32), (21, 2, UINT16), (22, 2, UINT16), (25, 1, ENUM)]);
+    w.header(3);
+    w.u32(end);
+    w.u8(9); // okrążenie
+    w.u8(1); // stop
+    w.u32(ts0);
+    w.i32(lat0);
+    w.i32(lon0);
+    w.i32(lat1);
+    w.i32(lon1);
+    w.u32(elapsed_ms);
+    w.u32(timer_ms);
+    w.u32(dist_cm);
+    w.u16(st.up.round().clamp(0.0, 65_000.0) as u16);
+    w.u16(st.down.round().clamp(0.0, 65_000.0) as u16);
+    w.u8(17); // turystyka piesza
+    // sesja
+    w.define(4, 18, &[(253, 4, UINT32), (0, 1, ENUM), (1, 1, ENUM), (2, 4, UINT32), (3, 4, SINT32), (4, 4, SINT32), (5, 1, ENUM), (6, 1, ENUM), (7, 4, UINT32), (8, 4, UINT32), (9, 4, UINT32), (22, 2, UINT16), (23, 2, UINT16), (25, 2, UINT16), (26, 2, UINT16)]);
+    w.header(4);
+    w.u32(end);
+    w.u8(8); // sesja
+    w.u8(1); // stop
+    w.u32(ts0);
+    w.i32(lat0);
+    w.i32(lon0);
+    w.u8(17);
+    w.u8(0);
+    w.u32(elapsed_ms);
+    w.u32(timer_ms);
+    w.u32(dist_cm);
+    w.u16(st.up.round().clamp(0.0, 65_000.0) as u16);
+    w.u16(st.down.round().clamp(0.0, 65_000.0) as u16);
+    w.u16(0);
+    w.u16(1);
+    // aktywność
+    let local = (end as i64 + crate::sun::warsaw_offset_min(rec.end) as i64 * 60).max(0) as u32;
+    w.define(5, 34, &[(253, 4, UINT32), (0, 4, UINT32), (1, 2, UINT16), (2, 1, ENUM), (3, 1, ENUM), (4, 1, ENUM), (5, 4, UINT32)]);
+    w.header(5);
+    w.u32(end);
+    w.u32(timer_ms);
+    w.u16(1);
+    w.u8(0);
+    w.u8(26); // aktywność
+    w.u8(1);
+    w.u32(local);
+    finish(w)
+}
+
+/// Ślad z pliku FIT (aktywność z zegarka albo kurs): punkty (dł., szer., wys.) i czas (s uniksowe).
+pub struct FitTrack {
+    pub points: Vec<(f64, f64, Option<f32>)>,
+    pub times: Vec<f64>,
+    /// Plik jest aktywnością (nagranym przejściem), a nie kursem do nawigacji.
+    pub activity: bool,
+}
+
+#[derive(Clone, Default)]
+struct Def {
+    global: u16,
+    big: bool,
+    fields: Vec<(u8, u8)>,
+    dev: usize,
+}
+
+/// Odczyt rekordów (wiadomość 20) z pliku FIT: definicje, zwykłe nagłówki i skrócone nagłówki
+/// czasu; pola deweloperskie są pomijane.
+pub fn parse(b: &[u8]) -> Result<FitTrack, String> {
+    let bad = || crate::i18n::tr("Plik nie jest poprawnym FIT.").to_string();
+    let hsize = *b.first().ok_or_else(bad)? as usize;
+    if hsize < 12 || b.len() < hsize || b.get(8..12) != Some(&b".FIT"[..]) {
+        return Err(bad());
+    }
+    let size = u32::from_le_bytes([b[4], b[5], b[6], b[7]]) as usize;
+    let end = (hsize + size).min(b.len());
+    let mut defs: Vec<Option<Def>> = vec![None; 16];
+    let mut pos = hsize;
+    let mut last_ts: u32 = 0;
+    let mut out = FitTrack { points: Vec::new(), times: Vec::new(), activity: false };
+    while pos < end {
+        let h = b[pos];
+        pos += 1;
+        if h & 0x80 != 0 {
+            // skrócony nagłówek czasu: przesunięcie 5 bitów względem ostatniego znacznika
+            let local = ((h >> 5) & 0x3) as usize;
+            let off = (h & 0x1F) as u32;
+            let mut ts = (last_ts & !0x1F) + off;
+            if ts < last_ts {
+                ts += 0x20;
+            }
+            last_ts = ts;
+            let def = defs[local].clone().ok_or_else(bad)?;
+            pos = read_data(b, pos, end, &def, Some(ts), &mut last_ts, &mut out).ok_or_else(bad)?;
+        } else if h & 0x40 != 0 {
+            let local = (h & 0x0F) as usize;
+            let has_dev = h & 0x20 != 0;
+            let d = b.get(pos..pos + 5).ok_or_else(bad)?;
+            let big = d[1] == 1;
+            let global = if big { u16::from_be_bytes([d[2], d[3]]) } else { u16::from_le_bytes([d[2], d[3]]) };
+            let n = d[4] as usize;
+            pos += 5;
+            let mut fields = Vec::with_capacity(n);
+            for _ in 0..n {
+                let f = b.get(pos..pos + 3).ok_or_else(bad)?;
+                fields.push((f[0], f[1]));
+                pos += 3;
+            }
+            let mut dev = 0;
+            if has_dev {
+                let nd = *b.get(pos).ok_or_else(bad)? as usize;
+                pos += 1;
+                for _ in 0..nd {
+                    dev += *b.get(pos + 1).ok_or_else(bad)? as usize;
+                    pos += 3;
+                }
+            }
+            defs[local] = Some(Def { global, big, fields, dev });
+        } else {
+            let local = (h & 0x0F) as usize;
+            let def = defs[local].clone().ok_or_else(bad)?;
+            pos = read_data(b, pos, end, &def, None, &mut last_ts, &mut out).ok_or_else(bad)?;
+        }
+    }
+    if out.points.len() < 2 {
+        return Err(crate::i18n::tr("Plik FIT nie zawiera śladu z pozycjami.").into());
+    }
+    Ok(out)
+}
+
+fn read_data(b: &[u8], mut pos: usize, end: usize, def: &Def, ts: Option<u32>, last_ts: &mut u32, out: &mut FitTrack) -> Option<usize> {
+    let (mut lat, mut lon, mut alt, mut ealt, mut time) = (None, None, None, None, ts);
+    let big = def.big;
+    let u = |v: &[u8]| -> u64 {
+        let mut x = 0u64;
+        for (i, byte) in v.iter().enumerate().take(8) {
+            let k = if big { v.len() - 1 - i } else { i };
+            x |= (*byte as u64) << (8 * k);
+        }
+        x
+    };
+    for &(num, size) in &def.fields {
+        let v = b.get(pos..pos + size as usize)?;
+        pos += size as usize;
+        if pos > end {
+            return None;
+        }
+        match (def.global, num, size) {
+            (0, 0, 1) => out.activity = v[0] == 4,
+            (_, 253, 4) => {
+                let t = u(v) as u32;
+                if t != u32::MAX {
+                    *last_ts = t;
+                    time = Some(t);
+                }
+            }
+            (20, 0, 4) => lat = Some(u(v) as u32 as i32).filter(|x| *x != i32::MAX),
+            (20, 1, 4) => lon = Some(u(v) as u32 as i32).filter(|x| *x != i32::MAX),
+            (20, 2, 2) => alt = Some(u(v) as u16).filter(|x| *x != u16::MAX),
+            (20, 78, 4) => ealt = Some(u(v) as u32).filter(|x| *x != u32::MAX),
+            _ => {}
+        }
+    }
+    pos += def.dev;
+    if def.global == 20 {
+        if let (Some(la), Some(lo)) = (lat, lon) {
+            let deg = |s: i32| s as f64 * (180.0 / 2_147_483_648.0);
+            let e = ealt.map(|a| a as f64 / 5.0 - 500.0).or(alt.map(|a| a as f64 / 5.0 - 500.0)).map(|e| e as f32);
+            out.points.push((deg(lo), deg(la), e));
+            out.times.push(time.map(|t| t as f64 + FIT_EPOCH as f64).unwrap_or(0.0));
+        }
+    }
+    Some(pos)
 }
 
 #[cfg(test)]
@@ -246,6 +489,32 @@ mod tests {
         let s = std::str::from_utf8(&f[..f.iter().position(|&b| b == 0).unwrap()]).unwrap();
         assert!("Świnica – Kasprowy Wierch".starts_with(s));
         assert!(s.len() <= NAME_LEN - 1);
+    }
+
+    #[test]
+    fn activity_roundtrip() {
+        use crate::recording::{Point, Recording};
+        let points: Vec<Point> = (0..30).map(|i| Point { t: 1_719_820_800.0 + i as f64 * 10.0, lon: 19.98 + i as f64 * 1e-4, lat: 49.23, ele: 1500.0 + i as f32, seg: if i < 15 { 0 } else { 1 }, ..Default::default() }).collect();
+        let mut rec = Recording::from_track(1, "Test", "", &points.iter().map(|p| (p.lon, p.lat, p.ele, p.t)).collect::<Vec<_>>()).unwrap();
+        rec.points = points.clone();
+        let bytes = export_activity(&rec);
+        assert_eq!(crc(0, &bytes), 0, "suma kontrolna pliku");
+        let back = parse(&bytes).unwrap();
+        assert!(back.activity);
+        assert_eq!(back.points.len(), 30);
+        assert!((back.points[3].0 - points[3].lon).abs() < 1e-6);
+        assert_eq!(back.points[3].2.map(|e| e.round()), Some(1503.0));
+        assert_eq!(back.times[5], points[5].t);
+        assert!(parse(b"nie fit").is_err());
+    }
+
+    #[test]
+    fn course_is_readable() {
+        let pts = vec![(20.0, 49.2, 1000.0), (20.01, 49.21, 1100.0), (20.02, 49.22, 1050.0)];
+        let r = crate::graph::route_from_points(&pts, crate::graph::RouteKind::Gpx, "Kurs", 1.0);
+        let back = parse(&export(&r, "Kurs", &[], 1_700_000_000)).unwrap();
+        assert!(!back.activity);
+        assert_eq!(back.points.len(), 3);
     }
 
     #[test]

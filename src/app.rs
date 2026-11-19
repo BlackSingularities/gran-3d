@@ -97,7 +97,11 @@ pub struct App {
 }
 
 /// Wersja ekranu powitalnego: większa – pokaż go raz także osobom, które przewodnik już widziały.
-const WELCOME: u32 = 1;
+/// 2 – położenie GPS, nagrywanie przejść i zegarki (dotychczasowi użytkownicy widzą od razu ten krok).
+const WELCOME: u32 = 2;
+
+/// Krok przewodnika o położeniu, nagrywaniu i zegarkach.
+const TOUR_GPS_STEP: usize = 6;
 
 /// Klucz ustawień widoku; nowy układ zaczyna od nowych domyślnych.
 const PREFS_KEY: &str = "atlas2";
@@ -159,7 +163,9 @@ impl App {
         }
         // przewodnik dla nowych, a powitanie (autor, wsparcie, zgłoszenia) raz także dla dotychczasowych
         let unseen = !app.settings.tour_done || app.settings.welcome < WELCOME;
-        app.tour = if unseen && std::env::var_os("GRAN_CAPTURE").is_none() { Some(0) } else { None };
+        // kto przewodnik już widział, zaczyna od nowości (położenie, nagrywanie, zegarki)
+        let first = if app.settings.tour_done { TOUR_GPS_STEP } else { 0 };
+        app.tour = if unseen && std::env::var_os("GRAN_CAPTURE").is_none() { Some(first) } else { None };
         // zrzuty do dokumentacji: przewodnik na wybranym kroku (GRAN_TOUR=0…)
         if let Some(n) = std::env::var("GRAN_TOUR").ok().and_then(|n| n.parse::<usize>().ok()) {
             app.tour = Some(n);
@@ -756,7 +762,7 @@ impl App {
             return;
         }
         let mobile = crate::platform::MOBILE;
-        let steps: [(&str, &str, &str); 7] = [
+        let steps: [(&str, &str, &str); 8] = [
             (theme::icon::MOUNTAINS, "Witaj w GRANI", "Trójwymiarowy atlas gór z prawdziwym modelem terenu, znakowanymi szlakami i trasami z wariantami – na Windows i Androida. W kilku krokach pokażę, jak z niego korzystać."),
             if mobile {
                 (theme::icon::HAND_GRABBING, "Poruszanie mapą", "Jeden palec – przesuwanie. Dwa palce: rozsuwanie przybliża, obrót palców obraca mapę, przesuwanie w górę i w dół zmienia nachylenie. Przytrzymaj palec na miejscu, żeby je zaznaczyć i zobaczyć szczegóły.")
@@ -774,6 +780,11 @@ impl App {
                 (theme::icon::PERSON_SIMPLE_WALK, "Spacer i biblioteka", if crate::platform::IOS { "Przycisk „Spacer” stawia Cię na terenie: drążek na ekranie – chodzenie, przeciąganie palcem – rozglądanie. Biblioteka trzyma zapisane trasy, miejsca i widoki." } else { "Przycisk „Spacer” stawia Cię na terenie: drążek na ekranie – chodzenie, przeciąganie palcem – rozglądanie. Biblioteka trzyma zapisane trasy, miejsca i widoki. Przycisk „wstecz” zamyka kolejne okna i panele." })
             } else {
                 (theme::icon::PERSON_SIMPLE_WALK, "Spacer i skróty", "Przycisk z idącą postacią stawia Cię na terenie: W A S D – chodzenie, Shift – bieg, spacja – skok. Biblioteka (B) trzyma zapisane trasy, miejsca i widoki. F11 – pełny ekran, ? – wszystkie skróty.")
+            },
+            if mobile {
+                (theme::icon::RECORD, "Położenie i nagrywanie przejść", "Przycisk z celownikiem przy sterowaniu kamerą pokazuje, gdzie jesteś: drugie dotknięcie obraca mapę kompasem. „Nagraj” na pasku zapisuje przejście – czas, dystans, podejścia i prędkość – także przy wyłączonym ekranie. Nagrania trafiają do biblioteki, skąd wyślesz je jako FIT albo GPX do Garmin Connect, Suunto, Coros, Stravy i na zegarek; aktywność z zegarka wczytasz z powrotem. Położenie zostaje w telefonie.")
+            } else {
+                (theme::icon::WATCH, "Zegarek i nagrane przejścia", "Trasę wyślesz na zegarek jako kurs FIT (Garmin, Suunto, Wahoo, Coros). Aktywność z zegarka albo z innej aplikacji (FIT, GPX z czasem) wczytasz w bibliotece do nagranych przejść – ze statystykami, profilem i eksportem. Na telefonie GRAŃ sam pokazuje położenie i nagrywa przejścia z GPS.")
             },
             (theme::icon::HEART, "Wsparcie i kontakt", "GRAŃ tworzę sam, po godzinach, i udostępniam za darmo. Jeśli program Ci się przydaje, możesz postawić mi kawę. Błąd albo pomysł na nową funkcję zgłosisz z ustawień (O programie → Zgłoś błąd lub sugestię) – zgłoszenie trafia prosto do mnie. Przewodnik obejrzysz ponownie z ustawień."),
         ];
@@ -968,6 +979,7 @@ impl eframe::App for App {
                 self.atlas.view_ui(ui, frame);
             });
         crate::ui::panels::nav(&mut self.atlas, ctx);
+        crate::ui::panels::record_hud(&mut self.atlas, ctx);
         crate::ui::panels::legend(&mut self.atlas, ctx);
         crate::ui::panels::profile_panel(&mut self.atlas, ctx);
         crate::ui::search::show(&mut self.atlas, ctx);
@@ -1002,6 +1014,7 @@ impl App {
                     self.update = Update::Idle;
                     self.ask = None;
                 }
+                crate::platform::Event::LocationPermission(granted) => self.atlas.on_location_permission(granted),
             }
         }
         if crate::platform::MOBILE {

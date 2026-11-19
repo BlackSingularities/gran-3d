@@ -1,5 +1,6 @@
 package com.blacksingularities.gran3d;
 
+import android.Manifest;
 import android.app.NativeActivity;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
@@ -39,6 +40,7 @@ public class GranActivity extends NativeActivity {
     private static final int PICK_TRACK = 41;
     private static final int CREATE_DOCUMENT = 42;
     private static final int PICK_PHOTO = 43;
+    private static final int ASK_LOCATION = 44;
     /** Dłuższy bok zdjęcia przekazywanego programowi (ten sam co na serwerze). */
     private static final int PHOTO_MAX = 2048;
 
@@ -269,6 +271,61 @@ public class GranActivity extends NativeActivity {
         } catch (Exception e) {
             return String.valueOf(e.getMessage());
         }
+    }
+
+    // ---------------------------------------------------------------- położenie
+
+    /** Zgoda na lokalizację: „granted”, „denied” (odmowa na stałe – tylko ustawienia systemu), „ask”. */
+    public String gpsPermission() {
+        if (GranLocation.granted(this)) return "granted";
+        boolean asked = getSharedPreferences("gran", MODE_PRIVATE).getBoolean("gps_asked", false);
+        if (asked && !shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) return "denied";
+        return "ask";
+    }
+
+    /** Okno systemu z prośbą o lokalizację (i powiadomienia – pasek nagrywania na Androidzie 13+). */
+    public String gpsRequestPermission() {
+        runOnUiThread(() -> {
+            getSharedPreferences("gran", MODE_PRIVATE).edit().putBoolean("gps_asked", true).apply();
+            ArrayList<String> p = new ArrayList<>();
+            p.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            p.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+            if (Build.VERSION.SDK_INT >= 33) p.add(Manifest.permission.POST_NOTIFICATIONS);
+            requestPermissions(p.toArray(new String[0]), ASK_LOCATION);
+        });
+        return "";
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(request, permissions, results);
+        if (request == ASK_LOCATION) push("gps", GranLocation.granted(this) ? "1" : "0");
+    }
+
+    /** Odczyty położenia; niepusty dziennik – nagrywanie w usłudze z powiadomieniem. */
+    public String gpsStart(String journal, String title) {
+        return GranLocation.get(this).start(journal, title);
+    }
+
+    public String gpsStop() {
+        GranLocation.get(this).stop();
+        return "";
+    }
+
+    public String gpsPoll() {
+        return GranLocation.get(this).poll();
+    }
+
+    /** Ustawienia aplikacji w systemie: zgody, praca w tle, oszczędzanie baterii. */
+    public String gpsSettings() {
+        runOnUiThread(() -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+            } catch (ActivityNotFoundException e) {
+                push("msg", "Brak okna ustawień aplikacji.");
+            }
+        });
+        return "";
     }
 
     // ---------------------------------------------------------------- wyniki okien

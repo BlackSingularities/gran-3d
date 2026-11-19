@@ -28,6 +28,7 @@ mod actions;
 mod community;
 mod input;
 mod jobs;
+mod locate;
 mod nav;
 mod overlays;
 mod prefs;
@@ -39,6 +40,7 @@ mod view;
 mod webcam;
 
 pub use actions::*;
+pub use locate::{Follow, GpsState};
 pub use prefs::*;
 pub use tools::*;
 pub use webcam::CamState;
@@ -116,7 +118,8 @@ impl Default for AreaDraft {
 }
 
 /// Pytanie do potwierdzenia i działanie po wybraniu pierwszego przycisku.
-pub type Confirm = (crate::ui::dialog::Ask, Box<dyn FnOnce(&mut Atlas)>);
+/// Pytanie i działanie po wyborze (indeks przycisku; `usize::MAX` – zamknięte bez wyboru).
+pub type Confirm = (crate::ui::dialog::Ask, Box<dyn FnOnce(&mut Atlas, usize)>);
 
 /// Wynik analizy widoczności z punktu.
 pub struct VsInfo {
@@ -374,6 +377,10 @@ pub struct Atlas {
     pub safe_bottom: f32,
     /// Przewinięcie dolnego paska stanu na wąskim ekranie (punkty).
     status_scroll: f32,
+    /// Położenie GPS na mapie (telefon).
+    pub gps: GpsState,
+    /// Trwające nagrywanie przejścia.
+    pub rec: Option<crate::recording::Recorder>,
 }
 
 /// Stan planowania do historii: punkty i tryb wyznaczania.
@@ -526,6 +533,8 @@ impl Atlas {
             safe_top: 0.0,
             safe_bottom: 0.0,
             status_scroll: 0.0,
+            gps: GpsState::default(),
+            rec: None,
         }
     }
 
@@ -563,6 +572,15 @@ impl Atlas {
 
     /// Pytanie do potwierdzenia; `run` wykona się po wybraniu pierwszego przycisku.
     pub fn ask(&mut self, ask: crate::ui::dialog::Ask, run: impl FnOnce(&mut Atlas) + 'static) {
+        self.confirm = Some((ask, Box::new(move |a: &mut Atlas, i: usize| {
+            if i == 0 {
+                run(a)
+            }
+        })));
+    }
+
+    /// Pytanie z kilkoma działaniami: `run` dostaje indeks wybranego przycisku.
+    pub fn ask_choice(&mut self, ask: crate::ui::dialog::Ask, run: impl FnOnce(&mut Atlas, usize) + 'static) {
         self.confirm = Some((ask, Box::new(run)));
     }
 
@@ -571,9 +589,7 @@ impl Atlas {
         let Some((ask, _)) = &self.confirm else { return };
         if let Some(i) = crate::ui::dialog::show(ctx, "atlas", ask) {
             let (_, run) = self.confirm.take().unwrap();
-            if i == 0 {
-                run(self);
-            }
+            run(self, i);
         }
     }
 

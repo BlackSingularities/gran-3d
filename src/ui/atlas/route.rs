@@ -378,12 +378,24 @@ impl Atlas {
 
     /// Wczytanie śladu z pliku GPX, KML albo GeoJSON.
     pub fn import_track(&mut self, path: &std::path::Path) {
-        let text = match std::fs::read(path) {
-            Ok(b) => String::from_utf8_lossy(&b).trim_start_matches('\u{feff}').to_string(),
+        // plik wybrany w bibliotece do nagranych przejść (zegarek, inna aplikacja)
+        if std::mem::take(&mut self.gps.import_rec) {
+            return self.import_recording(path);
+        }
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
             Err(e) => return self.notify(tf!("Nie można odczytać pliku: {}", e)),
         };
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-        match crate::formats::parse_any(&text, &ext) {
+        // FIT (kurs albo aktywność z zegarka) – plik binarny
+        let parsed = if ext == "fit" || bytes.get(8..12) == Some(&b".FIT"[..]) {
+            let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "FIT".into());
+            crate::fit::parse(&bytes).map(|t| crate::gpx::GpxTrack { name, points: t.points, times: t.times })
+        } else {
+            let text = String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string();
+            crate::formats::parse_any(&text, &ext)
+        };
+        match parsed {
             Ok(t) => {
                 let h = &self.heights;
                 let pts: Vec<(f64, f64, f32)> = t

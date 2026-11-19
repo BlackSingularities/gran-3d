@@ -158,6 +158,7 @@ pub fn poll() {
             Some(("capture", _)) => super::push(Event::Capture),
             Some(("saved", name)) => super::push(Event::Message(tf!("Zapisano {}", name))),
             Some(("denied", _)) => super::push(Event::Message(crate::i18n::tr("Zezwól GRANI na instalowanie aplikacji (okno ustawień), a potem ponów aktualizację.").to_string())),
+            Some(("gps", v)) => super::push(Event::LocationPermission(v == "1")),
             _ => {}
         }
     }
@@ -251,4 +252,62 @@ pub fn move_to_back() {
 /// Krótki komunikat systemu.
 pub fn toast(text: &str) {
     call_args("toast", &[text]);
+}
+
+/* ── położenie: `GranLocation` (LocationManager, kompas) i usługa nagrywania ─────── */
+
+pub const LOCATION: bool = true;
+
+pub fn location_permission() -> crate::gps::Permission {
+    match call_str("gpsPermission").as_str() {
+        "granted" => crate::gps::Permission::Granted,
+        "denied" => crate::gps::Permission::Denied,
+        _ => crate::gps::Permission::Unknown,
+    }
+}
+
+/// Okno systemu z prośbą o lokalizację (i powiadomienia – pasek nagrywania); wynik przyjdzie jako
+/// [`Event::LocationPermission`].
+pub fn location_request_permission() {
+    call_args("gpsRequestPermission", &[]);
+}
+
+/// Odczyty położenia; z dziennikiem – nagrywanie w usłudze pierwszoplanowej (działa przy
+/// wyłączonym ekranie i w tle, z powiadomieniem).
+pub fn location_start(journal: Option<&Path>) {
+    let j = journal.map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let r = call_args("gpsStart", &[&j, crate::i18n::tr("GRAŃ nagrywa przejście")]);
+    if !r.is_empty() {
+        log::warn!("GPS: {r}");
+    }
+}
+
+pub fn location_stop() {
+    call_args("gpsStop", &[]);
+}
+
+/// Nowe odczyty i kierunek kompasu (stopnie) od ostatniego wywołania.
+pub fn location_poll() -> (Vec<crate::gps::Fix>, Option<f32>) {
+    let text = call_str("gpsPoll");
+    let mut fixes = Vec::new();
+    let mut heading = None;
+    for line in text.lines() {
+        if let Some(h) = line.strip_prefix("H\t") {
+            heading = h.trim().parse::<f32>().ok().filter(|v| v.is_finite());
+        } else if let Some(f) = crate::gps::Fix::parse(line) {
+            fixes.push(f);
+        }
+    }
+    (fixes, heading)
+}
+
+/// Ustawienia aplikacji w systemie (zgoda na lokalizację, praca w tle, oszczędzanie baterii).
+pub fn location_settings() {
+    call_args("gpsSettings", &[]);
+}
+
+/// Plik do innej aplikacji (Garmin Connect, Strava, poczta…) przez okno „Udostępnij”.
+pub fn share_file(path: &Path, name: &str) {
+    let ext = name.rsplit('.').next().unwrap_or("");
+    call_args("shareFile", &[&path.to_string_lossy(), super::mime(ext)]);
 }

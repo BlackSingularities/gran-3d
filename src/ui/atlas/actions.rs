@@ -202,6 +202,10 @@ pub enum Action {
     ZoomReset,
     CheckUpdates,
     Offline,
+    /// Twoje położenie (GPS): włącz, podążaj, kompas.
+    Locate,
+    /// Nagrywanie przejścia.
+    Record,
 }
 
 impl Action {
@@ -209,6 +213,10 @@ impl Action {
     pub fn all() -> Vec<Action> {
         let mut v: Vec<Action> = Tool::ALL.iter().map(|t| Action::Tool(*t)).collect();
         v.extend(Lens::ALL.iter().map(|l| Action::Lens(*l)));
+        // położenie i nagrywanie tylko tam, gdzie jest odbiornik GPS (telefon)
+        if crate::platform::LOCATION {
+            v.extend([Action::Locate, Action::Record]);
+        }
         v.extend([Action::Walk, Action::Flight, Action::North, Action::TopView, Action::ResetView, Action::Fullscreen, Action::NextStyle]);
         v.extend(Style::ALL.iter().map(|s| Action::Style(*s)));
         v.extend([Action::ExagUp, Action::ExagDown, Action::HourBack, Action::HourForward, Action::Now]);
@@ -302,6 +310,8 @@ impl Action {
             Action::ZoomReset => (i::TEXT_AA, tr("Domyślny rozmiar interfejsu"), Group::Interface),
             Action::CheckUpdates => (i::ARROW_CIRCLE_UP, tr("Sprawdź aktualizacje"), Group::Interface),
             Action::Offline => (i::CLOUD_SLASH, tr("Tryb offline (bez internetu)"), Group::Interface),
+            Action::Locate => (i::CROSSHAIR, tr("Moje położenie (GPS)"), Group::Tools),
+            Action::Record => (i::RECORD, tr("Nagrywanie przejścia"), Group::Tools),
         }
     }
 
@@ -384,6 +394,8 @@ impl Action {
             Action::Fullscreen => return None,
             Action::HighContrast => p.high_contrast,
             Action::Offline => p.offline_mode,
+            Action::Locate => a.gps.on,
+            Action::Record => a.rec.is_some(),
             _ => return None,
         })
     }
@@ -394,6 +406,7 @@ impl Action {
         match self {
             Action::Flight | Action::ExportGpx | Action::ExportFit | Action::ExportKml | Action::FitRoute | Action::SaveRoute => route,
             Action::TransitToStart => !a.waypoints.is_empty(),
+            Action::Locate | Action::Record => crate::platform::LOCATION,
             Action::OpenMapy => a.waypoints.len() >= 2,
             Action::Undo => a.can_undo(),
             Action::Redo => a.can_redo(),
@@ -515,6 +528,14 @@ impl Atlas {
             Action::ZoomOut => self.prefs.ui_scale = ((self.prefs.ui_scale - 0.1) * 10.0).round() / 10.0,
             Action::ZoomReset => self.prefs.ui_scale = 1.0,
             Action::CheckUpdates => self.requests.check_updates = true,
+            Action::Locate => self.toggle_locate(),
+            Action::Record => {
+                if self.rec.is_some() {
+                    self.open_record_panel();
+                } else {
+                    self.start_recording();
+                }
+            }
         }
         self.prefs.ui_scale = self.prefs.ui_scale.clamp(UI_SCALE_MIN, UI_SCALE_MAX);
     }
