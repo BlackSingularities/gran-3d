@@ -801,7 +801,7 @@ mod tests {
     }
 
     /// Szczelność (według położeń, bo ściany mają własne wierzchołki): każda krawędź należy do
-    /// dokładnie dwóch trójkątów, w przeciwnych kierunkach.
+    /// dokładnie dwóch trójkątów, w przeciwnych kierunkach (trójkąty o zerowym polu się nie liczą).
     fn watertight(m: &Mesh) -> bool {
         let mut ids: HashMap<[i64; 3], u32> = HashMap::new();
         let mut id = |p: [f32; 3]| {
@@ -812,11 +812,13 @@ mod tests {
         let vid: Vec<u32> = m.pos.iter().map(|&p| id(p)).collect();
         let mut edges: HashMap<(u32, u32), i32> = HashMap::new();
         for t in m.all() {
+            let v = [vid[t[0] as usize], vid[t[1] as usize], vid[t[2] as usize]];
+            // trójkąty o zerowym polu (punkt przecięcia w miejscu węzła na brzegu) pomijamy
+            if v[0] == v[1] || v[1] == v[2] || v[0] == v[2] {
+                continue;
+            }
             for k in 0..3 {
-                let (a, b) = (vid[t[k] as usize], vid[t[(k + 1) % 3] as usize]);
-                if a != b {
-                    *edges.entry((a, b)).or_default() += 1;
-                }
+                *edges.entry((v[k], v[(k + 1) % 3])).or_default() += 1;
             }
         }
         edges.iter().all(|(&(a, b), &n)| n == 1 && edges.get(&(b, a)) == Some(&1))
