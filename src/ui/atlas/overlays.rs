@@ -398,7 +398,7 @@ impl Atlas {
         let bar_font = FontId::proportional(11.5);
         let bar_color = theme::paper_2();
         // źródła danych przy prawej krawędzi; pozostałe napisy nie wchodzą na siebie
-        let attr_g = p.layout_no_wrap(attr_text(self.prefs.style).to_string(), bar_font.clone(), bar_color);
+        let attr_g = p.layout_no_wrap(attribution(self.prefs.style, self.cam.lon, self.cam.lat), bar_font.clone(), bar_color);
         let attr_left = bar.right() - 12.0 - attr_g.size().x;
         let info_g = p.layout_no_wrap(info.clone(), bar_font.clone(), bar_color);
         let info_right = bar.left() + 12.0 + info_g.size().x;
@@ -468,7 +468,7 @@ impl Atlas {
                 parts.push(info.clone());
             }
             parts.extend(chips.iter().cloned());
-            parts.push(attr_text(self.prefs.style).to_string());
+            parts.push(attribution(self.prefs.style, self.cam.lon, self.cam.lat));
             let g = p.layout_no_wrap(parts.join("   ·   "), bar_font.clone(), bar_color);
             let room = bar.width() - 24.0;
             let max = (g.size().x - room).max(0.0);
@@ -701,6 +701,16 @@ fn halo(ppp: f32) -> [Vec2; 8] {
         Vec2::new(d, -d),
         Vec2::new(-d, -d),
     ]
+}
+
+/// Źródła danych na pasku stanu: styl mapy i – w zasięgu włączonego LiDAR – krajowe modele terenu.
+fn attribution(style: Style, lon: f64, lat: f64) -> String {
+    let base = attr_text(style);
+    if crate::lidar::active_at(lon, lat) {
+        format!("{base} · {}", crate::i18n::tr("NMT © GUGiK · DMR 5G © ČÚZK"))
+    } else {
+        base.to_string()
+    }
 }
 
 /// Źródła danych widocznego stylu mapy (prawa strona paska stanu).

@@ -1227,3 +1227,16 @@ Dojazd i parking	Transport and parking
 Zasięg i ratunek	Signal and rescue
 Schron	Shelter
 Zakaz	Prohibition
+# Szczegółowy teren z LiDAR
+Bardziej szczegółowy teren	More detailed terrain
+Dla Polski i Czech są dostępne dokładniejsze modele terenu z lotniczego skanowania laserowego (LiDAR, GUGiK i ČÚZK): ok. 0,8 m zamiast 1,6 m na piksel – ostrzejsze żleby, progi skalne i ścieżki wcięte w stok. GRAŃ pobiera je tylko dla miejsc oglądanych z bliska i przelicza na tym urządzeniu; zajmują więcej miejsca w folderze danych. Słowacja nie udostępnia takiej usługi – tam teren zostaje bez zmian. Zmienisz to w Ustawieniach → Mapa.	More accurate terrain models from airborne laser scanning (LiDAR, GUGiK and ČÚZK) are available for Poland and Czechia: about 0.8 m instead of 1.6 m per pixel – sharper gullies, rock steps and paths cut into slopes. GRAŃ downloads them only for places you view up close and processes them on this device; they take more space in the data folder. Slovakia offers no such service – terrain there stays unchanged. You can change this in Settings → Map.
+Pobieraj szczegółowy teren	Download detailed terrain
+Nie, dziękuję	No, thanks
+Szczegółowy teren włączony – pobiera się, gdy oglądasz miejsca z bliska.	Detailed terrain enabled – it downloads when you view places up close.
+Szczegółowy teren (LiDAR)	Detailed terrain (LiDAR)
+Pobieraj szczegółowy teren dla Polski i Czech	Download detailed terrain for Poland and Czechia
+Modele z lotniczego skanowania laserowego: ok. 0,8 m zamiast 1,6 m na piksel. Pobierane tylko dla miejsc oglądanych z bliska (GUGiK – NMT, ČÚZK – DMR 5G) i przeliczane na tym urządzeniu; zajmują więcej miejsca w folderze danych i są sprzątane razem z resztą map. Słowacja nie udostępnia takiej usługi.	Models from airborne laser scanning: about 0.8 m instead of 1.6 m per pixel. Downloaded only for places viewed up close (GUGiK – NMT, ČÚZK – DMR 5G) and processed on this device; they take more space in the data folder and are cleaned up together with other maps. Slovakia offers no such service.
+NMT © GUGiK · DMR 5G © ČÚZK	DTM © GUGiK · DMR 5G © ČÚZK
+usługa LiDAR: {}	LiDAR service: {}
+usługa LiDAR: kod {}	LiDAR service: code {}
+usługa LiDAR: rozmiar {}×{}	LiDAR service: size {}×{}

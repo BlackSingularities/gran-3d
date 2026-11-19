@@ -414,7 +414,7 @@ impl Tiles {
                         continue;
                     }
                     let prio = PREFETCH_PRIO + d as f32 / 1000.0;
-                    let own = ancestor_at(t, t.z.min(download::TERRAIN_MAX_Z));
+                    let own = ancestor_at(t, t.z.min(crate::lidar::dem_max_z(t)));
                     if room_dem && !self.dem.contains_key(&own) && !self.missing.contains(&Key(Kind::Dem, own)) {
                         want.push(Request { key: Key(Kind::Dem, own), prio, sticky: false });
                     }
@@ -439,7 +439,7 @@ impl Tiles {
                 continue;
             }
             // dane: najlepszy rezydentny przodek; własny kafel do wczytania
-            let dem_z = t.z.min(download::TERRAIN_MAX_Z);
+            let dem_z = t.z.min(crate::lidar::dem_max_z(t));
             let own = ancestor_at(t, dem_z);
             let prio = d as f32 / 1000.0;
             // potrzebny kafel, który już jest, nie może wypaść przy sprzątaniu pamięci – inaczej

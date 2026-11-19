@@ -225,6 +225,10 @@ fn fetch_mapterhorn(store: &Store, t: TileId) -> Result<Vec<u8>, FetchError> {
 
 /// Teren: najpierw Mapterhorn (krajowe modele LiDAR), a gdy niedostępny – AWS (do poziomu 15).
 fn fetch_terrain(store: &Store, t: TileId) -> Result<Vec<u8>, FetchError> {
+    // szczegółowy teren z LiDAR (Polska, Czechy) – tylko po zgodzie użytkownika
+    if t.z == crate::lidar::LIDAR_Z {
+        return crate::lidar::fetch(store, t);
+    }
     if (1..=TERRAIN_MAX_Z).contains(&t.z) {
         match fetch_mapterhorn(store, t) {
             Ok(b) => return Ok(b),
