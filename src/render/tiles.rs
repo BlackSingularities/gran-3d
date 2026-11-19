@@ -94,6 +94,8 @@ struct Queue {
     inflight: HashSet<Key>,
     /// Wątki zajęte wolnymi usługami krajowymi.
     slow: usize,
+    /// W tym wątki pobierające teren LiDAR.
+    lidar: usize,
 }
 
 /// Kafel do narysowania w tej klatce.
@@ -414,7 +416,8 @@ impl Tiles {
                         continue;
                     }
                     let prio = PREFETCH_PRIO + d as f32 / 1000.0;
-                    let own = ancestor_at(t, t.z.min(crate::lidar::dem_max_z(t)));
+                    // z wyprzedzeniem tylko zwykły teren – LiDAR z wolnych usług krajowych dopiero w kadrze
+                    let own = ancestor_at(t, t.z.min(crate::download::TERRAIN_MAX_Z));
                     if room_dem && !self.dem.contains_key(&own) && !self.missing.contains(&Key(Kind::Dem, own)) {
                         want.push(Request { key: Key(Kind::Dem, own), prio, sticky: false });
                     }
@@ -446,6 +449,17 @@ impl Tiles {
             // zostaje usunięty, zamówiony ponownie i tak w kółko (licznik pobierania nie spada)
             if let Some(g) = self.dem.get_mut(&own) {
                 g.used = self.frame;
+            }
+            // LiDAR to nakładka na zwykły teren: kafel z16 (Mapterhorn) jest zawsze zamawiany i trzymany
+            // jako podkład, zanim przyjdzie szczegółowy z17 i tam, gdzie go nie ma – bez tego obraz
+            // spadał do z15, dopóki wolne usługi krajowe nie odpowiedziały
+            let base = ancestor_at(t, t.z.min(crate::download::TERRAIN_MAX_Z));
+            if base != own {
+                if let Some(g) = self.dem.get_mut(&base) {
+                    g.used = self.frame;
+                } else if !self.missing.contains(&Key(Kind::Dem, base)) {
+                    want.push(Request { key: Key(Kind::Dem, base), prio: prio - 1000.0 + base.z as f32, sticky: false });
+                }
             }
             if !self.dem.contains_key(&own) && !self.missing.contains(&Key(Kind::Dem, own)) {
                 want.push(Request { key: Key(Kind::Dem, own), prio, sticky: false });
@@ -631,27 +645,38 @@ fn ancestor_at(t: TileId, z: u8) -> TileId {
 }
 
 fn worker(q: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Loaded>, heights: Heights, ctx: eframe::egui::Context) {
+    let store = heights.store();
+    // kafel LiDAR do pobrania z usługi krajowej (zapisany już na dysku wczytuje się od razu)
+    let lidar_net = |k: Key| k.0 == Kind::Dem && k.1.z > download::TERRAIN_MAX_Z && !store.has(Layer::Dem, k.1);
     loop {
-        let req = {
+        let (req, slow, lidar) = {
             let (m, cv) = &*q;
             let mut g = m.lock().unwrap();
             loop {
                 // najważniejsze: najmniejszy priorytet (ortofoto tylko, gdy są na nie wolne wątki)
                 let slow_free = g.slow < SLOW_WORKERS.min(crate::limits::workers() / 2).max(1);
+                // LiDAR: najwyżej tyle wątków, ile zapytań naraz puszcza `lidar` – reszta czekałaby tam
+                // bezczynnie, a zwykły teren i zdjęcia stałyby w kolejce
+                let lidar_free = slow_free && g.lidar < crate::lidar::PARALLEL;
                 let best = g
                     .list
                     .iter()
                     .enumerate()
-                    .filter(|(_, r)| slow_free || r.key.0 != Kind::Ortho)
+                    .filter(|(_, r)| match r.key.0 {
+                        Kind::Ortho => slow_free,
+                        Kind::Dem if !lidar_free => !lidar_net(r.key),
+                        _ => true,
+                    })
                     .min_by(|a, b| a.1.prio.total_cmp(&b.1.prio))
                     .map(|(i, _)| i);
                 if let Some(i) = best {
                     let r = g.list.swap_remove(i);
                     if g.inflight.insert(r.key) {
-                        if r.key.0 == Kind::Ortho {
-                            g.slow += 1;
-                        }
-                        break r;
+                        let lidar = lidar_net(r.key);
+                        let slow = lidar || r.key.0 == Kind::Ortho;
+                        g.slow += slow as usize;
+                        g.lidar += lidar as usize;
+                        break (r, slow, lidar);
                     }
                     continue;
                 }
@@ -663,16 +688,19 @@ fn worker(q: Arc<(Mutex<Queue>, Condvar)>, tx: Sender<Loaded>, heights: Heights,
                 Some(d) => prepare_dem(&heights, req.key.1, &d),
                 None => Payload::Missing,
             },
-            Kind::Sat => load_img(&heights.store(), req.key.1, Layer::Sat, 256),
-            Kind::Ortho => load_img(&heights.store(), req.key.1, Layer::Ortho, national::ORTHO_PX),
-            Kind::OrthoLocal => match compose_ortho(&heights.store(), req.key.1, ORTHO_LOCAL_DEPTH) {
+            Kind::Sat => load_img(&store, req.key.1, Layer::Sat, 256),
+            Kind::Ortho => load_img(&store, req.key.1, Layer::Ortho, national::ORTHO_PX),
+            Kind::OrthoLocal => match compose_ortho(&store, req.key.1, ORTHO_LOCAL_DEPTH) {
                 Some(img) => img_levels(img, national::ORTHO_PX),
                 None => Payload::Missing,
             },
         };
-        if req.key.0 == Kind::Ortho {
+        if slow {
             let (m, cv) = &*q;
-            m.lock().unwrap().slow -= 1;
+            let mut g = m.lock().unwrap();
+            g.slow -= 1;
+            g.lidar -= lidar as usize;
+            drop(g);
             cv.notify_all();
         }
         if tx.send(Loaded { key: req.key, payload }).is_err() {

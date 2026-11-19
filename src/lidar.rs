@@ -31,7 +31,7 @@ const BLOCK: usize = 512;
 /// Najmniejszy udział pikseli z danymi, żeby blok uznać za pokryty LiDAR-em.
 const MIN_VALID: f64 = 0.02;
 /// Równoległe zapytania do usług krajowych.
-const PARALLEL: usize = 2;
+pub const PARALLEL: usize = 2;
 
 /// Prostokąty krajów (zachód, południe, wschód, północ) – zgrubny zasięg; piksele spoza kraju
 /// usługa i tak zwraca jako brak danych.

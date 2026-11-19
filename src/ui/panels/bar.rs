@@ -138,9 +138,23 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
             let narrow = free < right_wide + 4.0;
             ctx.data_mut(|d| d.insert_temp(egui::Id::new("pasek-waski"), narrow));
             let mut tw = tools_w;
-            row(ui, inner, egui::Layout::left_to_right(egui::Align::Center), &mut |ui| {
-                tools(a, ui);
-                tw = ui.min_rect().width();
+            // narzędzia nigdy nie wchodzą pod przyciski z prawej: gdy i ikony się nie mieszczą (rozłożony
+            // telefon składany, wąski tablet), rząd kończy się przed nimi i przewija się palcem
+            let right_used = right_w + if search_inline { 0.0 } else { 50.0 };
+            let avail = if right_w > 0.0 { (inner.width() - right_used - 12.0).clamp(46.0, inner.width()) } else { inner.width() };
+            let tools_rect = egui::Rect::from_min_size(inner.min, egui::vec2(avail, inner.height()));
+            row(ui, tools_rect, egui::Layout::left_to_right(egui::Align::Center), &mut |ui| {
+                let out = egui::ScrollArea::horizontal()
+                    .id_salt("narzedzia-gora")
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .show(ui, |ui| {
+                        ui.horizontal_centered(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            tools(a, ui);
+                        });
+                    });
+                // pełna szerokość rzędu (nie ucięta przewijaniem) – od niej zależy, co jeszcze się zwija
+                tw = out.content_size.x;
             });
             if a.search.is_none() && search_inline {
                 // wyszukiwarka na środku wolnego miejsca między rzędami
