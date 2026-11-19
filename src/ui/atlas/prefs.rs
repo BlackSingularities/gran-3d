@@ -134,6 +134,8 @@ pub struct Prefs {
     pub label_density: f32,
     /// Wielkość napisów nazw na mapie (1 – zwykła).
     pub label_scale: f32,
+    /// Szczegółowy teren z LiDAR (Polska, Czechy): `None` – jeszcze nie pytano, potem wybór użytkownika.
+    pub lidar: Option<bool>,
     pub din: bool,
     pub pace: f64,
     pub band_tol: f32,
@@ -312,6 +314,7 @@ impl Default for Prefs {
             max_img: mi,
             label_density: 1.0,
             label_scale: 1.0,
+            lidar: None,
             din: false,
             pace: 1.0,
             band_tol: 20.0,

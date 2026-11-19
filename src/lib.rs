@@ -22,6 +22,7 @@ mod heights;
 mod hours;
 mod landcover;
 mod library;
+mod lidar;
 mod limits;
 mod metrics;
 mod mvt;

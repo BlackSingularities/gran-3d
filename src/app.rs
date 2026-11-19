@@ -939,6 +939,7 @@ impl eframe::App for App {
             ctx.set_zoom_factor(scale);
         }
         theme::set_high_contrast(ctx, self.atlas.prefs.high_contrast);
+        crate::lidar::set_enabled(self.atlas.prefs.lidar == Some(true));
         // telefon: arkusz szczegółów od dołu zamiast panelu bocznego
         self.atlas.compact = theme::compact(ctx);
         // paski systemu są już odjęte od obszaru egui (`raw_input_hook`)
@@ -971,6 +972,7 @@ impl eframe::App for App {
         self.moving_overlay(ctx);
         self.feedback.show(ctx);
         self.tour_ui(ctx);
+        self.offer_lidar();
         self.atlas.confirm_ui(ctx);
         crate::ui::panels::community_windows(&mut self.atlas, ctx);
         self.ask_ui(ctx);
@@ -1028,6 +1030,29 @@ impl App {
     }
 
     /// Okno pytania programu i działanie po odpowiedzi.
+    /// Pytanie o szczegółowy teren z LiDAR: raz, przy pierwszym oglądaniu Polski albo Czech z bliska
+    /// (po przewodniku, gdy nie ma innych okien). Odpowiedź zostaje w ustawieniach mapy.
+    fn offer_lidar(&mut self) {
+        let a = &self.atlas;
+        if a.prefs.lidar.is_some() || self.tour.is_some() || self.capture.is_some() || self.ask.is_some() || a.confirm.is_some() || self.settings_open.is_some() {
+            return;
+        }
+        if !crate::lidar::covers(a.cam.lon, a.cam.lat) || a.cam.distance > 60_000.0 {
+            return;
+        }
+        // pytanie zadane – „nie” zostaje zapamiętane także po zamknięciu okna albo programu
+        self.atlas.prefs.lidar = Some(false);
+        let ask = crate::ui::dialog::Ask::new(
+            crate::i18n::tr("Bardziej szczegółowy teren"),
+            crate::i18n::tr("Dla Polski i Czech są dostępne dokładniejsze modele terenu z lotniczego skanowania laserowego (LiDAR, GUGiK i ČÚZK): ok. 0,8 m zamiast 1,6 m na piksel – ostrzejsze żleby, progi skalne i ścieżki wcięte w stok. GRAŃ pobiera je tylko dla miejsc oglądanych z bliska i przelicza na tym urządzeniu; zajmują więcej miejsca w folderze danych. Słowacja nie udostępnia takiej usługi – tam teren zostaje bez zmian. Zmienisz to w Ustawieniach → Mapa."),
+            &["Pobieraj szczegółowy teren", "Nie, dziękuję"],
+        );
+        self.atlas.ask(ask, |a| {
+            a.prefs.lidar = Some(true);
+            a.notify(crate::i18n::tr("Szczegółowy teren włączony – pobiera się, gdy oglądasz miejsca z bliska."));
+        });
+    }
+
     fn ask_ui(&mut self, ctx: &egui::Context) {
         let Some((ask, _)) = &self.ask else { return };
         let Some(i) = crate::ui::dialog::show(ctx, "program", ask) else { return };

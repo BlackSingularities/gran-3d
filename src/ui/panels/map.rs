@@ -91,6 +91,13 @@ pub fn names_section(a: &mut Atlas, ui: &mut egui::Ui, cols: usize) {
 
 /// Strona „Mapa” w ustawieniach.
 pub fn map_settings(a: &mut Atlas, ui: &mut egui::Ui) {
+    ui.label(theme::kicker(crate::i18n::tr("Szczegółowy teren (LiDAR)")));
+    let mut on = a.prefs.lidar == Some(true);
+    if theme::switch(ui, &mut on, crate::i18n::tr("Pobieraj szczegółowy teren dla Polski i Czech")).changed() {
+        a.prefs.lidar = Some(on);
+    }
+    theme::para(ui, crate::i18n::tr("Modele z lotniczego skanowania laserowego: ok. 0,8 m zamiast 1,6 m na piksel. Pobierane tylko dla miejsc oglądanych z bliska (GUGiK – NMT, ČÚZK – DMR 5G) i przeliczane na tym urządzeniu; zajmują więcej miejsca w folderze danych i są sprzątane razem z resztą map. Słowacja nie udostępnia takiej usługi."));
+    ui.add_space(12.0);
     ui.label(theme::kicker(crate::i18n::tr("Zapis współrzędnych")));
     for f in crate::coords::CoordFormat::ALL {
         if theme::option_card(ui, f.name(), &f.example(), a.prefs.coord_format == f).clicked() {

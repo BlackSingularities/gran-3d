@@ -9,8 +9,8 @@ use crate::download;
 use crate::geo::{lat_to_y, lon_to_x, meters_per_pixel, BBox, TileId};
 use crate::store::{Layer, Store};
 
-/// Najwyższy poziom terenu w źródłach.
-pub const MAX_Z: u8 = 16;
+/// Najwyższy poziom terenu w źródłach (17 – szczegółowy teren z LiDAR, tylko w Polsce i Czechach).
+pub const MAX_Z: u8 = crate::lidar::LIDAR_Z;
 /// Poziom pobierany do analiz i szlaków, gdy na dysku nie ma nic dokładniejszego (~25 m).
 pub const ANALYSIS_Z: u8 = 12;
 
@@ -104,7 +104,7 @@ impl Heights {
         if let Some(d) = self.local(t) {
             return Some(d);
         }
-        if t.z > download::TERRAIN_MAX_Z {
+        if t.z > crate::lidar::dem_max_z(t) {
             return None;
         }
         if self.inner.lock().unwrap().absent.get(&t) == Some(&true) {
