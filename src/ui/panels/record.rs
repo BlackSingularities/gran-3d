@@ -183,4 +183,9 @@ pub fn record_panel(a: &mut Atlas, ui: &mut egui::Ui) {
             theme::para(ui, tr("Telefony Huawei, Xiaomi, Samsung i inne potrafią usypiać aplikacje w tle. Jeśli nagranie ma przerwy przy wyłączonym ekranie, w ustawieniach baterii ustaw GRANI „bez ograniczeń” / „zarządzaj ręcznie – działanie w tle”."));
         }
     }
+    ui.add_space(8.0);
+    theme::para(ui, tr("Położenie i nagrania zostają w tym urządzeniu – nic nie jest wysyłane na serwer."));
+    if ui.link(theme::ic(theme::icon::SHIELD_CHECK, tr("Polityka prywatności"))).clicked() {
+        a.privacy_open = true;
+    }
 }

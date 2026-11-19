@@ -167,9 +167,57 @@ pub fn run_desktop() -> eframe::Result<()> {
         renderer: eframe::Renderer::Wgpu,
         vsync: s.vsync,
         persist_window: window.is_none(),
+        wgpu_options: desktop_wgpu(),
         ..Default::default()
     };
     eframe::run_native("GRAŃ", options, creator())
+}
+
+/// Grafika na Windows: najpierw DirectX 12 (sterowniki kart Intel bywają z Vulkanem zawodne –
+/// „Parent device is lost” w trakcie pracy), Vulkan jako zapas; karta oddzielna przed zintegrowaną.
+/// Zgubiona albo nieaktualna powierzchnia (zmiana monitora, uśpienie) – odtwarzana zamiast awarii.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn desktop_wgpu() -> eframe::egui_wgpu::WgpuConfiguration {
+    use eframe::egui_wgpu::{self, SurfaceErrorAction, WgpuSetup, WgpuSetupCreateNew};
+    use eframe::wgpu;
+    let mut setup = WgpuSetupCreateNew::default();
+    setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters: &[wgpu::Adapter], surface: Option<&wgpu::Surface<'_>>| {
+        let score = |a: &wgpu::Adapter| {
+            let info = a.get_info();
+            let kind = match info.device_type {
+                wgpu::DeviceType::DiscreteGpu => 3,
+                wgpu::DeviceType::IntegratedGpu => 2,
+                wgpu::DeviceType::VirtualGpu => 1,
+                _ => 0,
+            };
+            let backend = match info.backend {
+                wgpu::Backend::Dx12 => 2,
+                wgpu::Backend::Vulkan => 1,
+                _ => 0,
+            };
+            (kind, backend)
+        };
+        let best = adapters
+            .iter()
+            .filter(|a| surface.is_none_or(|s| a.is_surface_supported(s)))
+            .max_by_key(|a| score(a))
+            .cloned()
+            .ok_or_else(|| "brak karty graficznej zgodnej z oknem".to_string())?;
+        let info = best.get_info();
+        log::info!("GPU: {} ({:?}, {})", info.name, info.backend, info.driver_info);
+        Ok(best)
+    }));
+    egui_wgpu::WgpuConfiguration {
+        wgpu_setup: WgpuSetup::CreateNew(setup),
+        on_surface_error: std::sync::Arc::new(|e| match e {
+            wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => SurfaceErrorAction::RecreateSurface,
+            e => {
+                log::warn!("powierzchnia: {e}");
+                SurfaceErrorAction::SkipFrame
+            }
+        }),
+        ..Default::default()
+    }
 }
 
 /// Android: foldery aplikacji zamiast `%APPDATA%`/`%LOCALAPPDATA%`, potem ten sam program co w Windows.

@@ -72,7 +72,7 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
           let gutter = theme::SCROLL_GUTTER;
           let (m, top) = if a.compact { (12i8, 10i8) } else { (18i8, 16i8) };
           let frame = egui::Frame::new().fill(theme::glass_fill()).inner_margin(egui::Margin { left: m, right: (m as f32 - gutter) as i8, top, bottom: top });
-          let frame = if a.compact { frame.corner_radius(egui::CornerRadius { nw: 18, ne: 18, sw: 0, se: 0 }).stroke(egui::Stroke::new(1.0, theme::glass_edge())) } else { frame };
+          let frame = if a.compact { frame.corner_radius(egui::CornerRadius { nw: 24, ne: 24, sw: 0, se: 0 }).stroke(egui::Stroke::new(1.0, theme::glass_edge())) } else { frame };
           frame.show(ui, |ui| {
             ui.set_width(sw - 2.0 * m as f32 + gutter);
             ui.set_height(height - 2.0 * top as f32);
@@ -198,13 +198,15 @@ pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
     let alpha = controls_alpha(a, ctx);
     // nad profilem trasy, gdy jest otwarty
     egui::Area::new(egui::Id::new("kamera"))
-        .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0 - right_inset(a), -16.0 - bottom_inset(a)])
+        .anchor(egui::Align2::RIGHT_BOTTOM, [if a.compact { -10.0 } else { -16.0 } - right_inset(a), -12.0 - bottom_inset(a)])
         .interactable(alpha > 0.05)
         .show(ctx, |ui| {
             ui.multiply_opacity(alpha);
-            theme::glass_float().corner_radius(egui::CornerRadius::same(11)).inner_margin(egui::Margin::same(3)).show(ui, |ui| {
+            theme::glass_float().corner_radius(egui::CornerRadius::same(if a.compact { 16 } else { 11 })).inner_margin(egui::Margin::same(3)).show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 1.0;
                 ui.vertical(|ui| {
+                    // telefon: przybliżanie palcami, bez przycisków +/− (mniej przycisków nad mapą)
+                    let touch = a.compact && crate::platform::MOBILE;
                     // Twoje położenie (telefon): włącz → mapa za Tobą → kompas → wyłącz
                     if crate::platform::LOCATION {
                         let (glyph, color, hint) = match (a.gps.on, a.gps.follow) {
@@ -223,13 +225,15 @@ pub fn nav(a: &mut Atlas, ctx: &egui::Context) {
                         to.distance = (a.cam.distance * k).clamp(a.min_dist(), 900_000.0);
                         a.start_fly(to, 0.35);
                     };
-                    if nav_button(ui, theme::icon::PLUS, crate::i18n::tr("Przybliż")).clicked() {
-                        zoom(a, 0.55);
+                    if !touch {
+                        if nav_button(ui, theme::icon::PLUS, crate::i18n::tr("Przybliż")).clicked() {
+                            zoom(a, 0.55);
+                        }
+                        if nav_button(ui, theme::icon::MINUS, crate::i18n::tr("Oddal")).clicked() {
+                            zoom(a, 1.8);
+                        }
+                        nav_divider(ui);
                     }
-                    if nav_button(ui, theme::icon::MINUS, crate::i18n::tr("Oddal")).clicked() {
-                        zoom(a, 1.8);
-                    }
-                    nav_divider(ui);
                     // ikona mówi, dokąd przełączy: z góry → ukośnie, ukośnie → z góry
                     // napis mówi, dokąd przełączy: z góry (2D) → ukośnie (3D) i odwrotnie
                     let top = a.cam.pitch > 75.0;
