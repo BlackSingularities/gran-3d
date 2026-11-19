@@ -132,7 +132,6 @@ const INK: Rgb = [28, 30, 34];
 /// Dzieli łamaną na części wewnątrz obszaru (brzeg doprecyzowany bisekcją).
 pub fn clip_line(pts: &[(f64, f64)], region: &Region) -> Vec<Vec<(f64, f64)>> {
     let mut out = Vec::new();
-    let mut cur: Vec<(f64, f64)> = Vec::new();
     let edge = |a: (f64, f64), b: (f64, f64)| {
         // a wewnątrz, b na zewnątrz
         let (mut lo, mut hi) = (0.0, 1.0);
@@ -146,26 +145,47 @@ pub fn clip_line(pts: &[(f64, f64)], region: &Region) -> Vec<Vec<(f64, f64)>> {
         }
         (a.0 + (b.0 - a.0) * lo, a.1 + (b.1 - a.1) * lo)
     };
+    // odcinek z oboma końcami poza obszarem może go przecinać (cięciwa koła, róg wielokąta):
+    // dokładamy próbki pomocnicze, które po przycięciu znikają (leżą na prostym odcinku)
+    const SAMPLES: usize = 24;
+    let is_in = |p: (f64, f64)| region.sd(p.0, p.1) <= 0.0;
+    let mut dense: Vec<((f64, f64), bool)> = Vec::with_capacity(pts.len());
     for k in 0..pts.len() {
-        let p = pts[k];
-        let inside = region.sd(p.0, p.1) <= 0.0;
-        let prev_inside = k > 0 && region.sd(pts[k - 1].0, pts[k - 1].1) <= 0.0;
+        if k > 0 && !is_in(pts[k - 1]) && !is_in(pts[k]) {
+            let (a, b) = (pts[k - 1], pts[k]);
+            let probe: Vec<(f64, f64)> = (1..SAMPLES).map(|i| {
+                let t = i as f64 / SAMPLES as f64;
+                (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+            }).collect();
+            if probe.iter().any(|&q| is_in(q)) {
+                dense.extend(probe.into_iter().map(|q| (q, true)));
+            }
+        }
+        dense.push((pts[k], false));
+    }
+    let flush = |cur: &mut Vec<((f64, f64), bool)>, out: &mut Vec<Vec<(f64, f64)>>| {
+        // końce części to punkty brzegu albo oryginalne, więc próbki pomocnicze można pominąć
+        let part: Vec<(f64, f64)> = cur.drain(..).filter(|(_, synth)| !*synth).map(|(p, _)| p).collect();
+        if part.len() >= 2 {
+            out.push(part);
+        }
+    };
+    let mut cur: Vec<((f64, f64), bool)> = Vec::new();
+    for k in 0..dense.len() {
+        let (p, synth) = dense[k];
+        let inside = is_in(p);
+        let prev_inside = k > 0 && is_in(dense[k - 1].0);
         if inside {
             if k > 0 && !prev_inside {
-                cur.push(edge(p, pts[k - 1]));
+                cur.push((edge(p, dense[k - 1].0), false));
             }
-            cur.push(p);
+            cur.push((p, synth));
         } else if prev_inside {
-            cur.push(edge(pts[k - 1], p));
-            if cur.len() >= 2 {
-                out.push(std::mem::take(&mut cur));
-            }
-            cur.clear();
+            cur.push((edge(dense[k - 1].0, p), false));
+            flush(&mut cur, &mut out);
         }
     }
-    if cur.len() >= 2 {
-        out.push(cur);
-    }
+    flush(&mut cur, &mut out);
     out
 }
 
