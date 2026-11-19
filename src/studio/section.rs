@@ -242,6 +242,8 @@ pub fn fmt_len(m: f64) -> String {
 
 /// Stopka ze źródłami danych (wymagane licencjami).
 pub fn credits_block(d: &mut Drawing, credits: &[String]) {
+    d.credits = credits.to_vec();
+    d.background = true;
     let h = d.h;
     let w = d.w;
     let lay = d.layer("zrodla", "Źródła danych");

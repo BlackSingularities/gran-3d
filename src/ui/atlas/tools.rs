@@ -411,11 +411,17 @@ impl MapTool for StudioTool {
         a.studio.move_handle(i, lon, lat);
     }
     fn panel(&self, a: &mut Atlas, ui: &mut egui::Ui) -> bool {
-        ui.label(egui::RichText::new(crate::i18n::tr("Ustawienia i zapis są w oknie Studio. Na mapie wskazujesz obszar wycinka, a na zakładce Przekrój – linię A–B.")).color(theme::paper_2()));
-        if a.studio.pick == crate::studio::Pick::Section {
-            ui.label(crate::i18n::tr("Kliknięcie na mapie: punkt linii przekroju."));
-        } else {
-            ui.label(a.studio.o.area.shape.hint());
+        ui.label(egui::RichText::new(crate::i18n::tr("Ustawienia i zapis są w oknie Studio. Obszar wycinka wskazujesz na mapie na zakładce Obszar, a linię A–B – na zakładce Przekrój.")).color(theme::paper_2()));
+        match a.studio.pick {
+            crate::studio::Pick::Section => {
+                ui.label(crate::i18n::tr("Kliknięcie na mapie: punkt linii przekroju."));
+            }
+            crate::studio::Pick::Area => {
+                ui.label(a.studio.o.area.shape.hint());
+            }
+            crate::studio::Pick::None => {
+                ui.label(crate::i18n::tr("Na tej zakładce kliknięcia mapy nie zmieniają obszaru – przejdź do zakładki Obszar, żeby go poprawić."));
+            }
         }
         true
     }
