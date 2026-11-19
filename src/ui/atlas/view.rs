@@ -220,7 +220,9 @@ impl Atlas {
                 r.set_trees(self.trees_ver, &self.trees, self.trees_near);
             }
             // paski i panele z tej i poprzedniej klatki (rysowane przed i po widoku)
-            let glass: Vec<([f32; 4], f32)> = std::mem::take(&mut self.glass)
+            let taken = std::mem::take(&mut self.glass);
+            self.ui_rects = taken.iter().filter(|(_, k)| *k > 0.01).map(|(g, _)| *g).collect();
+            let glass: Vec<([f32; 4], f32)> = taken
                 .into_iter()
                 .filter_map(|(g, k)| {
                     let i = g.intersect(rect);

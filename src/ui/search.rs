@@ -83,6 +83,111 @@ const COLOR_WORDS: [(&str, &str); 9] = [
     ("czerwon", "red"),
 ];
 
+/// Pole „wpisz miejsce” (np. punkty trasy): stan trzymany w pamięci egui pod `id`.
+#[derive(Clone, Default)]
+struct PlaceInput {
+    q: String,
+    typed: Option<Instant>,
+    asked: String,
+    /// Odpowiedź Nominatim z wątku w tle.
+    answer: std::sync::Arc<std::sync::Mutex<Option<Result<Vec<Place>, String>>>>,
+    waiting: bool,
+    places: Vec<Place>,
+}
+
+/// Wybrane miejsce: długość, szerokość, nazwa.
+pub type Picked = (f64, f64, String);
+
+/// Pole tekstowe z podpowiedziami: szczyty, schroniska i miejscowości z okolicy, współrzędne
+/// i miejsca z całej Europy (Nominatim). Wybór – dotknięcie podpowiedzi albo Enter (pierwsza).
+pub fn place_field(a: &Atlas, ui: &mut egui::Ui, id: egui::Id, hint: &str) -> Option<Picked> {
+    let mut s: PlaceInput = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    // odpowiedź Nominatim
+    if s.waiting {
+        if let Some(r) = s.answer.lock().unwrap().take() {
+            s.waiting = false;
+            s.places = r.unwrap_or_default();
+        } else {
+            ui.ctx().request_repaint_after(Duration::from_millis(150));
+        }
+    }
+    let r = ui.add(egui::TextEdit::singleline(&mut s.q).hint_text(crate::i18n::tr(hint)).desired_width(f32::INFINITY).margin(egui::Margin::symmetric(8, 6)));
+    if r.changed() {
+        s.typed = Some(Instant::now());
+        s.places.clear();
+    }
+    let q = fold(s.q.trim());
+    let coord = crate::coords::parse(s.q.trim());
+    if coord.is_none() && q.chars().count() >= 3 && s.asked != q && !s.waiting && s.typed.is_some_and(|t| t.elapsed() > Duration::from_millis(450)) {
+        s.asked = q.clone();
+        s.waiting = true;
+        let (answer, query) = (s.answer.clone(), s.q.trim().to_string());
+        std::thread::spawn(move || {
+            *answer.lock().unwrap() = Some(osm::geocode(&query));
+        });
+    } else if s.typed.is_some() && s.asked != q {
+        ui.ctx().request_repaint_after(Duration::from_millis(200));
+    }
+    // podpowiedzi: współrzędne, punkty z okolicy (najpierw zaczynające się od wpisanego tekstu), miejsca
+    let mut hits: Vec<(Picked, String)> = Vec::new();
+    if let Some((lon, lat)) = coord {
+        hits.push(((lon, lat, fmt::coords(lon, lat)), crate::i18n::tr("współrzędne").to_string()));
+    } else if q.chars().count() >= 2 {
+        let mut local: Vec<(bool, &crate::world::PoiView)> = a.snap.pois.iter().filter_map(|p| {
+            let f = fold(&p.poi.name);
+            f.contains(&q).then_some((f.starts_with(&q), p))
+        }).collect();
+        local.sort_by_key(|(starts, _)| !*starts);
+        for (_, p) in local.into_iter().take(6) {
+            let sub = match p.poi.kind {
+                osm::PoiKind::Place => p.poi.kind.label().to_string(),
+                k => format!("{} · {}", k.label(), fmt::ele(p.ele as f64)),
+            };
+            hits.push(((p.poi.lon, p.poi.lat, p.poi.name.clone()), sub));
+        }
+        for p in s.places.iter().take(5) {
+            if !hits.iter().any(|((lon, lat, _), _)| crate::geo::haversine(*lon, *lat, p.lon, p.lat) < 300.0) {
+                hits.push(((p.lon, p.lat, p.name.clone()), p.label.clone()));
+            }
+        }
+    }
+    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let mut picked = None;
+    if !s.q.trim().is_empty() {
+        for (k, (place, sub)) in hits.iter().enumerate() {
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), if crate::platform::MOBILE { 40.0 } else { 30.0 }), egui::Sense::click());
+            let resp = resp.on_hover_text(sub.as_str());
+            // napis podpowiedzi: nazwa i opis
+            if resp.hovered() {
+                ui.painter().rect_filled(rect, 8.0, egui::Color32::from_white_alpha(14));
+            }
+            let g = ui.painter().layout_no_wrap(format!("{}  ", place.2), egui::FontId::proportional(14.0), theme::PAPER);
+            let gw = g.size().x;
+            ui.painter().galley(egui::pos2(rect.left() + 8.0, rect.center().y - g.size().y / 2.0), g, theme::PAPER);
+            let mut job = egui::text::LayoutJob::simple_singleline(sub.clone(), egui::FontId::proportional(11.5), theme::paper_3());
+            job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - gw - 24.0).max(20.0));
+            let sg = ui.painter().layout_job(job);
+            ui.painter().galley(egui::pos2(rect.left() + 12.0 + gw, rect.center().y - sg.size().y / 2.0), sg, theme::paper_3());
+            if resp.clicked() || (enter && k == 0) {
+                picked = Some(place.clone());
+            }
+        }
+        if s.waiting {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(crate::i18n::tr("szukam w całej Europie…")).small().color(theme::paper_3()));
+            });
+        } else if hits.is_empty() && q.chars().count() >= 3 && s.asked == q {
+            ui.label(RichText::new(crate::i18n::tr("Nic nie znaleziono – spróbuj innej nazwy albo wpisz współrzędne.")).small().color(theme::paper_3()));
+        }
+    }
+    if picked.is_some() {
+        s = PlaceInput::default();
+    }
+    ui.data_mut(|d| d.insert_temp(id, s));
+    picked
+}
+
 pub fn show(a: &mut Atlas, ctx: &egui::Context) {
     let Some(mut s) = a.search.take() else { return };
     let mut open = true;

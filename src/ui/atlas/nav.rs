@@ -116,7 +116,7 @@ impl Atlas {
             return;
         }
         self.fly = None;
-        self.flight = Some(Flight { dist: 0.0, paused: false, last: Instant::now(), heading: self.cam.heading, pitch: self.cam.pitch });
+        self.flight = Some(Flight { dist: 0.0, paused: false, last: Instant::now(), heading: self.cam.heading, pitch: self.cam.pitch, shift: Vec2::ZERO });
     }
 
     pub(super) fn animate_flight(&mut self, ctx: &egui::Context) {
@@ -177,7 +177,51 @@ impl Atlas {
         self.cam.pitch = fl.pitch;
         self.cam.distance = FLIGHT_DIST;
         self.profile_cursor = Some(fl.dist);
+        self.flight_on_visible(ctx, dt);
         ctx.request_repaint();
+    }
+
+    /// Punkt trasy w przelocie na środku widocznej części mapy (bez panelu bocznego, górnego paska,
+    /// profilu i paska stanu), a nie na środku całego ekranu: cały widok przesuwa się równolegle tak,
+    /// żeby punkt trafił w środek wolnego obszaru.
+    fn flight_on_visible(&mut self, ctx: &egui::Context, dt: f32) {
+        let Some(size) = self.last_view.map(|v| v.size) else { return };
+        let vis = self.visible_map(ctx, Rect::from_min_size(Pos2::ZERO, Vec2::new(size[0], size[1])));
+        let want = vis.center() - Pos2::new(size[0] * 0.5, size[1] * 0.5);
+        let Some(fl) = &mut self.flight else { return };
+        // kontrolki chowają się i wracają: środek przesuwa się płynnie, bez skoku obrazu
+        fl.shift += (want - fl.shift) * (dt * 3.0).min(1.0);
+        let shift = fl.shift;
+        if shift.length() < 0.5 {
+            return;
+        }
+        let view = self.cam.view(self.frame, self.prefs.exag, size, self.cam.height);
+        let c = Pos2::new(size[0] * 0.5, size[1] * 0.5) + shift;
+        let dir = view.ray([c.x, c.y]);
+        if dir.y > -1e-3 {
+            return;
+        }
+        // punkt widoczny w środku wolnego obszaru na wysokości punktu trasy; przesunięcie celu o
+        // różnicę przenosi punkt trasy dokładnie tam
+        let p = view.eye + dir * ((view.target.y - view.eye.y) / dir.y);
+        let to = view.target + (view.target - p);
+        let (lon, lat) = self.frame.to_lonlat(to.x, to.z);
+        self.cam.lon = (lon + 540.0).rem_euclid(360.0) - 180.0;
+        self.cam.lat = lat.clamp(-84.0, 84.0);
+    }
+
+    /// Część mapy niezasłonięta interfejsem (w układzie `rect`): bez panelu bocznego, górnego paska,
+    /// profilu, paska narzędzi i paska stanu.
+    pub(super) fn visible_map(&self, ctx: &egui::Context, rect: Rect) -> Rect {
+        let shown = crate::ui::panels::controls_alpha(self, ctx) > 0.05;
+        let side = if shown { crate::ui::panels::right_inset(self) } else { 0.0 };
+        let top = self.safe_top + if shown { crate::ui::panels::TOP_BAR_H } else { 0.0 };
+        // profil i pasek stanu nie chowają się razem z kontrolkami
+        let bottom = crate::ui::panels::bottom_inset(self);
+        Rect::from_min_max(
+            Pos2::new(rect.left(), (rect.top() + top).min(rect.bottom())),
+            Pos2::new((rect.right() - side).max(rect.left()), (rect.bottom() - bottom).max(rect.top())),
+        )
     }
 
     /// Pełny ekran (F11).

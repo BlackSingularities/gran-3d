@@ -270,6 +270,69 @@ fn waypoint_list(a: &mut Atlas, ui: &mut egui::Ui) {
     }
 }
 
+/// Punkty trasy wpisywane z klawiatury: start (A) i cel (B), potem kolejne punkty (przez albo nowy cel).
+fn typed_points(a: &mut Atlas, ui: &mut egui::Ui) {
+    use crate::i18n::tr;
+    let n = a.waypoints.len();
+    let mut add: Option<(crate::ui::search::Picked, Option<usize>)> = None;
+    ui.add_space(4.0);
+    if n == 0 {
+        field_row(ui, "A", Color32::from_rgb(90, 200, 110), |ui| {
+            if let Some(p) = crate::ui::search::place_field(a, ui, egui::Id::new("trasa-wpis-a"), "Start – szczyt, schronisko, miejscowość…") {
+                add = Some((p, None));
+            }
+        });
+    }
+    if n <= 1 {
+        field_row(ui, "B", theme::SIGNAL, |ui| {
+            if let Some(p) = crate::ui::search::place_field(a, ui, egui::Id::new("trasa-wpis-b"), "Cel – szczyt, schronisko, miejscowość…") {
+                add = Some((p, None));
+            }
+        });
+    } else {
+        // kolejny punkt: domyślnie przez (przed celem), przełącznik – jako nowy cel
+        let key = egui::Id::new("trasa-wpis-cel");
+        let mut as_end: bool = ui.data(|d| d.get_temp(key)).unwrap_or(false);
+        field_row(ui, &tf!("{}", n), theme::BRASS, |ui| {
+            let hint = if as_end { "Nowy cel – szczyt, schronisko…" } else { "Przez – szczyt, schronisko, przełęcz…" };
+            if let Some(p) = crate::ui::search::place_field(a, ui, egui::Id::new("trasa-wpis-c"), hint) {
+                add = Some((p, if as_end { None } else { Some(n - 1) }));
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.add_space(34.0);
+            ui.selectable_value(&mut as_end, false, RichText::new(tr("jako punkt pośredni")).small());
+            ui.selectable_value(&mut as_end, true, RichText::new(tr("jako nowy cel")).small());
+        });
+        ui.data_mut(|d| d.insert_temp(key, as_end));
+    }
+    if let Some(((lon, lat, name), at)) = add {
+        let at_idx = at.unwrap_or(a.waypoints.len());
+        a.add_waypoint(lon, lat, at);
+        // nazwa z podpowiedzi zamiast najbliższego punktu z mapy
+        if let Some(w) = a.waypoints.get_mut(at_idx) {
+            w.name = Some(name);
+        }
+        if a.tool != Tool::Route {
+            a.tool = Tool::Route;
+        }
+        if a.waypoints.len() == 1 {
+            a.fly_to(lon, lat, Some(a.cam.distance.clamp(3000.0, 15_000.0)));
+        }
+    }
+}
+
+/// Wiersz pola punktu: znacznik (A, B, numer) i pole z podpowiedziami.
+fn field_row(ui: &mut egui::Ui, tag: &str, fill: Color32, body: impl FnOnce(&mut egui::Ui)) {
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let (badge, _) = ui.allocate_exact_size(egui::vec2(26.0, 30.0), egui::Sense::hover());
+        ui.painter().circle_filled(badge.center(), 11.0, fill);
+        ui.painter().text(badge.center(), egui::Align2::CENTER_CENTER, tag, egui::FontId::proportional(12.0), Color32::from_rgb(20, 16, 8));
+        ui.vertical(|ui| body(ui));
+    });
+}
+
 /// Działania na trasie jako kafelki: widok, profil, przelot, zapis, eksport i udostępnianie.
 fn route_actions(a: &mut Atlas, ui: &mut egui::Ui) {
     use crate::i18n::tr;
@@ -412,10 +475,11 @@ pub fn route_info(a: &mut Atlas, ui: &mut egui::Ui) {
         _ => {}
     }
     if a.waypoints.is_empty() {
-        theme::para(ui, tr("Klikaj na mapie, żeby dodać punkty trasy (start, przez, cel). Punkty można przeciągać; prawy przycisk daje więcej opcji."));
+        theme::para(ui, tr("Wpisz start i cel albo klikaj na mapie, żeby dodać punkty trasy (start, przez, cel). Punkty można przeciągać; prawy przycisk daje więcej opcji."));
     } else {
         waypoint_list(a, ui);
     }
+    typed_points(a, ui);
     closures_warning(ui, &a.route_closures());
 
     // warianty
