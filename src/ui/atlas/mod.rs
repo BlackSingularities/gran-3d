@@ -359,6 +359,8 @@ pub struct Atlas {
     /// Obszary offline i szkic nowego obszaru.
     pub offline: crate::offline::Offline,
     pub area_draft: Option<AreaDraft>,
+    /// Studio (konta z dostępem, komputer): obszar, ustawienia, przygotowane dane i eksporty.
+    pub studio: crate::studio::Studio,
     /// Pytanie czekające na odpowiedź (usuwanie z biblioteki itp.).
     pub confirm: Option<Confirm>,
     /// Dotyk: trwa gest dwoma palcami (do podniesienia wszystkich palców przesuwanie jednym jest wstrzymane).
@@ -523,6 +525,7 @@ impl Atlas {
             point_hits: Vec::new(),
             offline: crate::offline::Offline::new(heights_store),
             area_draft: None,
+            studio: crate::studio::Studio::load(),
             confirm: None,
             pinch: false,
             touch_last: None,

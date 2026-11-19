@@ -185,6 +185,11 @@ pub fn pick_photo() {
     call_args("pickPhoto", &[]);
 }
 
+/// Studio (zapis kilku plików w wybranym miejscu) działa tylko na komputerze.
+pub fn save_target(_title: &str, _stem: &str, _formats: &[(&str, &str)]) -> Option<PathBuf> {
+    None
+}
+
 /// Zapis przez okno systemu „Zapisz jako” w pierwszym formacie z listy. Wynik przyjdzie jako komunikat.
 pub fn save_file(_title: &str, stem: &str, formats: &[(&str, &str)], bytes: impl FnOnce(&str) -> Vec<u8>) -> Option<Result<String, String>> {
     let ext = formats.first().map(|f| f.0).unwrap_or("bin");

@@ -356,6 +356,10 @@ pub(super) fn tools(a: &mut Atlas, ui: &mut egui::Ui) {
             a.run(Action::Tool(t), &ctx);
         }
     }
+    // Studio – tylko konta z dostępem, tylko komputer
+    if crate::studio::allowed(a.points.account()) && theme::icon_button(ui, Tool::Studio.behavior().icon(), a.tool == Tool::Studio).on_hover_text(Tool::Studio.behavior().hint()).clicked() {
+        a.run(Action::Tool(Tool::Studio), &ctx);
+    }
     ui.separator();
     for l in Lens::ALL {
         if theme::icon_button(ui, l.icon(), a.lens == l).on_hover_text(hint(Action::Lens(l))).clicked() {
@@ -405,7 +409,7 @@ fn compact_tools(a: &mut Atlas, ui: &mut egui::Ui) {
             Tool::Measure => "Pomiar",
             Tool::Point => "Punkty",
             Tool::Area => "Offline",
-            Tool::Explore => "",
+            Tool::Explore | Tool::Studio => "",
         };
         if theme::tool_tile(ui, t.behavior().icon(), label, a.tool == t, W).clicked() {
             a.run(Action::Tool(t), &ctx);

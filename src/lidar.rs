@@ -27,7 +27,7 @@ use crate::store::{Layer, Store};
 /// Poziom kafli terenu 256 px z LiDAR (zwykły teren kończy się na 16).
 pub const LIDAR_Z: u8 = 17;
 /// Bok pobieranego bloku (kafel z16 w tej rozdzielczości = 4 kafle [`LIDAR_Z`]).
-const BLOCK: usize = 512;
+pub(crate) const BLOCK: usize = 512;
 /// Najmniejszy udział pikseli z danymi, żeby blok uznać za pokryty LiDAR-em.
 const MIN_VALID: f64 = 0.02;
 /// Równoległe zapytania do usług krajowych.
@@ -35,8 +35,8 @@ pub const PARALLEL: usize = 2;
 
 /// Prostokąty krajów (zachód, południe, wschód, północ) – zgrubny zasięg; piksele spoza kraju
 /// usługa i tak zwraca jako brak danych.
-const POLAND: [f64; 4] = [14.07, 49.0, 24.16, 54.84];
-const CZECHIA: [f64; 4] = [12.09, 48.55, 18.86, 51.06];
+pub(crate) const POLAND: [f64; 4] = [14.07, 49.0, 24.16, 54.84];
+pub(crate) const CZECHIA: [f64; 4] = [12.09, 48.55, 18.86, 51.06];
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -87,7 +87,7 @@ fn mercator_bbox(t: TileId) -> [f64; 4] {
     [w, nn - size, w + size, nn]
 }
 
-fn gugik_url(b: [f64; 4]) -> String {
+pub(crate) fn gugik_url(b: [f64; 4]) -> String {
     let crs = "http://www.opengis.net/def/crs/EPSG/0/3857";
     format!(
         "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NMT/GRID1/WCS/DigitalTerrainModelFormatTIFF?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID=DTM_PL-KRON86-NH_TIFF&SUBSETTINGCRS={crs}&OUTPUTCRS={crs}&SUBSET=x({:.3},{:.3})&SUBSET=y({:.3},{:.3})&SCALESIZE=x({BLOCK}),y({BLOCK})&FORMAT=image/tiff",
@@ -95,7 +95,7 @@ fn gugik_url(b: [f64; 4]) -> String {
     )
 }
 
-fn cuzk_url(b: [f64; 4]) -> String {
+pub(crate) fn cuzk_url(b: [f64; 4]) -> String {
     format!(
         "https://ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g/ImageServer/exportImage?bbox={:.3},{:.3},{:.3},{:.3}&bboxSR=3857&imageSR=3857&size={BLOCK},{BLOCK}&format=tiff&pixelType=F32&interpolation=RSP_BilinearInterpolation&f=image",
         b[0], b[1], b[2], b[3]
@@ -216,7 +216,7 @@ impl Drop for Slot {
     }
 }
 
-fn download(url: &str) -> Result<Vec<u8>, FetchError> {
+pub(crate) fn download(url: &str) -> Result<Vec<u8>, FetchError> {
     use std::io::Read;
     let r = crate::download::agent().get(url).timeout(Duration::from_secs(60)).call();
     match r {

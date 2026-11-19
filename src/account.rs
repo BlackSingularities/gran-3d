@@ -39,6 +39,9 @@ struct Saved {
     photo_scope: String,
     #[serde(default)]
     merge_radius: Option<f64>,
+    /// Dostęp do Studio (nadawany na serwerze; sprawdzany przy każdym uruchomieniu przez `/me`).
+    #[serde(default)]
+    studio: bool,
 }
 
 /// Co pokazuje okno konta po ostatniej operacji.
@@ -157,6 +160,12 @@ impl Account {
         self.inner.lock().unwrap().saved.email.clone()
     }
 
+    /// Czy konto ma dostęp do Studio (wycinki 3D, przekroje, mapy wektorowe – Windows).
+    pub fn studio(&self) -> bool {
+        let s = self.inner.lock().unwrap();
+        s.saved.studio && !s.saved.token.is_empty()
+    }
+
     pub fn token(&self) -> Option<String> {
         let t = self.inner.lock().unwrap().saved.token.clone();
         (!t.is_empty()).then_some(t)
@@ -203,6 +212,7 @@ impl Account {
             return;
         }
         s.saved.token.clear();
+        s.saved.studio = false;
         s.error = Some(message.to_string());
         s.stage = Stage::Idle;
         Self::repaint(&s);
@@ -235,6 +245,7 @@ impl Account {
                         s.saved.merge_radius = v["limits"]["mergeRadius"].as_f64();
                     }
                     me.persist();
+                    me.refresh_me();
                 }
                 Err(e) => {
                     log::info!("konto: dane aplikacji niedostępne: {e}");
@@ -242,6 +253,35 @@ impl Account {
                 }
             }
         });
+    }
+
+    /// Stan konta z serwera (w tym dostęp do Studio); odrzucony token wylogowuje.
+    fn refresh_me(&self) {
+        let Some(token) = self.token() else { return };
+        let r = crate::download::agent()
+            .get(&format!("{API}/me"))
+            .timeout(Duration::from_secs(20))
+            .set("Authorization", &format!("Bearer {token}"))
+            .call();
+        match r {
+            Ok(r) => {
+                if let Ok(v) = json(r) {
+                    let mut s = self.inner.lock().unwrap();
+                    s.saved.studio = v["user"]["studio"].as_bool().unwrap_or(false);
+                    if let Some(n) = v["user"]["name"].as_str() {
+                        s.saved.name = n.to_string();
+                    }
+                    Self::repaint(&s);
+                    drop(s);
+                    self.persist();
+                }
+            }
+            Err(ureq::Error::Status(401, r)) => {
+                let msg = json(r).ok().and_then(|v| v["error"].as_str().map(String::from)).unwrap_or_else(|| crate::i18n::tr("Sesja wygasła – zaloguj się ponownie.").to_string());
+                self.expire(&msg);
+            }
+            Err(e) => log::info!("konto: stan konta niedostępny: {e}"),
+        }
     }
 
     /// Operacja w tle: `job` zwraca nowy etap albo błąd; interfejs odświeża się po odpowiedzi.
@@ -306,6 +346,7 @@ impl Account {
             s.saved.name = v["user"]["name"].as_str().unwrap_or_default().to_string();
             s.saved.user_id = v["user"]["id"].as_str().unwrap_or_default().to_string();
             s.saved.email = v["user"]["email"].as_str().map(String::from).unwrap_or(email);
+            s.saved.studio = v["user"]["studio"].as_bool().unwrap_or(false);
             Ok(Stage::LoggedIn)
         });
     }
@@ -335,6 +376,7 @@ impl Account {
             let mut s = self.inner.lock().unwrap();
             s.stage = Stage::Idle;
             s.error = None;
+            s.saved.studio = false;
             std::mem::take(&mut s.saved.token)
         };
         self.persist();

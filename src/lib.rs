@@ -39,6 +39,7 @@ mod render;
 mod roads;
 mod settings;
 mod store;
+mod studio;
 mod sun;
 mod transit;
 mod tz;

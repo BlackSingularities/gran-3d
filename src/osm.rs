@@ -352,6 +352,12 @@ pub(crate) fn overpass(query: &str, prefer: usize) -> Result<serde_json::Value, 
         log::debug!("overpass: odpowiedź z serwera GRANI");
         return Ok(v);
     }
+    overpass_public(query, prefer)
+}
+
+/// Zapytanie wprost do publicznych serwerów Overpass (bez serwera GRANI – np. jednorazowe
+/// zapytania Studio, których nie warto tam przechowywać).
+pub(crate) fn overpass_public(query: &str, prefer: usize) -> Result<serde_json::Value, String> {
     let mut last = String::new();
     let mut busy = false;
     for attempt in 0..OVERPASS.len() {

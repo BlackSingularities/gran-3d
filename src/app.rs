@@ -993,6 +993,7 @@ impl eframe::App for App {
         self.offer_lidar();
         self.atlas.confirm_ui(ctx);
         crate::ui::panels::community_windows(&mut self.atlas, ctx);
+        crate::ui::studio::window(&mut self.atlas, ctx);
         self.ask_ui(ctx);
     }
 }

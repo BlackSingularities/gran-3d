@@ -16,6 +16,8 @@ pub enum Tool {
     Point,
     /// Obszar do pobrania na potrzeby trybu offline.
     Area,
+    /// Studio – tylko dla kont z dostępem (poza [`Tool::ALL`], przycisk pokazuje pasek).
+    Studio,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,6 +110,7 @@ impl Tool {
             Tool::Measure => &Measure,
             Tool::Point => &PointTool,
             Tool::Area => &AreaTool,
+            Tool::Studio => &StudioTool,
         }
     }
 }
@@ -362,6 +365,58 @@ impl MapTool for AreaTool {
     }
     fn panel(&self, a: &mut Atlas, ui: &mut egui::Ui) -> bool {
         crate::ui::panels::area_tool_panel(a, ui);
+        true
+    }
+}
+
+/// Studio: kliknięcia wskazują obszar wycinka albo linię przekroju; reszta w oknie Studio.
+pub struct StudioTool;
+
+impl MapTool for StudioTool {
+    fn icon(&self) -> &'static str {
+        theme::icon::CUBE
+    }
+    fn title(&self) -> &'static str {
+        crate::i18n::tr("Studio")
+    }
+    fn hint(&self) -> &'static str {
+        crate::i18n::tr("Studio: wycinki 3D, przekroje i mapy wektorowe")
+    }
+    fn key(&self) -> &'static str {
+        ""
+    }
+    fn click(&self, a: &mut Atlas, lon: f64, lat: f64) {
+        a.studio.click(lon, lat);
+    }
+    fn close(&self, a: &mut Atlas) {
+        a.studio.open = false;
+        a.tool = Tool::Explore;
+    }
+    fn drop_last(&self, a: &mut Atlas) {
+        a.studio.drop_last();
+    }
+    fn grab(&self, a: &Atlas, view: &View, rect: Rect, p: Pos2) -> Option<usize> {
+        let mut hit = None;
+        for (i, &(lon, lat)) in a.studio.handles().iter().enumerate() {
+            let e = a.heights.sample_cached(lon, lat).unwrap_or(0.0);
+            if let Some(s) = view.project(a.local(lon, lat, e + 4.0)) {
+                if (Pos2::new(s[0] + rect.left(), s[1] + rect.top()) - p).length() < 12.0 {
+                    hit = Some(i);
+                }
+            }
+        }
+        hit
+    }
+    fn drag(&self, a: &mut Atlas, i: usize, (lon, lat, _): (f64, f64, f32)) {
+        a.studio.move_handle(i, lon, lat);
+    }
+    fn panel(&self, a: &mut Atlas, ui: &mut egui::Ui) -> bool {
+        ui.label(egui::RichText::new(crate::i18n::tr("Ustawienia i zapis są w oknie Studio. Na mapie wskazujesz obszar wycinka, a na zakładce Przekrój – linię A–B.")).color(theme::paper_2()));
+        if a.studio.pick == crate::studio::Pick::Section {
+            ui.label(crate::i18n::tr("Kliknięcie na mapie: punkt linii przekroju."));
+        } else {
+            ui.label(a.studio.o.area.shape.hint());
+        }
         true
     }
 }

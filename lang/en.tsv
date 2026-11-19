@@ -1391,3 +1391,188 @@ Zapisane trasy, miejsca, widoki i nagrane przejścia.	Saved routes, places, view
 Zapisuje przejście z GPS; gotowe nagranie trafia do biblioteki.	Records your hike with GPS; the finished recording goes to the library.
 Zaznaczanie	Select
 Światło i cienie o wybranej godzinie i dacie.	Light and shadows at a chosen time and date.
+Pokrycie terenu	Land cover
+Jednolity	Uniform
+Alpejska	Alpine
+Topograficzna	Topographic
+Pustynna	Desert
+Lodowa	Glacier
+Szarości	Grayscale
+Nocna	Night
+Prostokąt	Rectangle
+Koło	Circle
+Wielokąt	Polygon
+Pas wzdłuż grani	Strip along a ridge
+Kliknij na mapie dwa przeciwległe narożniki.	Click two opposite corners on the map.
+Kliknij środek, potem punkt na brzegu koła.	Click the centre, then a point on the edge of the circle.
+Klikaj kolejne wierzchołki obszaru (co najmniej trzy).	Click the vertices of the area one by one (at least three).
+Klikaj kolejne punkty wzdłuż grani; szerokość pasa ustawisz niżej.	Click points along the ridge; set the strip width below.
+Według skali	By scale
+Bez podkładu (czysty wektor)	No background (pure vector)
+Cieniowanie	Hillshade
+Kolory z wyglądu	Colours from the look settings
+Mapa obszaru	Area map
+Lasy	Forests
+Skały i piargi	Rocks and scree
+Lodowce	Glaciers
+Wody (powierzchnie)	Water (areas)
+Budynki	Buildings
+Warstwice główne	Index contours
+Warstwice	Contours
+Opisy warstwic	Contour labels
+Rzeki i potoki	Rivers and streams
+Drogi	Roads
+Drogi gruntowe	Tracks
+Ścieżki	Paths
+Koleje i wyciągi	Railways and lifts
+Szlaki turystyczne	Hiking trails
+Szczyty i obiekty	Peaks and features
+Ramka	Frame
+Tytuł i opis	Title and description
+Skala 1:{} · środek {} · warstwice co {} m · wysokości w m n.p.m.	Scale 1:{} · centre {} · contours every {} m · heights in m a.s.l.
+Podziałka	Scale bar
+Siatka geograficzna	Graticule
+warstwice co {} m	contours every {} m
+szlak turystyczny (w kolorze znakowania)	hiking trail (in its marking colour)
+ścieżka	path
+droga	road
+rzeka, potok	river, stream
+las	forest
+skały, piargi	rocks, scree
+Legenda	Legend
+Obszar	Area
+Dane	Data
+Wygląd	Look
+Model 3D	3D model
+Przekrój	Cross-section
+Za gęsta siatka dla tak dużego obszaru – zwiększ oczko siatki.	The grid is too dense for such a large area – increase the cell size.
+Obszar jest za duży (najwyżej 120 km na dłuższym boku).	The area is too large (at most 120 km on the longer side).
+Pobieranie terenu…	Downloading terrain…
+Obiekty z OpenStreetMap…	OpenStreetMap features…
+Teren gotowy. Obiekty OpenStreetMap są chwilowo niedostępne – spróbuj ponownie później.	Terrain ready. OpenStreetMap features are temporarily unavailable – try again later.
+Dane obszaru są gotowe.	The area data is ready.
+Zapisz model 3D	Save 3D model
+Budowanie modelu…	Building the model…
+Wycinek jest pusty – sprawdź obszar i próg wysokości.	The cut-out is empty – check the area and the height threshold.
+Tekstura…	Texture…
+Zapisywanie…	Saving…
+Nie udało się zapisać {}: {}	Could not save {}: {}
+Zapisano model: {} ({} × {} × {} mm, {} trójkątów).	Model saved: {} ({} × {} × {} mm, {} triangles).
+Zapisz mapę wysokości	Save heightmap
+Zapisz obraz terenu	Save terrain image
+Zapisano: {}	Saved: {}
+Rysowanie…	Drawing…
+Wskaż na mapie linię A–B przekroju wewnątrz przygotowanego obszaru.	Mark the A–B section line on the map inside the prepared area.
+{} – przekrój	{} – cross-section
+Zapisz przekrój	Save cross-section
+Płaszczyzna nie przecina terenu w tym obszarze – zmień wysokość albo kąt.	The plane does not cut the terrain in this area – change the height or the angle.
+Zapisz mapę	Save map
+Zapisz warstwice	Save contours
+Warstwice…	Contours…
+Pionowa (profil)	Vertical (profile)
+Pozioma (warstwica)	Horizontal (contour)
+Ukośna (upad)	Inclined (dip)
+szlak	trail
+Długość {} · azymut {}° ({}) · skala 1:{} · przewyższenie ×{}	Length {} · azimuth {}° ({}) · scale 1:{} · vertical exaggeration ×{}
+Płaszczyzna pozioma na wysokości {} m n.p.m. · skala 1:{}	Horizontal plane at {} m a.s.l. · scale 1:{}
+Płaszczyzna przez linię A–B na wysokości {} m, upad {}° w prawo · prawdziwy kształt · skala 1:{}	Plane through line A–B at {} m, dipping {}° to the right · true shape · scale 1:{}
+Najdokładniejszy (LiDAR w Polsce i Czechach, gdzie indziej Copernicus)	Most detailed (LiDAR in Poland and Czechia, Copernicus elsewhere)
+Copernicus GLO-30 (cały świat, ok. 30 m)	Copernicus GLO-30 (whole world, about 30 m)
+Przerwano.	Cancelled.
+Teren {}: {} z {}	Terrain {}: {} of {}
+Copernicus DEM: {}	Copernicus DEM: {}
+Obszar jest zbyt duży dla Copernicus DEM (najwyżej 16 plików 1°×1°).	The area is too large for Copernicus DEM (at most 16 files of 1°×1°).
+Copernicus DEM: plik {} z {}	Copernicus DEM: file {} of {}
+GRAŃ Studio	GRAŃ Studio
+Najpierw przygotuj dane obszaru (zakładka Dane).	Prepare the area data first (Data tab).
+Wyniki zawierają podpisy źródeł danych (GUGiK, ČÚZK, Copernicus, OpenStreetMap).	Outputs include data source credits (GUGiK, ČÚZK, Copernicus, OpenStreetMap).
+Obszar zmienił się od przygotowania danych – przygotuj je ponownie.	The area has changed since the data was prepared – prepare it again.
+KSZTAŁT WYCINKA	CUT-OUT SHAPE
+Punkty: {}	Points: {}
+Cofnij punkt	Undo point
+Kwadrat ze środka widoku	Square from the view centre
+Kwadrat wokół środka mapy, wielkością dopasowany do przybliżenia.	A square around the map centre, sized to the current zoom.
+Szerokość pasa	Strip width
+ODCIĘCIE WYSOKOŚCIĄ	HEIGHT CUT-OFF
+Tylko teren powyżej wysokości (np. sam masyw nad doliną)	Only terrain above a height (e.g. just the massif above the valley)
+ m n.p.m.	 m a.s.l.
+WIELKOŚĆ	SIZE
+{} × {} · {:.2} km²	{} × {} · {:.2} km²
+Dalej: dane terenu	Next: terrain data
+Wskaż obszar na mapie – punkty możesz potem przeciągać, Backspace usuwa ostatni.	Mark the area on the map – you can drag the points later, Backspace removes the last one.
+ŹRÓDŁO TERENU	TERRAIN SOURCE
+SZCZEGÓŁOWOŚĆ	DETAIL
+Oczko siatki dobierane samo	Automatic cell size
+Oczko {:.1} m · siatka {} × {} węzłów	Cell {:.1} m · grid {} × {} nodes
+Poza Polską i Czechami dane mają ok. 30 m – drobniejsze oczko tylko wygładza teren.	Outside Poland and Czechia the data is about 30 m – a finer cell only smooths the terrain.
+Wygładzanie	Smoothing
+OBIEKTY	FEATURES
+Lasy, wody, skały, szlaki, drogi i nazwy z OpenStreetMap	Forests, water, rocks, trails, roads and names from OpenStreetMap
+Budynki (do 150 km²)	Buildings (up to 150 km²)
+Przygotuj dane ponownie	Prepare the data again
+Przygotuj dane obszaru	Prepare area data
+Najpierw wskaż obszar (zakładka Obszar).	Mark the area first (Area tab).
+PRZYGOTOWANE DANE	PREPARED DATA
+Wysokości {:.0}–{:.0} m n.p.m. · siatka {} × {} ({:.1} m)	Heights {:.0}–{:.0} m a.s.l. · grid {} × {} ({:.1} m)
+Obiekty: {} linii, {} obszarów, {} nazw	Features: {} lines, {} areas, {} names
+KOLORY	COLOURS
+Kolor od	Colour by
+Paleta	Palette
+Kolor terenu	Terrain colour
+Kolor podstawy	Base colour
+Paleta rozciągnięta na wysokości obszaru	Palette stretched to the heights of the area
+CIENIOWANIE	SHADING
+Siła	Strength
+Azymut słońca	Sun azimuth
+Wysokość słońca	Sun altitude
+Światło z kilku kierunków	Light from several directions
+Warstwice co	Contours every
+OBIEKTY NA TEKSTURZE	FEATURES ON THE TEXTURE
+Wody	Water
+Skały	Rocks
+OBRAZ	IMAGE
+Tekstura	Texture
+Zapisz obraz terenu (PNG)	Save terrain image (PNG)
+Mapa wysokości 16-bit	16-bit heightmap
+PNG w skali szarości (16 bitów) z opisem zakresu – do Blendera, silników gier i programów GIS.	Grayscale PNG (16-bit) with a range description – for Blender, game engines and GIS software.
+BRYŁA	SOLID
+Dłuższy bok	Longer side
+Przewyższenie	Vertical exaggeration
+Podstawa	Base
+Szczegółowość (oczka)	Detail (cells)
+Około {:.0} × {:.0} × {:.0} mm · skala 1:{:.0}	About {:.0} × {:.0} × {:.0} mm · scale 1:{:.0}
+Bardzo gęsta siatka – plik będzie duży, a zapis potrwa dłużej.	Very dense mesh – the file will be large and saving will take longer.
+STL do druku 3D (szczelna bryła z podstawą), OBJ z teksturą, GLB do przeglądarek i Blendera, PLY z kolorami wierzchołków.	STL for 3D printing (watertight solid with a base), OBJ with texture, GLB for viewers and Blender, PLY with vertex colours.
+Zapisz model 3D…	Save 3D model…
+Przeciągnij, żeby obrócić; kółko myszy – przybliżenie; dwuklik – widok domyślny.	Drag to rotate; mouse wheel – zoom; double-click – default view.
+PŁASZCZYZNA	PLANE
+Kliknij na mapie punkty A i B – płaszczyzna pionowa przetnie teren wzdłuż tej linii. Wynik: profil z opisem wysokości, szlakami i nazwami.	Click points A and B on the map – a vertical plane cuts the terrain along this line. Result: a profile with heights, trails and names.
+Płaszczyzna pozioma na zadanej wysokości – wynik to dokładna linia przecięcia z terenem (warstwica) w całym obszarze.	A horizontal plane at the given height – the result is the exact intersection line with the terrain (a contour) across the whole area.
+Kliknij A i B: linia A–B leży na zadanej wysokości, a płaszczyzna opada pod kątem upadu w prawo od kierunku A→B (jak warstwa skalna).	Click A and B: line A–B lies at the given height and the plane dips at the dip angle to the right of the A→B direction (like a rock layer).
+Wskaż punkt A na mapie.	Mark point A on the map.
+Wskaż punkt B na mapie.	Mark point B on the map.
+Linia A–B gotowa (kliknięcie zaczyna nową).	Line A–B ready (a click starts a new one).
+Linia wychodzi poza przygotowany obszar.	The line goes outside the prepared area.
+Wysokość płaszczyzny	Plane height
+Kąt upadu	Dip angle
+Skala 1:	Scale 1:
+Opisy (wysokości, nazwy, szlaki)	Labels (heights, names, trails)
+Zapis jako SVG (warstwy), PDF albo DXF; profil pionowy także jako CSV.	Saved as SVG (layers), PDF or DXF; a vertical profile also as CSV.
+Zapisz przekrój…	Save cross-section…
+ARKUSZ	SHEET
+np. Masyw Śnieżnika	e.g. Śnieżnik Massif
+Papier	Paper
+Podkład	Background
+Rozdzielczość podkładu	Background resolution
+Skala zostanie dopasowana tak, żeby obszar zmieścił się na arkuszu.	The scale will be adjusted so that the area fits on the sheet.
+WARSTWY	LAYERS
+z opisem	labelled
+Siatka współrzędnych	Coordinate grid
+Legenda i podziałka	Legend and scale bar
+SVG z warstwami (Inkscape, Illustrator), PDF do druku albo DXF do programów CAD. Warstwice osobno jako GeoJSON do programów GIS.	SVG with layers (Inkscape, Illustrator), PDF for printing or DXF for CAD software. Contours separately as GeoJSON for GIS software.
+Zapisz mapę…	Save map…
+Warstwice (GeoJSON)	Contours (GeoJSON)
+Studio: wycinki 3D, przekroje i mapy wektorowe	Studio: 3D cut-outs, cross-sections and vector maps
+Ustawienia i zapis są w oknie Studio. Na mapie wskazujesz obszar wycinka, a na zakładce Przekrój – linię A–B.	Settings and saving are in the Studio window. On the map you mark the cut-out area and, on the Cross-section tab, the A–B line.
+Kliknięcie na mapie: punkt linii przekroju.	Click on the map: a point of the section line.
+Sesja wygasła – zaloguj się ponownie.	Session expired – please log in again.
