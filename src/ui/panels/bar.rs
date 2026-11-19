@@ -126,13 +126,31 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
                 }
                 return;
             }
-            row(ui, inner, egui::Layout::left_to_right(egui::Align::Center), &mut |ui| tools(a, ui));
-            if a.search.is_none() {
-                let w = (screen.width() * 0.28).clamp(220.0, 448.0);
-                let r = egui::Rect::from_center_size(inner.center(), egui::vec2(w, inner.height()));
+            // szerokie, ale nie bardzo (tablet, małe okno): narzędzia, wyszukiwarka i przyciski z prawej
+            // nie mieszczą się obok siebie i nachodziły na siebie. Szerokości rzędów z poprzedniej
+            // klatki decydują: najpierw wyszukiwarka zwija się do przycisku, potem pora, styl i warstwy
+            // przechodzą na same ikony z krótkim podpisem.
+            let (tools_w, right_w, was_narrow): (f32, f32, bool) = ctx.data(|d| d.get_temp(egui::Id::new("pasek-szerokosci"))).unwrap_or((0.0, 0.0, false));
+            // przyciski pory, stylu i warstw na szeroko zajmują razem o ok. 218 pt więcej niż ikony
+            let right_wide = if was_narrow { right_w + 218.0 } else { right_w };
+            let free = inner.width() - tools_w - 16.0;
+            let search_inline = free >= right_wide + 236.0;
+            let narrow = free < right_wide + 4.0;
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new("pasek-waski"), narrow));
+            let mut tw = tools_w;
+            row(ui, inner, egui::Layout::left_to_right(egui::Align::Center), &mut |ui| {
+                tools(a, ui);
+                tw = ui.min_rect().width();
+            });
+            if a.search.is_none() && search_inline {
+                // wyszukiwarka na środku wolnego miejsca między rzędami
+                let w = (free - right_wide - 16.0).min((screen.width() * 0.28).clamp(220.0, 448.0));
+                let cx = (inner.left() + tw + inner.right() - right_wide) / 2.0;
+                let r = egui::Rect::from_center_size(egui::pos2(cx, inner.center().y), egui::vec2(w, inner.height()));
                 row(ui, r, egui::Layout::left_to_right(egui::Align::Center), &mut |ui| search_field(a, ui));
             }
             let mut trailing = Some(trailing);
+            let mut rw = right_w;
             row(ui, inner, egui::Layout::right_to_left(egui::Align::Center), &mut |ui| {
                 if let Some(t) = trailing.take() {
                     t(a, ui);
@@ -141,7 +159,15 @@ pub fn top_bar(a: &mut Atlas, ctx: &egui::Context, trailing: impl FnOnce(&mut At
                 layers_button(a, ui);
                 style_button(a, ui);
                 sun_button(a, ui);
+                if !search_inline && theme::tool_tile(ui, theme::icon::MAGNIFYING_GLASS, crate::i18n::tr("Szukaj"), a.search.is_some(), 46.0).on_hover_text(crate::i18n::tr("Szukaj na mapie")).clicked() {
+                    a.search = Some(Default::default());
+                }
+                rw = ui.min_rect().width() - if search_inline { 0.0 } else { 50.0 };
             });
+            if (tw - tools_w).abs() > 0.5 || (rw - right_w).abs() > 0.5 || narrow != was_narrow {
+                ctx.data_mut(|d| d.insert_temp(egui::Id::new("pasek-szerokosci"), (tw, rw, narrow)));
+                ctx.request_repaint();
+            }
         });
 }
 
@@ -179,9 +205,16 @@ pub fn sheet_covers(a: &Atlas) -> bool {
 
 /// Treść menu paska; na telefonie z nagłówkiem, przyciskiem zamknięcia i przewijaniem, żeby
 /// zawsze dało się z niego wyjść i nic nie wystawało poza ekran.
+/// Przyciski pory, stylu i warstw jako same ikony: telefon albo za wąski pasek (tablet).
+fn bar_narrow(ctx: &egui::Context) -> bool {
+    theme::compact(ctx) || ctx.data(|d| d.get_temp::<bool>(egui::Id::new("pasek-waski"))).unwrap_or(false)
+}
+
 fn menu_body(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
     if !theme::compact(ui.ctx()) {
-        body(ui);
+        // szeroki ekran: menu przewija się, gdy jest wyższe niż miejsce pod paskiem (tablet w poziomie)
+        let max_h = (ui.ctx().screen_rect().bottom() - ui.cursor().top() - STATUS_H - 24.0).max(160.0);
+        egui::ScrollArea::vertical().id_salt("menu-paska").max_height(max_h).show(ui, body);
         return;
     }
     ui.horizontal(|ui| {
@@ -196,8 +229,9 @@ fn menu_body(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
         });
     });
     ui.add_space(4.0);
+    // telefon: menu na całą wysokość nad dolnym paskiem, z przewijaniem
     let max_h = (ui.ctx().screen_rect().bottom() - ui.cursor().top() - TOOLBAR_H - STATUS_H - 16.0).max(160.0);
-    egui::ScrollArea::vertical().id_salt("menu-paska").max_height(max_h).show(ui, body);
+    egui::ScrollArea::vertical().id_salt("menu-paska").max_height(max_h).min_scrolled_height(max_h).show(ui, body);
 }
 
 /// Arkusz szczegółów otwarty od dołu (wąski ekran).
@@ -390,7 +424,7 @@ pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
         theme::icon::MOON_STARS
     };
     let accent = if custom { theme::BRASS } else { theme::PAPER };
-    let narrow = a.compact;
+    let narrow = a.compact || bar_narrow(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(if narrow { 46.0 } else { 118.0 }, if narrow { 48.0 } else { 42.0 }), egui::Sense::click());
     theme::focus_ring(ui, &resp, rect, 12.0);
     let p = ui.painter();
@@ -426,7 +460,7 @@ pub(super) fn sun_button(a: &mut Atlas, ui: &mut egui::Ui) {
 /// Przycisk paska z ikoną, podpisem i podtytułem; rozwija panel z kafelkami.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bar_menu(ui: &mut egui::Ui, glyph: &str, glyph_color: Color32, title: &str, sub: &str, w: f32, hint: &str, width: f32, body: impl FnOnce(&mut egui::Ui)) -> Option<egui::Rect> {
-    let narrow = theme::compact(ui.ctx());
+    let narrow = bar_narrow(ui.ctx());
     let w = if narrow { 50.0 } else { w };
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, if narrow { 48.0 } else { 42.0 }), egui::Sense::click());
     theme::focus_ring(ui, &resp, rect, 12.0);

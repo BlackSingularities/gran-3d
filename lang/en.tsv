@@ -911,7 +911,8 @@ tramwaj	tram
 kolej	train
 metro	metro
 prom	ferry
-Nazwy pokazują się tylko dla miejsc, które widać – te za graniami są ukryte. Przystanki, stacje, parkingi, granie, doliny i źródła doczytują się razem ze szlakami okolicy; przystanki widać z bliska (do kilku kilometrów).	Names are shown only for places you can see – those behind ridges are hidden. Stops, stations, car parks, ridges, valleys and springs load together with the area's trails; stops appear from close up (within a few kilometres).
+Nazwy pokazują się tylko dla miejsc, które widać – te za graniami są ukryte, a bliższe szczyty mają pierwszeństwo przed dalszymi. Przystanki, stacje, parkingi, granie, doliny i źródła doczytują się razem ze szlakami okolicy; przystanki widać z bliska (do kilku kilometrów).	Names are shown only for places you can see – those behind ridges are hidden, and nearer peaks take precedence over distant ones. Stops, stations, car parks, ridges, valleys and springs load together with the area's trails; stops appear from close up (within a few kilometres).
+wielkość nazw	label size
 W tej okolicy nie ma znakowanych szlaków w OpenStreetMap. Drogi, ulice, miejscowości i przystanki pokazują się niezależnie od szlaków.	There are no marked trails in OpenStreetMap in this area. Roads, streets, places and stops are shown regardless of trails.
 Szwajcarska	Swiss
 Rycina	Engraving

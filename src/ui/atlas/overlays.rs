@@ -21,6 +21,7 @@ impl Atlas {
         let at = |s: [f32; 2]| Pos2::new(s[0] + rect.left(), s[1] + rect.top());
         // etykiety punktów z rozrzedzaniem i zasłanianiem przez teren
         if self.prefs.labels {
+            let ppp = ui.ctx().pixels_per_point();
             let mut taken: Vec<Rect> = Vec::new();
             let max = (70.0 * self.prefs.label_density) as usize;
             let max_places = (28.0 * self.prefs.label_density) as usize;
@@ -64,6 +65,17 @@ impl Atlas {
                     continue;
                 }
                 lists[class(poi.poi.kind)].push(i);
+            }
+            // szczyty: najpierw bliższe i wybitniejsze – zasłaniające je dalekie wierzchołki nie wypierają
+            // nazw tego, co widać przed sobą (wcześniej wygrywała sama ważność z migawki)
+            {
+                let eye = view.eye;
+                let score = |i: usize| {
+                    let poi = &snap.pois[i];
+                    let d = self.local(poi.poi.lon, poi.poi.lat, poi.dem).distance(eye);
+                    (poi.prom as f64 + 40.0) / (1.0 + d / 2500.0)
+                };
+                lists[1].sort_by(|&x, &y| score(y).total_cmp(&score(x)));
             }
             // przeplatanie: w każdej kolejce miejscowość, dwa szczyty i po jednym punkcie innych rodzajów
             let mut order: Vec<usize> = Vec::with_capacity(lists.iter().map(Vec::len).sum());
@@ -124,7 +136,7 @@ impl Atlas {
                     _ => (poi.poi.name.clone(), theme::paper_2(), 11.0),
                 };
                 let (color, size) = if is_sel { (theme::BRASS, size + 1.5) } else { (color, size) };
-                let font = FontId::proportional(size);
+                let font = FontId::proportional(size * self.prefs.label_scale.clamp(0.5, 2.5));
                 let galley = p.layout_no_wrap(label, font, color);
                 let lr = Rect::from_min_size(sp + Vec2::new(7.0, -galley.size().y - 3.0), galley.size()).expand(2.0);
                 // w panoramie pod nazwą jest jeszcze odległość – miejsce zajmuje też ona
@@ -160,19 +172,20 @@ impl Atlas {
                     p.circle(sp, 3.5, dot, Stroke::new(1.0, Color32::from_black_alpha(200)));
                 }
                 let tp = lr.min + Vec2::splat(2.0);
-                // obwódka dla czytelności na jasnym terenie
-                for o in [Vec2::new(1.0, 1.0), Vec2::new(-1.0, 1.0), Vec2::new(1.0, -1.0), Vec2::new(-1.0, -1.0)] {
-                    p.galley_with_override_text_color(tp + o, galley.clone(), Color32::from_black_alpha(170));
+                // obwódka dla czytelności na jasnym terenie: cienka, w pikselach ekranu (na telefonie
+                // przesunięcie o cały punkt dawało podwójny, rozmyty napis)
+                for o in halo(ppp) {
+                    p.galley_with_override_text_color(tp + o, galley.clone(), Color32::from_black_alpha(150));
                 }
                 p.galley(tp, galley, color);
                 if self.panorama.is_some() {
                     let d = haversine(self.cam.lon, self.cam.lat, poi.poi.lon, poi.poi.lat);
                     // odległość tuż pod nazwą, zwykłym pismem, z ikoną strzałki
                     let txt = format!("{} {}", theme::icon::ARROWS_HORIZONTAL, fmt::dist(d));
-                    let g = p.layout_no_wrap(txt, FontId::proportional(11.0), theme::paper_2());
+                    let g = p.layout_no_wrap(txt, FontId::proportional(11.0 * self.prefs.label_scale.clamp(0.5, 2.5)), theme::paper_2());
                     let dp = lr.left_bottom() + Vec2::new(2.0, -2.0);
-                    for o in [Vec2::new(1.0, 1.0), Vec2::new(-1.0, 1.0), Vec2::new(1.0, -1.0), Vec2::new(-1.0, -1.0)] {
-                        p.galley_with_override_text_color(dp + o, g.clone(), Color32::from_black_alpha(170));
+                    for o in halo(ppp) {
+                        p.galley_with_override_text_color(dp + o, g.clone(), Color32::from_black_alpha(150));
                     }
                     p.galley(dp, g, theme::paper_2());
                 }
@@ -648,24 +661,46 @@ impl Atlas {
 
     pub(super) fn occluded_now(&self, view: &View, p: DVec3) -> bool {
         let e = view.eye;
-        // krok ~ co 70 m (najwyżej 200 próbek): cienkie granie między okiem a punktem też zasłaniają
+        // próbki gęściej przy oku (rozkład kwadratowy): bliska grań zasłania najwięcej, a przy dalekich
+        // szczytach równy krok co kilkaset metrów przeskakiwał wąskie granie tuż przed okiem
         let len = (p.x - e.x).hypot(p.z - e.z);
-        let n = ((len / 70.0) as usize).clamp(16, 200);
+        let n = ((len / 40.0) as usize).clamp(24, 420);
         for k in 1..n {
-            let f = k as f64 / n as f64;
+            let t = k as f64 / n as f64;
+            let f = t * t;
+            // ostatnie metry przy samym punkcie to jego własne zbocze
+            if (1.0 - f) * len < 60.0 {
+                break;
+            }
             let q = e + (p - e) * f;
             let (lon, lat) = self.frame.to_lonlat(q.x, q.z);
             let h = self.heights.sample_at(lon, lat, 12, false).or_else(|| self.heights.sample_cached(lon, lat));
             if let Some(h) = h {
                 let hd = (q.x - e.x).hypot(q.z - e.z);
                 let drop = hd * hd / (2.0 * crate::geo::EARTH_R) * 0.87;
-                if h as f64 * self.prefs.exag - drop > q.y + 15.0 {
+                if h as f64 * self.prefs.exag - drop > q.y + 6.0 {
                     return true;
                 }
             }
         }
         false
     }
+}
+
+/// Przesunięcia obwódki napisu: osiem kierunków po ok. 1,2 px ekranu (niezależnie od gęstości ekranu).
+fn halo(ppp: f32) -> [Vec2; 8] {
+    let o = (1.2 / ppp.max(0.5)).clamp(0.35, 1.0);
+    let d = o * 0.71;
+    [
+        Vec2::new(o, 0.0),
+        Vec2::new(-o, 0.0),
+        Vec2::new(0.0, o),
+        Vec2::new(0.0, -o),
+        Vec2::new(d, d),
+        Vec2::new(-d, d),
+        Vec2::new(d, -d),
+        Vec2::new(-d, -d),
+    ]
 }
 
 /// Źródła danych widocznego stylu mapy (prawa strona paska stanu).

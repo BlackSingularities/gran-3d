@@ -85,7 +85,8 @@ pub fn names_section(a: &mut Atlas, ui: &mut egui::Ui, cols: usize) {
     });
     theme::switch(ui, &mut p.names.elevation, "Wysokość przy szczytach i przełęczach");
     ui.add(egui::Slider::new(&mut p.label_density, 0.3..=2.0).text(crate::i18n::tr("gęstość nazw")));
-    theme::para(ui, "Nazwy pokazują się tylko dla miejsc, które widać – te za graniami są ukryte. Przystanki, stacje, parkingi, granie, doliny i źródła doczytują się razem ze szlakami okolicy; przystanki widać z bliska (do kilku kilometrów).");
+    ui.add(egui::Slider::new(&mut p.label_scale, 0.7..=1.8).step_by(0.05).text(crate::i18n::tr("wielkość nazw")));
+    theme::para(ui, "Nazwy pokazują się tylko dla miejsc, które widać – te za graniami są ukryte, a bliższe szczyty mają pierwszeństwo przed dalszymi. Przystanki, stacje, parkingi, granie, doliny i źródła doczytują się razem ze szlakami okolicy; przystanki widać z bliska (do kilku kilometrów).");
 }
 
 /// Strona „Mapa” w ustawieniach.

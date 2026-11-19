@@ -302,9 +302,20 @@ impl App {
         let atlas = &mut self.atlas;
         let compact = theme::compact(ctx);
         let margin = if compact { 12 } else { 18 };
-        let modal = egui::Modal::new(egui::Id::new("ustawienia")).frame(theme::glass().inner_margin(egui::Margin::same(margin))).show(ctx, |ui| {
-            let full_w = theme::fit(ctx, 760.0);
-            let body_h = if compact { (ctx.screen_rect().height() - 190.0).clamp(240.0, 680.0) } else { 440.0 };
+        // ustawienia na cały ekran (z ominięciem pasków systemu): więcej miejsca na opcje, bez przewijania
+        // małego okna na tablecie i telefonie
+        let screen = ctx.screen_rect();
+        let (safe_top, safe_bottom) = (atlas.safe_top, atlas.safe_bottom);
+        let modal = egui::Modal::new(egui::Id::new("ustawienia"))
+            .frame(theme::glass().corner_radius(egui::CornerRadius::same(if compact { 0 } else { 14 })).inner_margin(egui::Margin::same(margin)))
+            .show(ctx, |ui| {
+            let edge = if compact { 0.0 } else { 16.0 };
+            let full_w = (screen.width() - 2.0 * (margin as f32 + edge)).max(200.0);
+            let chrome = if compact { 136.0 } else { 150.0 };
+            let body_h = (screen.height() - safe_top - safe_bottom - 2.0 * (margin as f32 + edge) - chrome).max(240.0);
+            if compact {
+                ui.add_space(safe_top);
+            }
             ui.set_width(full_w);
             if compact {
                 // telefon: ikona ustawień zamiast tytułu, strony jako same ikony (otwarta – z nazwą), zamykanie samym X
