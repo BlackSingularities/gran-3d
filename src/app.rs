@@ -273,7 +273,13 @@ impl App {
                 }
             }
             if let Update::Available(rel) = update {
-                if ui.add(theme::primary(&tf!("Aktualizacja {}", rel.version))).clicked() {
+                // telefon: kafelek z ikoną i numerem wersji jak sąsiednie przyciski (pełny napis się nie mieścił)
+                let clicked = if atlas.compact {
+                    theme::tool_tile(ui, theme::icon::ARROW_CIRCLE_UP, &rel.version, true, 52.0).on_hover_text(tf!("Aktualizacja {}", rel.version)).clicked()
+                } else {
+                    ui.add(theme::primary(&tf!("Aktualizacja {}", rel.version))).clicked()
+                };
+                if clicked {
                     offer = Some(rel.clone());
                 }
             }
