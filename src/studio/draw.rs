@@ -426,13 +426,13 @@ pub fn svg(d: &Drawing) -> String {
     let credits = d.credits.join(" · ");
     let _ = writeln!(
         o,
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+        r##"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!-- GRAŃ Studio · redzikowski.com · jednostki: milimetry (1 jednostka = 1 mm) -->
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:cc="http://creativecommons.org/ns#" xmlns:dc="http://purl.org/dc/elements/1.1/" version="1.1" width="{w}mm" height="{h}mm" viewBox="0 0 {w} {h}">
 <title>{t}</title>
 <desc>{desc}</desc>
 <metadata><rdf:RDF><cc:Work rdf:about=""><dc:format>image/svg+xml</dc:format><dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/><dc:title>{t}</dc:title><dc:date>{date}</dc:date><dc:creator><cc:Agent><dc:title>GRAŃ Studio</dc:title></cc:Agent></dc:creator><dc:source>{cr}</dc:source><dc:rights><cc:Agent><dc:title>{cr}</dc:title></cc:Agent></dc:rights><dc:description>{desc}</dc:description></cc:Work></rdf:RDF></metadata>
-<sodipodi:namedview id="widok" pagecolor="{paper}" bordercolor="#666666" inkscape:document-units="mm"/>"#,
+<sodipodi:namedview id="widok" pagecolor="{paper}" bordercolor="#666666" inkscape:document-units="mm"/>"##,
         w = num(d.w),
         h = num(d.h),
         t = esc(&d.title),
