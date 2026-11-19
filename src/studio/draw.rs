@@ -141,7 +141,7 @@ pub fn svg(d: &Drawing) -> String {
                     };
                     let tr = if *angle != 0.0 { format!(r#" transform="rotate({:.2} {:.2} {:.2})""#, angle, x, y) } else { String::new() };
                     let weight = if *bold { r#" font-weight="bold""# } else { "" };
-                    let halo_attr = if *halo { format!(r#" stroke="#ffffff" stroke-width="{:.2}" stroke-linejoin="round" paint-order="stroke""#, size * 0.22) } else { String::new() };
+                    let halo_attr = if *halo { format!(r##" stroke="#ffffff" stroke-width="{:.2}" stroke-linejoin="round" paint-order="stroke""##, size * 0.22) } else { String::new() };
                     let _ = writeln!(o, r#"<text x="{:.2}" y="{:.2}" font-size="{:.2}" fill="{}" text-anchor="{}"{}{}{}>{}</text>"#, x, y, size, hex(*color), a, weight, halo_attr, tr, esc(text));
                 }
                 Item::Circle { x, y, r, fill, stroke } => {
