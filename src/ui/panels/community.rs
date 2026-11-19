@@ -522,6 +522,7 @@ fn photo_viewer(a: &mut Atlas, ctx: &egui::Context) {
     let screen = ctx.screen_rect();
     egui::Window::new(tf!("Zdjęcie · {}", who))
         .id(egui::Id::new("okno-zdjecia"))
+        .order(egui::Order::Tooltip)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -585,6 +586,7 @@ fn account_window(a: &mut Atlas, ctx: &egui::Context) {
     let mut privacy = false;
     egui::Window::new(title)
         .id(egui::Id::new("okno-konta"))
+        .order(egui::Order::Tooltip)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
