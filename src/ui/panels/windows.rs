@@ -170,6 +170,11 @@ pub fn help(a: &mut Atlas, ctx: &egui::Context) {
     if !a.help {
         return;
     }
+    // telefon i tablet: gesty i przyciski zamiast myszy i skrótów klawiszowych
+    if crate::platform::MOBILE {
+        help_touch(a, ctx);
+        return;
+    }
     let row = |desc: &str, keys: &str| (tr(desc).to_string(), tr(keys).to_string());
     // obsługa mapy; skróty poleceń niżej – z rejestru poleceń
     let mut cards: Vec<(&'static str, String, Vec<(String, String)>)> = vec![
@@ -294,6 +299,129 @@ pub fn help(a: &mut Atlas, ctx: &egui::Context) {
             });
         });
     if close {
+        a.help = false;
+    }
+}
+
+/// Wiersz pomocy dotykowej: ikona, nazwa i opis łamany do szerokości karty.
+fn touch_row(ui: &mut egui::Ui, glyph: &str, title: &str, desc: &str, line: bool) {
+    if line {
+        let r = ui.available_rect_before_wrap();
+        ui.painter().line_segment([r.left_top(), egui::pos2(r.right(), r.top())], egui::Stroke::new(1.0, CARD_EDGE));
+    }
+    ui.add_space(8.0);
+    let w = ui.available_width();
+    ui.horizontal_top(|ui| {
+        let (r, _) = ui.allocate_exact_size(egui::vec2(30.0, 22.0), egui::Sense::hover());
+        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(19.0), theme::BRASS);
+        ui.add_space(4.0);
+        ui.vertical(|ui| {
+            ui.set_max_width((w - 40.0).max(120.0));
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.label(RichText::new(title).size(14.5).strong());
+            ui.add(egui::Label::new(RichText::new(desc).size(13.5).color(theme::paper_2())).wrap());
+        });
+    });
+    ui.add_space(8.0);
+}
+
+/// Karta pomocy dotykowej z tytułem i wierszami (ikona, nazwa, opis).
+fn touch_card(ui: &mut egui::Ui, title: &str, rows: &[(&str, &str, &str)]) {
+    ui.label(theme::kicker(title));
+    egui::Frame::new()
+        .fill(CARD_FILL)
+        .stroke(egui::Stroke::new(1.0, CARD_EDGE))
+        .corner_radius(egui::CornerRadius::same(14))
+        .inner_margin(egui::Margin::symmetric(12, 2))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (i, (glyph, name, desc)) in rows.iter().enumerate() {
+                touch_row(ui, glyph, name, desc, i > 0);
+            }
+        });
+    ui.add_space(14.0);
+}
+
+/// Pomoc na telefonie i tablecie: gesty na mapie, narzędzia dolnego paska i przyciski górnego –
+/// bez myszy i skrótów klawiszowych. Na wąskim ekranie na cały ekran (z ominięciem pasków systemu).
+fn help_touch(a: &mut Atlas, ctx: &egui::Context) {
+    use crate::i18n::tr;
+    use theme::icon as ic;
+    let compact = a.compact;
+    let screen = ctx.screen_rect();
+    let (safe_top, safe_bottom) = (a.safe_top, a.safe_bottom);
+    let margin: i8 = if compact { 14 } else { 22 };
+    let edge = if compact { 0.0 } else { 24.0 };
+    let width = if compact { (screen.width() - 2.0 * margin as f32).max(200.0) } else { (screen.width() - 2.0 * (margin as f32 + edge)).clamp(320.0, 640.0) };
+    let height = (screen.height() - safe_top - safe_bottom - 2.0 * (margin as f32 + edge)).max(240.0);
+
+    let gestures = [
+        (ic::HAND_GRABBING, tr("Przesuwanie"), tr("Przeciągnij mapę jednym palcem.")),
+        (ic::ARROWS_OUT, tr("Przybliżanie"), tr("Rozsuń albo zsuń dwa palce. Dwukrotne dotknięcie przybliża do tego miejsca.")),
+        (ic::ARROWS_CLOCKWISE, tr("Obrót"), tr("Przekręć dwoma palcami.")),
+        (ic::ANGLE, tr("Nachylenie"), tr("Przesuń dwa palce razem w górę albo w dół.")),
+        (ic::HAND_TAP, tr("Zaznaczanie"), tr("Przytrzymaj palec na szczycie, szlaku albo dowolnym miejscu – szczegóły pokażą się w arkuszu na dole.")),
+    ];
+    let mut tools = vec![(ic::CURSOR, tr("Wybór"), tr("Powrót do zwykłego oglądania i zaznaczania."))];
+    if crate::platform::LOCATION {
+        tools.push((ic::RECORD, tr("Nagraj"), tr("Zapisuje przejście z GPS; gotowe nagranie trafia do biblioteki.")));
+    }
+    tools.extend([
+        (ic::COMPASS, tr("Szczegóły"), tr("Opis zaznaczonego miejsca, szlaku albo trasy.")),
+        (ic::BOOKMARKS, tr("Biblioteka"), tr("Zapisane trasy, miejsca, widoki i nagrane przejścia.")),
+        (ic::CLOUD_SUN, tr("Warunki"), tr("Pogoda i warunki w okolicy.")),
+        (ic::PATH, tr("Trasa"), tr("Przytrzymaj palec na mapie, by dodać kolejny punkt trasy. Punkty można przeciągać.")),
+        (ic::RULER, tr("Pomiar"), tr("Przytrzymaj palec w kolejnych miejscach: odległość, przekrój terenu i linia wzroku.")),
+        (ic::MAP_PIN_PLUS, tr("Punkty"), tr("Przytrzymaj palec, by dodać punkt z komentarzem i zdjęciem dla innych turystów (wymaga konta).")),
+        (ic::DOWNLOAD_SIMPLE, tr("Offline"), tr("Przytrzymaj palec w dwóch narożnikach obszaru i pobierz go do użytku bez internetu.")),
+        (ic::WAVES, tr("Soczewki"), tr("Poziom, Względna, Widok stąd i Dojście pokazują teren wokół wybranego punktu – przytrzymaj palec, by przenieść soczewkę.")),
+        (ic::PERSON_SIMPLE_WALK, tr("Spacer"), tr("Widok z poziomu ziemi ze środka mapy – przeciągaj palcem, by się rozglądać.")),
+    ]);
+    let top = [
+        (ic::MAGNIFYING_GLASS, tr("Szukaj"), tr("Szczyty, schroniska, miejscowości i adresy.")),
+        (ic::SUN, tr("Pora dnia"), tr("Światło i cienie o wybranej godzinie i dacie.")),
+        (ic::STACK, tr("Styl i warstwy"), tr("Wygląd mapy oraz szlaki, drogi, nazwy i inne warstwy.")),
+        (ic::GEAR, tr("Ustawienia"), tr("Język, mapa, grafika i miejsce na dane. Gdy mapa miga albo jest czarna, włącz tryb zgodności grafiki.")),
+    ];
+
+    let mut close = false;
+    let modal = egui::Modal::new(egui::Id::new("okno-pomocy"))
+        .frame(theme::glass().corner_radius(egui::CornerRadius::same(if compact { 0 } else { 14 })).inner_margin(egui::Margin::same(margin)))
+        .show(ctx, |ui| {
+            if compact {
+                ui.add_space(safe_top);
+            }
+            ui.set_width(width);
+            // nagłówek: logo, nazwa z wersją, zamknięcie
+            ui.horizontal(|ui| {
+                let logo = theme::logo(ctx);
+                ui.add(egui::Image::new((logo.id(), egui::vec2(44.0, 44.0))));
+                ui.add_space(4.0);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    ui.label(RichText::new("GRAŃ").size(24.0).strong());
+                    ui.label(RichText::new(crate::app_version()).size(12.0).color(theme::paper_3()));
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(egui::Button::new(RichText::new(ic::X).size(22.0)).frame(false).min_size(egui::vec2(44.0, 44.0))).clicked() {
+                        close = true;
+                    }
+                });
+            });
+            ui.add_space(6.0);
+            egui::ScrollArea::vertical().auto_shrink([false, false]).max_height(height - 70.0).show(ui, |ui| {
+                ui.set_max_width(width - theme::SCROLL_GUTTER);
+                theme::para(ui, tr("Atlas gór w 3D: teren, szlaki, trasy i warunki. Wszystkie obliczenia – trasy, widoczność, cienie – odbywają się na tym urządzeniu."));
+                ui.add_space(10.0);
+                touch_card(ui, tr("Gesty na mapie"), &gestures);
+                touch_card(ui, tr("Dolny pasek (przewijany w bok)"), &tools);
+                touch_card(ui, tr("Górny pasek"), &top);
+                theme::para(ui, tr("Przewodnik po programie możesz obejrzeć jeszcze raz w Ustawieniach (Ogólne → Pomoc)."));
+                ui.add_space(safe_bottom + 8.0);
+            });
+        });
+    if close || modal.should_close() {
         a.help = false;
     }
 }
