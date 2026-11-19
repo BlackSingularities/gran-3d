@@ -720,10 +720,7 @@ fn halo(ppp: f32) -> [Vec2; 8] {
 
 /// Kompas: pod górnym paskiem, przy prawej krawędzi (obok panelu bocznego).
 fn compass_rect(a: &Atlas, rect: Rect) -> Rect {
-    // telefon: pod pływającą kolumną stylu i warstw (prawy górny róg)
-    let below = if a.compact { crate::ui::panels::MAP_BUTTONS_H } else { 0.0 };
-    let x = if a.compact { -42.0 } else { -51.0 };
-    let c = rect.right_top() + Vec2::new(x - crate::ui::panels::right_inset(a), 51.0 + a.safe_top + crate::ui::panels::TOP_BAR_H + below);
+    let c = rect.right_top() + Vec2::new(-51.0 - crate::ui::panels::right_inset(a), 51.0 + a.safe_top + crate::ui::panels::TOP_BAR_H);
     Rect::from_center_size(c, Vec2::splat(64.0))
 }
 
