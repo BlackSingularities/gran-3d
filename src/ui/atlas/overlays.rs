@@ -8,15 +8,7 @@ impl Atlas {
         let p_full = ui.painter_at(rect);
         // część mapy niezasłonięta interfejsem: nazwy i znaczniki nie są rysowane pod panelem bocznym,
         // górnym paskiem ani pod profilem i paskiem stanu na dole
-        let shown = crate::ui::panels::controls_alpha(self, ui.ctx()) > 0.05;
-        let side = if shown { crate::ui::panels::right_inset(self) } else { 0.0 };
-        let top = self.safe_top + if shown { crate::ui::panels::TOP_BAR_H } else { 0.0 };
-        // profil i pasek stanu nie chowają się razem z kontrolkami
-        let bottom = crate::ui::panels::bottom_inset(self);
-        let visible = Rect::from_min_max(
-            Pos2::new(rect.left(), (rect.top() + top).min(rect.bottom())),
-            Pos2::new((rect.right() - side).max(rect.left()), (rect.bottom() - bottom).max(rect.top())),
-        );
+        let visible = self.visible_map(ui.ctx(), rect);
         let p = ui.painter_at(visible);
         let at = |s: [f32; 2]| Pos2::new(s[0] + rect.left(), s[1] + rect.top());
         // etykiety punktów z rozrzedzaniem i zasłanianiem przez teren

@@ -29,12 +29,24 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
             .interactable(alpha > 0.05)
             .show(ctx, |ui| {
                 ui.multiply_opacity(alpha);
-                theme::glass_float().inner_margin(egui::Margin::symmetric(4, 10)).show(ui, |ui| {
-                    if ui.small_button(theme::icon::CARET_LEFT).on_hover_text(crate::i18n::tr("Pokaż szczegóły (P)")).clicked() {
-                        a.prefs.panel_open = true;
-                        a.tab = Tab::Info;
-                    }
-                });
+                // jedna szklana pigułka jak sterowanie kamerą: cała jest przyciskiem, bez przycisku w ramce
+                let size = if crate::platform::MOBILE { egui::vec2(34.0, 64.0) } else { egui::vec2(26.0, 52.0) };
+                let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+                theme::focus_ring(ui, &resp, rect, 11.0);
+                let p = ui.painter();
+                p.rect_filled(rect, 11.0, theme::glass_fill());
+                if resp.is_pointer_button_down_on() {
+                    p.rect_filled(rect, 11.0, Color32::from_white_alpha(30));
+                } else if resp.hovered() {
+                    p.rect_filled(rect, 11.0, Color32::from_white_alpha(16));
+                }
+                p.rect_stroke(rect, 11.0, egui::Stroke::new(1.0, theme::glass_edge()), egui::StrokeKind::Inside);
+                let color = if resp.hovered() { theme::PAPER } else { theme::paper_2() };
+                p.text(rect.center(), egui::Align2::CENTER_CENTER, theme::icon::CARET_LEFT, egui::FontId::proportional(if crate::platform::MOBILE { 20.0 } else { 16.0 }), color);
+                if resp.on_hover_text(crate::i18n::tr("Pokaż szczegóły (P)")).clicked() {
+                    a.prefs.panel_open = true;
+                    a.tab = Tab::Info;
+                }
             });
         glass_float_area(a, ctx, egui::Id::new("szczegoly-uchwyt"), alpha);
         return;
@@ -104,13 +116,13 @@ pub fn sidebar(a: &mut Atlas, ctx: &egui::Context) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(gutter);
                     let close_glyph = if a.compact { theme::icon::X } else { theme::icon::CARET_RIGHT };
-                    let btn = if a.compact { ui.add(egui::Button::new(RichText::new(close_glyph).size(18.0)).min_size(egui::vec2(40.0, 36.0))) } else { ui.small_button(close_glyph) };
-                    if btn.on_hover_text(crate::i18n::tr("Ukryj panel (P)")).clicked() {
+                    // same ikony jak przy sterowaniu kamerą, bez ramek przycisków w nagłówku
+                    if nav_button(ui, close_glyph, crate::i18n::tr("Ukryj panel (P)")).clicked() {
                         a.prefs.panel_open = false;
                     }
                     if a.compact {
-                        let g = if a.sheet_full { theme::icon::CARET_DOWN } else { theme::icon::CARET_UP };
-                        if ui.add(egui::Button::new(RichText::new(g).size(18.0)).min_size(egui::vec2(40.0, 36.0))).clicked() {
+                        let (g, hint) = if a.sheet_full { (theme::icon::CARET_DOWN, crate::i18n::tr("Zwiń panel")) } else { (theme::icon::CARET_UP, crate::i18n::tr("Rozwiń panel")) };
+                        if nav_button(ui, g, hint).clicked() {
                             a.sheet_full = !a.sheet_full;
                         }
                     }

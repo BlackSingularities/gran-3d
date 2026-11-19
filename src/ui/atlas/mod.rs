@@ -158,6 +158,8 @@ pub struct Flight {
     last: Instant,
     heading: f64,
     pitch: f64,
+    /// Środek widocznej części mapy względem środka ekranu (px), wygładzany przy chowaniu pasków.
+    shift: Vec2,
 }
 
 /// Odległość kamery od punktu trasy w przelocie (m).
