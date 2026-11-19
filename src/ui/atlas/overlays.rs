@@ -140,7 +140,7 @@ impl Atlas {
                 // napis, który wchodziłby pod panel boczny, górny pasek albo profil, nie jest pokazywany wcale
                 // (zamiast uciętego)
                 // ani ucięty przy krawędzi ekranu
-                if busy.right() > visible.right() - 2.0 || busy.left() < visible.left() + 2.0 || (top > 0.0 && busy.top() < visible.top() + 2.0) || busy.bottom() > visible.bottom() - 2.0 {
+                if busy.right() > visible.right() - 2.0 || busy.left() < visible.left() + 2.0 || (visible.top() > rect.top() && busy.top() < visible.top() + 2.0) || busy.bottom() > visible.bottom() - 2.0 {
                     continue;
                 }
                 // zaznaczony punkt zawsze z nazwą, chyba że leży pod przyciskiem albo panelem
