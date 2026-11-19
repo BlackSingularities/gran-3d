@@ -519,7 +519,7 @@ ustawienia	settings
 Jak korzystać z Grani	How to use GRAŃ
 Atlas łączy rzeczywisty model terenu z siecią szlaków OSM. Wszystkie obliczenia – trasy, widoczność, cienie – odbywają się lokalnie na tym komputerze.	The atlas combines a real terrain model with the OSM trail network. All calculations – routes, visibility, shadows – run locally on this computer.
 Pliki GPX, KML i GeoJSON możesz przeciągnąć bezpośrednio na mapę.	You can drag GPX, KML and GeoJSON files straight onto the map.
-Ślady (GPX, KML, GeoJSON)	Tracks (GPX, KML, GeoJSON)
+Ślady (GPX, KML, GeoJSON, FIT)	Tracks (GPX, KML, GeoJSON, FIT)
 przeszkoda	obstacle
 {:+.0}% nachylenia	{:+.0}% gradient
 ↑ {} od startu	↑ {} from start
@@ -1252,3 +1252,104 @@ szukam w całej Europie…	searching all of Europe…
 Nic nie znaleziono – spróbuj innej nazwy albo wpisz współrzędne.	Nothing found – try another name or enter coordinates.
 Zwiń panel	Collapse panel
 Rozwiń panel	Expand panel
+Plik nie jest poprawnym FIT.	The file is not a valid FIT file.
+Plik FIT nie zawiera śladu z pozycjami.	The FIT file contains no track with positions.
+GRAŃ nagrywa przejście	GRAŃ is recording your hike
+Zapisz plik	Save file
+Moje położenie (GPS)	My location (GPS)
+Nagrywanie przejścia	Hike recording
+Trwa nagrywanie	Recording in progress
+Nagraj przejście	Record a hike
+Wczytaj z zegarka (FIT, GPX)	Import from a watch (FIT, GPX)
+Aktywność z zegarka albo innej aplikacji trafi do nagranych przejść	An activity from a watch or another app is added to recorded hikes
+Nagrane przejścia	Recorded hikes
+Brak nagranych przejść. „Nagraj” na pasku narzędzi zapisuje Twój ślad z GPS; możesz też wczytać aktywność z zegarka (FIT, GPX).	No recorded hikes yet. “Record” in the toolbar saves your GPS track; you can also import an activity from a watch (FIT, GPX).
+Brak nagranych przejść. Nagrywa je aplikacja na telefon; tu możesz wczytać aktywność z zegarka (FIT, GPX).	No recorded hikes yet. The phone app records them; here you can import an activity from a watch (FIT, GPX).
+Udostępnij jako FIT (Garmin Connect, zegarek)	Share as FIT (Garmin Connect, watch)
+Udostępnij jako GPX (Strava, Komoot, mapy)	Share as GPX (Strava, Komoot, maps)
+Zapisz GPX z czasem	Save GPX with times
+Zapisz FIT – aktywność	Save FIT – activity
+Zapisz KML	Save KML
+Zapisz GeoJSON	Save GeoJSON
+Eksportuj albo udostępnij	Export or share
+Położenie i nagrywanie	Location and recording
+Pokaż moje położenie	Show my location
+Wróć do mojego położenia	Back to my location
+Mapa za mną – dotknij, żeby obracać ją kompasem	Map follows me – tap to rotate it with the compass
+Kompas – dotknij, żeby wyłączyć	Compass – tap to turn off
+Przejście {}	Hike {}
+{}:{:02} min/km	{}:{:02} min/km
+{} km/h	{} km/h
+Położenie GPS działa w aplikacji na telefon (Android, iPhone).	GPS location works in the phone app (Android, iPhone).
+Mapa obraca się zgodnie z kierunkiem, w którym patrzysz.	The map now turns with the direction you are facing.
+GRAŃ pokaże Twoje położenie na mapie i – gdy włączysz nagrywanie – zapisze przejście, także przy wyłączonym ekranie. Położenie zostaje na tym urządzeniu: nie jest wysyłane ani udostępniane. W następnym oknie systemu wybierz „Podczas używania aplikacji”.	GRAŃ will show your location on the map and – when you start recording – save your hike, even with the screen off. Your location stays on this device: it is never sent or shared. In the next system window choose “While Using the App”.
+GRAŃ pokaże Twoje położenie na mapie i – gdy włączysz nagrywanie – zapisze przejście, także przy wyłączonym ekranie (z powiadomieniem na pasku). Położenie zostaje na tym urządzeniu: nie jest wysyłane ani udostępniane. W następnym oknie systemu zezwól na dokładną lokalizację.	GRAŃ will show your location on the map and – when you start recording – save your hike, even with the screen off (with a notification in the status bar). Your location stays on this device: it is never sent or shared. In the next system window allow precise location.
+Lokalizacja	Location
+Lokalizacja wyłączona	Location is off
+GRAŃ nie ma zgody na lokalizację. Włącz ją w ustawieniach systemu (Uprawnienia → Lokalizacja → „Zezwalaj podczas używania aplikacji”, dokładna lokalizacja).	GRAŃ has no location permission. Turn it on in the system settings (Permissions → Location → “Allow only while using the app”, precise location).
+Bez zgody na lokalizację GRAŃ nie pokaże położenia. Zmienisz to w ustawieniach systemu.	Without location permission GRAŃ cannot show where you are. You can change this in the system settings.
+Nagrywanie przejść działa w aplikacji na telefon (Android, iPhone).	Hike recording works in the phone app (Android, iPhone).
+Nagrywanie rozpoczęte. Działa także przy wyłączonym ekranie.	Recording started. It keeps going with the screen off.
+{} · {} · ↑ {} · ↓ {}\n\nZapisane przejście trafi do biblioteki – możesz je obejrzeć na mapie, wyeksportować do GPX albo FIT (zegarki, Garmin Connect, Strava) i udostępnić.	{} · {} · ↑ {} · ↓ {}\n\nThe saved hike goes to the library – you can view it on the map, export it to GPX or FIT (watches, Garmin Connect, Strava) and share it.
+Zakończyć nagrywanie?	Finish recording?
+Odrzucić nagranie?	Discard the recording?
+Nagrane przejście zostanie usunięte i nie da się go odzyskać.	The recorded hike will be deleted and cannot be recovered.
+Nie udało się zapisać nagrania: {}	Could not save the recording: {}
+Zapisano przejście „{}”: {}, ↑ {}.	Saved hike “{}”: {}, ↑ {}.
+Za mało punktów, żeby zapisać przejście.	Too few points to save a hike.
+Nagranie odrzucone.	Recording discarded.
+Wznowiono nagrywanie przejścia ({} punktów) – program był zamknięty w trakcie.	Hike recording resumed ({} points) – the app was closed while recording.
+Otwarto przejście „{}”.	Opened hike “{}”.
+Nie znaleziono pliku nagrania.	The recording file was not found.
+GPX z czasem (Strava, Komoot, mapy)	GPX with times (Strava, Komoot, maps)
+FIT – aktywność (Garmin Connect, Suunto, Coros, Strava)	FIT – activity (Garmin Connect, Suunto, Coros, Strava)
+Eksportuj przejście	Export hike
+Plik nie ma czasu punktów, więc to trasa, a nie nagrane przejście – otwieram go jako trasę.	The file has no point times, so it is a route rather than a recorded hike – opening it as a route.
+Plik nie zawiera śladu.	The file contains no track.
+Dodano przejście „{}”: {}, ↑ {}.	Added hike “{}”: {}, ↑ {}.
+Nie teraz	Not now
+Otwórz ustawienia	Open settings
+Odrzuć	Discard
+Nagrywaj dalej	Keep recording
+szukam GPS…	looking for GPS…
+przerwa	paused
+Szczegóły nagrywania	Recording details
+Położenie GPS i nagrywanie przejść działają w aplikacji na telefon (Android, iPhone). Nagrane tam przejścia, a także pliki z zegarka (FIT, GPX), obejrzysz i wyeksportujesz w bibliotece.	GPS location and hike recording work in the phone app (Android, iPhone). Hikes recorded there, as well as files from a watch (FIT, GPX), can be viewed and exported in the library.
+Otwórz bibliotekę	Open the library
+Położenie wyłączone	Location is off
+Szukam sygnału GPS… Na zewnątrz, z widokiem na niebo, zwykle trwa to kilkanaście sekund.	Looking for a GPS signal… Outdoors with a view of the sky this usually takes a few seconds.
+Brak świeżego odczytu – sprawdź, czy lokalizacja w telefonie jest włączona.	No recent fix – check that location is turned on in your phone.
+Sygnał GPS: dokładność ± {} m	GPS signal: accuracy ± {} m
+Wróć do położenia	Back to my location
+Mapa za mną · kompas	Map follows me · compass
+Wyłącz podążanie	Stop following
+czas nagrania (bez przerw)	recording time (without pauses)
+Jesteś {} od trasy na mapie	You are {} off the route on the map
+Przerwa	Pause
+Zakończ	Finish
+Nagrywanie trwa także przy wyłączonym ekranie i w tle. Dystans i podejścia liczę z modelu terenu, więc są dokładniejsze niż z samego GPS; postoje nie wliczają się do czasu ruchu.	Recording continues with the screen off and in the background. Distance and ascent are computed from the terrain model, so they are more accurate than raw GPS; stops are not counted in moving time.
+Zapisz swoje przejście: ślad, czas, dystans, podejścia i prędkość. Nagranie działa przy wyłączonym ekranie, a po zakończeniu trafia do biblioteki – stamtąd wyślesz je do zegarka i serwisów (FIT, GPX).	Record your hike: track, time, distance, ascent and speed. Recording works with the screen off, and when finished the hike goes to the library – from there you can send it to your watch and to fitness services (FIT, GPX).
+Rozpocznij nagrywanie	Start recording
+Wszystkie w bibliotece	All in the library
+Pomijaj odczyty mniej dokładne niż	Skip fixes less accurate than
+Mniejsza wartość – czystszy ślad, ale w lesie i w wąwozach mogą zostać luki. Zmiana działa od następnego nagrania.	A lower value gives a cleaner track, but gaps may appear in forests and gorges. The change applies from the next recording.
+Uprawnienia GRANI w systemie	GRAŃ permissions in the system
+Telefony Huawei, Xiaomi, Samsung i inne potrafią usypiać aplikacje w tle. Jeśli nagranie ma przerwy przy wyłączonym ekranie, w ustawieniach baterii ustaw GRANI „bez ograniczeń” / „zarządzaj ręcznie – działanie w tle”.	Huawei, Xiaomi, Samsung and other phones may put background apps to sleep. If a recording has gaps with the screen off, set GRAŃ to “unrestricted” / “manage manually – run in background” in the battery settings.
+Czas ruchu	Moving time
+Prędkość	Speed
+Śr. prędkość	Avg. speed
+Maks. prędkość	Max. speed
+Dokładność GPS	GPS accuracy
+Do celu	To finish
+Od trasy	Off route
+Nagrywanie wstrzymane	Recording paused
+Nagrywanie	Recording
+Ostatnie przejścia	Recent hikes
+Ustawienia nagrywania	Recording settings
+Nagraj	Record
+Nagrywam	Recording
+Położenie i nagrywanie przejść	Location and hike recording
+Zegarek i nagrane przejścia	Watch and recorded hikes
+Przycisk z celownikiem przy sterowaniu kamerą pokazuje, gdzie jesteś: drugie dotknięcie obraca mapę kompasem. „Nagraj” na pasku zapisuje przejście – czas, dystans, podejścia i prędkość – także przy wyłączonym ekranie. Nagrania trafiają do biblioteki, skąd wyślesz je jako FIT albo GPX do Garmin Connect, Suunto, Coros, Stravy i na zegarek; aktywność z zegarka wczytasz z powrotem. Położenie zostaje w telefonie.	The crosshair button next to the camera controls shows where you are; a second tap turns the map with the compass. “Record” in the toolbar saves your hike – time, distance, ascent and speed – even with the screen off. Recordings go to the library, from where you can send them as FIT or GPX to Garmin Connect, Suunto, Coros, Strava and your watch; activities from a watch can be imported back. Your location stays on the phone.
+Trasę wyślesz na zegarek jako kurs FIT (Garmin, Suunto, Wahoo, Coros). Aktywność z zegarka albo z innej aplikacji (FIT, GPX z czasem) wczytasz w bibliotece do nagranych przejść – ze statystykami, profilem i eksportem. Na telefonie GRAŃ sam pokazuje położenie i nagrywa przejścia z GPS.	Send a route to your watch as a FIT course (Garmin, Suunto, Wahoo, Coros). Import an activity from a watch or another app (FIT, GPX with times) into recorded hikes in the library – with statistics, profile and export. On the phone GRAŃ shows your location and records hikes with GPS itself.
+Położenie GPS (Android, iOS) jest używane tylko po Twojej zgodzie w systemie i tylko wtedy, gdy sam je włączysz – żeby pokazać Cię na mapie i nagrać przejście. Odczyty i nagrane przejścia są zapisywane wyłącznie na urządzeniu; aplikacja nie wysyła położenia na serwer i nikomu go nie udostępnia. Podczas nagrywania na Androidzie widać powiadomienie, a na iOS – wskaźnik lokalizacji na pasku stanu. Plik przejścia trafia do innej aplikacji (np. Garmin Connect, Strava) tylko wtedy, gdy sam go wyeksportujesz albo udostępnisz.	GPS location (Android, iOS) is used only with your system permission and only when you turn it on yourself – to show you on the map and to record a hike. Readings and recorded hikes are stored only on your device; the app does not send your location to the server or share it with anyone. While recording, Android shows a notification and iOS shows the location indicator in the status bar. A hike file reaches another app (e.g. Garmin Connect, Strava) only when you export or share it yourself.

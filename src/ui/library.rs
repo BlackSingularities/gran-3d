@@ -1,4 +1,4 @@
-//! Panel biblioteki: zapisane trasy, ulubione miejsca i zakładki widoku – otwieranie,
+//! Panel biblioteki: zapisane trasy, ulubione miejsca, zakładki widoku i nagrane przejścia – otwieranie,
 //! zmiana nazwy, grupy (foldery), sortowanie, wyszukiwanie i usuwanie.
 
 use eframe::egui::{self, RichText};
@@ -14,6 +14,7 @@ enum Kind {
     Route,
     Place,
     View,
+    Recording,
 }
 
 struct Row {
@@ -31,6 +32,9 @@ enum Action {
     Delete(Kind, usize),
     Save(Kind, usize, String, String),
     ExportRoute(usize),
+    /// Eksport przejścia: identyfikator i format (`gpx`, `fit`).
+    ExportRec(u64, &'static str),
+    ShareRec(u64, &'static str),
 }
 
 /// Stan edycji w pamięci egui: identyfikator, nazwa, grupa.
@@ -71,6 +75,20 @@ fn rows(a: &Atlas, kind: Kind, filter: &str) -> Vec<Row> {
                 Row { kind, idx: i, id: v.id, name: v.name.clone(), group: v.group.clone(), sub: style.to_string() }
             })
             .collect(),
+        Kind::Recording => l
+            .order(&l.recordings, |r| (r.name.as_str(), r.created))
+            .into_iter()
+            .map(|i| {
+                let r = &l.recordings[i];
+                let st = &r.stats;
+                let mut sub = format!("{} · ↑ {} · {}", fmt::dist(st.dist), fmt::ele(st.up), crate::recording::clock(st.duration));
+                if !r.source.is_empty() {
+                    sub.push_str(" · ");
+                    sub.push_str(theme::icon::WATCH);
+                }
+                Row { kind, idx: i, id: r.id, name: r.name.clone(), group: r.group.clone(), sub }
+            })
+            .collect(),
     };
     if !f.is_empty() {
         out.retain(|r| r.name.to_lowercase().contains(&f) || r.group.to_lowercase().contains(&f));
@@ -109,6 +127,18 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
             a.save_view();
         }
     });
+    ui.horizontal_wrapped(|ui| {
+        if crate::platform::LOCATION {
+            let label = if a.rec.is_some() { tr("Trwa nagrywanie") } else { tr("Nagraj przejście") };
+            if ui.button(theme::ic(theme::icon::RECORD, label)).clicked() {
+                let ctx = ui.ctx().clone();
+                a.run(crate::ui::atlas::Action::Record, &ctx);
+            }
+        }
+        if ui.button(theme::ic(theme::icon::WATCH, tr("Wczytaj z zegarka (FIT, GPX)"))).on_hover_text(tr("Aktywność z zegarka albo innej aplikacji trafi do nagranych przejść")).clicked() {
+            a.pick_recording_file();
+        }
+    });
 
     let groups = a.library.groups();
     let mut actions = Vec::new();
@@ -116,6 +146,16 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
         (Kind::Route, theme::icon::PATH, crate::i18n::tr("Trasy"), crate::i18n::tr("Brak zapisanych tras. Zaplanuj trasę albo wczytaj ślad i wybierz „Zapisz w bibliotece” (Ctrl+S).")),
         (Kind::Place, theme::icon::STAR, crate::i18n::tr("Ulubione miejsca"), crate::i18n::tr("Brak ulubionych miejsc. Zaznacz szczyt lub punkt na mapie i wybierz „Dodaj do ulubionych”.")),
         (Kind::View, theme::icon::BOOKMARK_SIMPLE, crate::i18n::tr("Widoki"), crate::i18n::tr("Brak zapisanych widoków. „Zapisz widok” (Ctrl+D) zapamiętuje kadr kamery i styl mapy.")),
+        (
+            Kind::Recording,
+            theme::icon::RECORD,
+            crate::i18n::tr("Nagrane przejścia"),
+            if crate::platform::LOCATION {
+                crate::i18n::tr("Brak nagranych przejść. „Nagraj” na pasku narzędzi zapisuje Twój ślad z GPS; możesz też wczytać aktywność z zegarka (FIT, GPX).")
+            } else {
+                crate::i18n::tr("Brak nagranych przejść. Nagrywa je aplikacja na telefon; tu możesz wczytać aktywność z zegarka (FIT, GPX).")
+            },
+        ),
     ];
     for (kind, glyph, title, empty) in sections {
         let list = rows(a, kind, &filter);
@@ -157,6 +197,11 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
                 }
             }
             Action::Open(Kind::View, i) => a.open_view(i),
+            Action::Open(Kind::Recording, i) => {
+                if let Some(id) = a.library.recordings.get(i).map(|r| r.id) {
+                    a.open_recording(id);
+                }
+            }
             Action::Edit(id) => {
                 let found = a
                     .library
@@ -165,6 +210,7 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
                     .map(|r| (r.id, &r.name, &r.group))
                     .chain(a.library.places.iter().map(|p| (p.id, &p.name, &p.group)))
                     .chain(a.library.views.iter().map(|v| (v.id, &v.name, &v.group)))
+                    .chain(a.library.recordings.iter().map(|r| (r.id, &r.name, &r.group)))
                     .find(|x| x.0 == id)
                     .map(|(id, n, g)| Editing { id, name: n.clone(), group: g.clone() });
                 editing = found;
@@ -177,6 +223,7 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
                     Kind::Route => l.routes.get_mut(i).map(|r| (&mut r.name, &mut r.group)),
                     Kind::Place => l.places.get_mut(i).map(|p| (&mut p.name, &mut p.group)),
                     Kind::View => l.views.get_mut(i).map(|v| (&mut v.name, &mut v.group)),
+                    Kind::Recording => l.recordings.get_mut(i).map(|r| (&mut r.name, &mut r.group)),
                 };
                 if let Some((n, g)) = slot {
                     if !name.is_empty() {
@@ -192,6 +239,7 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
                     Kind::Route => a.library.routes.get(i).map(|r| r.name.clone()),
                     Kind::Place => a.library.places.get(i).map(|p| p.name.clone()),
                     Kind::View => a.library.views.get(i).map(|v| v.name.clone()),
+                    Kind::Recording => a.library.recordings.get(i).map(|r| r.name.clone()),
                 }
                 .unwrap_or_default();
                 editing = None;
@@ -207,6 +255,10 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
                         Kind::View if i < a.library.views.len() => {
                             a.library.views.remove(i);
                         }
+                        Kind::Recording if i < a.library.recordings.len() => {
+                            let id = a.library.recordings[i].id;
+                            a.delete_recording(id);
+                        }
                         _ => {}
                     }
                     a.save_library();
@@ -216,6 +268,8 @@ pub fn show(a: &mut Atlas, ui: &mut egui::Ui) {
                 a.open_saved_route(i);
                 a.export_route_after_routing();
             }
+            Action::ExportRec(id, ext) => a.export_recording(id, ext),
+            Action::ShareRec(id, ext) => a.share_recording(id, ext),
         }
     }
     ui.data_mut(|d| {
@@ -245,6 +299,31 @@ fn item_row(ui: &mut egui::Ui, r: &Row, actions: &mut Vec<Action>) {
             }
             if r.kind == Kind::Route && ui.small_button(theme::icon::EXPORT).on_hover_text(tr("Eksportuj do pliku")).clicked() {
                 actions.push(Action::ExportRoute(r.idx));
+            }
+            if r.kind == Kind::Recording {
+                // eksport i udostępnianie: GPX (mapy, Strava, Komoot) albo FIT (zegarki, Garmin Connect)
+                ui.menu_button(theme::icon::EXPORT, |ui| {
+                    ui.set_min_width(theme::fit(ui.ctx(), 260.0));
+                    if crate::platform::MOBILE {
+                        if ui.button(theme::ic(theme::icon::SHARE_NETWORK, tr("Udostępnij jako FIT (Garmin Connect, zegarek)"))).clicked() {
+                            actions.push(Action::ShareRec(r.id, "fit"));
+                            ui.close();
+                        }
+                        if ui.button(theme::ic(theme::icon::SHARE_NETWORK, tr("Udostępnij jako GPX (Strava, Komoot, mapy)"))).clicked() {
+                            actions.push(Action::ShareRec(r.id, "gpx"));
+                            ui.close();
+                        }
+                        ui.separator();
+                    }
+                    for (ext, label) in [("gpx", tr("Zapisz GPX z czasem")), ("fit", tr("Zapisz FIT – aktywność")), ("kml", tr("Zapisz KML")), ("geojson", tr("Zapisz GeoJSON"))] {
+                        if ui.button(theme::ic(theme::icon::FLOPPY_DISK, label)).clicked() {
+                            actions.push(Action::ExportRec(r.id, ext));
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(tr("Eksportuj albo udostępnij"));
             }
             ui.label(RichText::new(&r.sub).small().color(theme::paper_3()));
         });

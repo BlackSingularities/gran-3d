@@ -30,7 +30,7 @@ pub fn show_log(log: &Path) {
 /// Okno wyboru pliku śladu (GPX, KML, GeoJSON).
 pub fn pick_track_file() -> Option<PathBuf> {
     rfd::FileDialog::new()
-        .add_filter(crate::i18n::tr("Ślady (GPX, KML, GeoJSON)"), &crate::formats::EXTENSIONS)
+        .add_filter(crate::i18n::tr("Ślady (GPX, KML, GeoJSON, FIT)"), &crate::formats::EXTENSIONS)
         .add_filter("GPX", &["gpx"])
         .add_filter("KML", &["kml"])
         .add_filter("GeoJSON", &["geojson", "json"])
@@ -117,3 +117,33 @@ pub fn move_to_back() {}
 
 /// Wyskakujący komunikat systemu – na komputerze wystarcza dymek w programie.
 pub fn toast(_text: &str) {}
+
+/* ── położenie: na komputerze brak odbiornika GPS ───────────────────────────────── */
+
+pub const LOCATION: bool = false;
+
+pub fn location_permission() -> crate::gps::Permission {
+    crate::gps::Permission::Denied
+}
+
+pub fn location_request_permission() {}
+
+pub fn location_start(_journal: Option<&Path>) {}
+
+pub fn location_stop() {}
+
+/// Nowe odczyty i kierunek kompasu (stopnie) od ostatniego wywołania.
+pub fn location_poll() -> (Vec<crate::gps::Fix>, Option<f32>) {
+    (Vec::new(), None)
+}
+
+pub fn location_settings() {}
+
+/// Plik do innej aplikacji: na komputerze – okno „Zapisz jako”.
+pub fn share_file(path: &Path, name: &str) {
+    let ext = name.rsplit('.').next().unwrap_or("bin").to_string();
+    if let Ok(bytes) = std::fs::read(path) {
+        let stem = name.rsplit_once('.').map(|x| x.0).unwrap_or(name).to_string();
+        let _ = save_file(crate::i18n::tr("Zapisz plik"), &stem, &[(ext.as_str(), ext.as_str())], move |_| bytes);
+    }
+}

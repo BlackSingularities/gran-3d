@@ -412,3 +412,227 @@ pub fn is_emulator() -> bool {
 pub fn forced_backend() -> String {
     String::new()
 }
+
+/* ── położenie: CoreLocation (CLLocationManager z delegatem) ──────────────────────── */
+
+#[link(name = "CoreLocation", kind = "framework")]
+extern "C" {}
+
+pub const LOCATION: bool = true;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct Coord {
+    lat: f64,
+    lon: f64,
+}
+
+// SAFETY: układ zgodny z CLLocationCoordinate2D (dwie liczby double)
+unsafe impl objc2::encode::Encode for Coord {
+    const ENCODING: objc2::encode::Encoding = objc2::encode::Encoding::Struct("CLLocationCoordinate2D", &[f64::ENCODING, f64::ENCODING]);
+}
+
+/// Stan położenia współdzielony z delegatem (wywołania w wątku głównym, także w tle).
+struct Loc {
+    fixes: Vec<crate::gps::Fix>,
+    heading: Option<f32>,
+    journal: Option<PathBuf>,
+    status: i32,
+}
+
+static LOC: std::sync::Mutex<Loc> = std::sync::Mutex::new(Loc { fixes: Vec::new(), heading: None, journal: None, status: -1 });
+
+define_class!(
+    // SAFETY: NSObject nie ma wymagań przy dziedziczeniu, klasa nie implementuje Drop
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "GranLocationDelegate"]
+    struct LocationDelegate;
+
+    impl LocationDelegate {
+        #[unsafe(method(locationManager:didUpdateLocations:))]
+        fn did_update(&self, _manager: *mut AnyObject, locations: *mut AnyObject) {
+            if locations.is_null() {
+                return;
+            }
+            // SAFETY: obiekty CLLocation przekazane przez system w wątku głównym
+            unsafe {
+                let n: usize = msg_send![locations, count];
+                let mut g = LOC.lock().unwrap();
+                for i in 0..n {
+                    let l: *mut AnyObject = msg_send![locations, objectAtIndex: i];
+                    if l.is_null() {
+                        continue;
+                    }
+                    let c: Coord = msg_send![l, coordinate];
+                    let acc: f64 = msg_send![l, horizontalAccuracy];
+                    // ujemna dokładność – odczyt nieważny
+                    if acc < 0.0 {
+                        continue;
+                    }
+                    let alt: f64 = msg_send![l, altitude];
+                    let vacc: f64 = msg_send![l, verticalAccuracy];
+                    let speed: f64 = msg_send![l, speed];
+                    let course: f64 = msg_send![l, course];
+                    let date: *mut AnyObject = msg_send![l, timestamp];
+                    let t: f64 = if date.is_null() { crate::gps::now() } else { msg_send![date, timeIntervalSince1970] };
+                    let f = crate::gps::Fix {
+                        t,
+                        lat: c.lat,
+                        lon: c.lon,
+                        alt: (vacc >= 0.0).then_some(alt as f32),
+                        acc: acc as f32,
+                        vacc: (vacc >= 0.0).then_some(vacc as f32),
+                        speed: (speed >= 0.0).then_some(speed as f32),
+                        course: (course >= 0.0).then_some(course as f32),
+                        // iOS łączy GPS, Wi-Fi i sieć; odczyty do ~65 m traktujemy jak satelitarne
+                        // (filtr nagrania i tak sprawdza dokładność)
+                        gnss: acc <= 65.0,
+                    };
+                    if let Some(j) = &g.journal {
+                        if f.gnss {
+                            crate::gps::journal_append(j, &f);
+                        }
+                    }
+                    if g.fixes.len() > 200_000 {
+                        g.fixes.drain(..20_000);
+                    }
+                    g.fixes.push(f);
+                }
+            }
+        }
+
+        #[unsafe(method(locationManager:didUpdateHeading:))]
+        fn did_heading(&self, _manager: *mut AnyObject, heading: *mut AnyObject) {
+            if heading.is_null() {
+                return;
+            }
+            // SAFETY: obiekt CLHeading przekazany przez system
+            unsafe {
+                let t: f64 = msg_send![heading, trueHeading];
+                let m: f64 = msg_send![heading, magneticHeading];
+                let h = if t >= 0.0 { t } else { m };
+                if h >= 0.0 {
+                    LOC.lock().unwrap().heading = Some(h as f32);
+                }
+            }
+        }
+
+        #[unsafe(method(locationManagerDidChangeAuthorization:))]
+        fn did_auth(&self, manager: *mut AnyObject) {
+            // SAFETY: odczyt stanu zgody w wątku głównym
+            let status: i32 = unsafe { msg_send![manager, authorizationStatus] };
+            let before = std::mem::replace(&mut LOC.lock().unwrap().status, status);
+            if before != status && status != 0 {
+                super::push(Event::LocationPermission(status == 3 || status == 4));
+            }
+        }
+
+        #[unsafe(method(locationManager:didFailWithError:))]
+        fn did_fail(&self, _manager: *mut AnyObject, _error: *mut AnyObject) {}
+    }
+);
+
+impl LocationDelegate {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(());
+        // SAFETY: init NSObject
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+thread_local! {
+    /// Menedżer położenia i jego delegat (CoreLocation trzyma delegata słabo).
+    static MANAGER: std::cell::RefCell<Option<(Retained<AnyObject>, Retained<LocationDelegate>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Menedżer położenia (tworzony przy pierwszym użyciu, w wątku głównym).
+fn manager() -> Option<*mut AnyObject> {
+    let mtm = MainThreadMarker::new()?;
+    MANAGER.with(|m| {
+        let mut m = m.borrow_mut();
+        if m.is_none() {
+            let delegate = LocationDelegate::new(mtm);
+            // SAFETY: CLLocationManager tworzony i ustawiany w wątku głównym
+            unsafe {
+                let man: *mut AnyObject = msg_send![class!(CLLocationManager), alloc];
+                let man: *mut AnyObject = msg_send![man, init];
+                let man = Retained::from_raw(man)?;
+                let _: () = msg_send![&*man, setDelegate: &*delegate];
+                // najlepsza dokładność, każdy odczyt, tryb „aktywność fizyczna”
+                let _: () = msg_send![&*man, setDesiredAccuracy: -1.0f64];
+                let _: () = msg_send![&*man, setDistanceFilter: -1.0f64];
+                let _: () = msg_send![&*man, setActivityType: 3isize];
+                let _: () = msg_send![&*man, setPausesLocationUpdatesAutomatically: false];
+                let _: () = msg_send![&*man, setHeadingFilter: 2.0f64];
+                let status: i32 = msg_send![&*man, authorizationStatus];
+                LOC.lock().unwrap().status = status;
+                *m = Some((man, delegate));
+            }
+        }
+        m.as_ref().map(|(man, _)| Retained::as_ptr(man) as *mut AnyObject)
+    })
+}
+
+pub fn location_permission() -> crate::gps::Permission {
+    if manager().is_none() {
+        return crate::gps::Permission::Denied;
+    }
+    match LOC.lock().unwrap().status {
+        3 | 4 => crate::gps::Permission::Granted,
+        1 | 2 => crate::gps::Permission::Denied,
+        _ => crate::gps::Permission::Unknown,
+    }
+}
+
+/// Okno systemu z prośbą o lokalizację „podczas używania” (nagrywanie w tle działa z nią dzięki
+/// trybowi tła `location` i niebieskiemu wskaźnikowi na pasku stanu).
+pub fn location_request_permission() {
+    if let Some(m) = manager() {
+        // SAFETY: wywołanie CoreLocation w wątku głównym
+        unsafe {
+            let _: () = msg_send![m, requestWhenInUseAuthorization];
+        }
+    }
+}
+
+pub fn location_start(journal: Option<&Path>) {
+    let Some(m) = manager() else { return };
+    let record = journal.is_some();
+    LOC.lock().unwrap().journal = journal.map(Path::to_path_buf);
+    // SAFETY: wywołania CoreLocation w wątku głównym
+    unsafe {
+        let _: () = msg_send![m, setAllowsBackgroundLocationUpdates: record];
+        let _: () = msg_send![m, setShowsBackgroundLocationIndicator: record];
+        let _: () = msg_send![m, startUpdatingLocation];
+        let _: () = msg_send![m, startUpdatingHeading];
+    }
+}
+
+pub fn location_stop() {
+    LOC.lock().unwrap().journal = None;
+    if let Some(m) = manager() {
+        // SAFETY: wywołania CoreLocation w wątku głównym
+        unsafe {
+            let _: () = msg_send![m, stopUpdatingLocation];
+            let _: () = msg_send![m, stopUpdatingHeading];
+            let _: () = msg_send![m, setAllowsBackgroundLocationUpdates: false];
+        }
+    }
+}
+
+/// Nowe odczyty i kierunek kompasu (stopnie) od ostatniego wywołania.
+pub fn location_poll() -> (Vec<crate::gps::Fix>, Option<f32>) {
+    let mut g = LOC.lock().unwrap();
+    (std::mem::take(&mut g.fixes), g.heading.take())
+}
+
+/// Ustawienia GRANI w aplikacji Ustawienia (zgoda na lokalizację).
+pub fn location_settings() {
+    open_url("app-settings:");
+}
+
+/// Plik do innej aplikacji przez arkusz udostępniania.
+pub fn share_file(path: &Path, _name: &str) {
+    share(path);
+}

@@ -35,6 +35,14 @@
 		<integer>1</integer>
 		<integer>2</integer>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>GRAŃ pokazuje Twoje położenie na mapie i nagrywa przejście, gdy je włączysz. Położenie zostaje na tym urządzeniu – nie jest nigdzie wysyłane.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>GRAŃ nagrywa przejście także przy wyłączonym ekranie, gdy sam włączysz nagrywanie. Położenie zostaje na tym urządzeniu.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>GRAŃ dodaje wybrane zdjęcie do punktu na mapie (najwyżej 2048 px, bez danych o położeniu).</string>
 	<key>UIRequiredDeviceCapabilities</key>

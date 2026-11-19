@@ -271,6 +271,9 @@ impl Atlas {
             }
         }
 
+        // Twoje położenie (GPS) – nad nazwami i znacznikami
+        self.draw_location(&p, rect, view);
+
         // reszta nakładek (kompas, podziałka, pasek stanu) – na całej szerokości
         let p = p_full;
         // kompas (chowa się razem z kontrolkami)

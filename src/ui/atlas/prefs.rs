@@ -172,6 +172,8 @@ pub struct Prefs {
     pub high_contrast: bool,
     /// Skala interfejsu (0,75–2).
     pub ui_scale: f32,
+    /// Nagrywanie przejść: odczyty GPS mniej dokładne niż tyle metrów są pomijane.
+    pub gps_max_acc: f32,
 }
 
 /// Które nazwy pokazywać na mapie (główny przełącznik – `Prefs::labels`, klawisz L).
@@ -337,6 +339,7 @@ impl Default for Prefs {
             offline_mode: false,
             high_contrast: false,
             ui_scale: 1.0,
+            gps_max_acc: 30.0,
         }
     }
 }

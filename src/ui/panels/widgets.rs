@@ -28,6 +28,12 @@ pub(super) fn stat_glyph(k: &str) -> &'static str {
         "Szerokość" | "Długość" => i::MAP_PIN,
         "Trasy PTTK i inne" | "Znakowane trasy" => i::SIGNPOST,
         "Punkty" | "Sektory" => i::STACK,
+        "Czas ruchu" | "Czas nagrania" => i::TIMER,
+        "Prędkość" | "Śr. prędkość" | "Maks. prędkość" => i::GAUGE,
+        "Tempo" => i::PERSON_SIMPLE_WALK,
+        "Dokładność GPS" => i::CROSSHAIR,
+        "Do celu" => i::FLAG_CHECKERED,
+        "Od trasy" => i::ARROWS_OUT_LINE_HORIZONTAL,
         _ => i::INFO,
     }
 }

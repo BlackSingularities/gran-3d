@@ -214,6 +214,7 @@ impl Atlas {
         if let Some((_, r)) = &self.compare {
             push_track(&mut out, r, lin([214, 120, 255], 1.0), 4.0, true);
         }
+        self.recording_lines(&mut out);
         // zaznaczony odcinek szlaku: jasna obwódka i niebieskie wyróżnienie
         if let Selection::Trail(ei) = self.selection {
             if let Some(ed) = self.snap.graph.edges.get(ei as usize) {

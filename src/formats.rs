@@ -5,7 +5,7 @@ use crate::gpx::GpxTrack;
 use crate::graph::Route;
 
 /// Rozszerzenia plików, które GRAŃ potrafi wczytać.
-pub const EXTENSIONS: [&str; 4] = ["gpx", "kml", "geojson", "json"];
+pub const EXTENSIONS: [&str; 5] = ["gpx", "kml", "geojson", "json", "fit"];
 
 pub fn is_track_file(p: &std::path::Path) -> bool {
     p.extension()
@@ -74,7 +74,7 @@ pub fn parse_kml(text: &str) -> Result<GpxTrack, String> {
     if points.len() < 2 {
         return Err(crate::i18n::tr("KML nie zawiera linii (LineString / gx:Track).").into());
     }
-    Ok(GpxTrack { name, points })
+    Ok(GpxTrack { name, points, times: Vec::new() })
 }
 
 pub fn parse_geojson(text: &str) -> Result<GpxTrack, String> {
@@ -133,7 +133,7 @@ pub fn parse_geojson(text: &str) -> Result<GpxTrack, String> {
     if points.len() < 2 {
         return Err(crate::i18n::tr("GeoJSON nie zawiera linii (LineString).").into());
     }
-    Ok(GpxTrack { name: name.unwrap_or_else(|| crate::i18n::tr("Ślad GeoJSON").to_string()), points })
+    Ok(GpxTrack { name: name.unwrap_or_else(|| crate::i18n::tr("Ślad GeoJSON").to_string()), points, times: Vec::new() })
 }
 
 pub fn export_kml(route: &Route, name: &str, waypoints: &[crate::gpx::Waypoint]) -> String {

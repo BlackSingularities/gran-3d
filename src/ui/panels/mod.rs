@@ -18,6 +18,7 @@ mod community;
 mod legend;
 mod map;
 mod place;
+mod record;
 mod route;
 mod sidebar;
 mod widgets;
@@ -28,6 +29,7 @@ pub use community::*;
 pub use legend::*;
 pub use map::*;
 pub use place::*;
+pub use record::*;
 pub use route::*;
 pub use sidebar::*;
 pub use widgets::*;
@@ -38,4 +40,6 @@ pub enum Tab {
     Info,
     Library,
     Conditions,
+    /// Położenie GPS i nagrywanie przejścia (telefon).
+    Record,
 }

@@ -67,6 +67,7 @@ impl Atlas {
             self.export_route();
         }
         self.animate(&ctx);
+        self.gps_tick(&ctx);
 
         // dane okolicy: sektory wokół celu kamery i punktów trasy
         if self.last_want.elapsed() > Duration::from_millis(400) {
@@ -87,6 +88,11 @@ impl Atlas {
 
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
         let size = [rect.width().max(1.0), rect.height().max(1.0)];
+        // przesunięcie albo obrót mapy palcem / myszą kończy podążanie za położeniem
+        let touch_move = ctx.input(|i| i.multi_touch().is_some_and(|t| t.translation_delta.length() > 2.0 || t.rotation_delta.abs() > 0.01));
+        if resp.drag_started() || (touch_move && resp.hovered()) {
+            self.stop_following();
+        }
 
         // ramka świata: przesunięcie, gdy kamera odleci daleko od początku
         let (fx, fz) = self.frame.to_local(self.cam.lon, self.cam.lat);

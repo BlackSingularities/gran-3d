@@ -363,6 +363,9 @@ pub(super) fn tools(a: &mut Atlas, ui: &mut egui::Ui) {
         }
     }
     ui.separator();
+    if crate::platform::LOCATION && theme::icon_button(ui, theme::icon::RECORD, a.rec.is_some()).on_hover_text(hint(Action::Record)).clicked() {
+        a.run(Action::Record, &ctx);
+    }
     if theme::icon_button(ui, theme::icon::PERSON_SIMPLE_WALK, a.panorama.is_some()).on_hover_text(crate::i18n::tr("Spacer ze środka widoku: W A S D, spacja – skok, prawy przycisk – rozglądanie, Esc – wyjście")).clicked() {
         if a.panorama.is_some() {
             a.exit_panorama();
@@ -380,6 +383,13 @@ fn compact_tools(a: &mut Atlas, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     if theme::tool_tile(ui, theme::icon::CURSOR, "Wybór", plain, W).clicked() {
         select_mode(a, &ctx);
+    }
+    // nagrywanie przejścia na początku paska (widać bez przewijania)
+    if crate::platform::LOCATION {
+        let label = if a.rec.is_some() { "Nagrywam" } else { "Nagraj" };
+        if theme::tool_tile(ui, theme::icon::RECORD, label, a.rec.is_some(), W).clicked() {
+            a.run(Action::Record, &ctx);
+        }
     }
     for (tab, glyph, label) in [(Tab::Info, theme::icon::COMPASS, "Szczegóły"), (Tab::Library, theme::icon::BOOKMARKS, "Biblioteka"), (Tab::Conditions, theme::icon::CLOUD_SUN, "Warunki")] {
         let on = a.prefs.panel_open && a.tab == tab;

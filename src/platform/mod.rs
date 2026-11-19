@@ -44,6 +44,8 @@ pub enum Event {
     Link(String),
     /// Uruchomienie do zrzutów ekranu (bez przewodnika i pytań).
     Capture,
+    /// Odpowiedź na prośbę o lokalizację (zgoda / odmowa).
+    LocationPermission(bool),
 }
 
 static EVENTS: Mutex<Vec<Event>> = Mutex::new(Vec::new());

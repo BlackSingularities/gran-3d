@@ -1,4 +1,4 @@
-//! Biblioteka użytkownika: zapisane trasy, ulubione miejsca i zakładki widoku.
+//! Biblioteka użytkownika: zapisane trasy, ulubione miejsca, zakładki widoku i nagrane przejścia.
 //! Plik `%APPDATA%\GRAN\biblioteka.json`, zapisywany po każdej zmianie.
 
 use std::path::PathBuf;
@@ -51,6 +51,26 @@ pub struct SavedView {
     pub exag: f64,
 }
 
+/// Nagrane przejście w bibliotece: podsumowanie do listy (punkty – w `nagrania/<id>.json`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RecordingMeta {
+    pub id: u64,
+    pub name: String,
+    pub group: String,
+    /// Początek przejścia (sekundy uniksowe).
+    pub created: u64,
+    pub stats: crate::recording::Stats,
+    /// Wczytane z pliku (zegarek, inna aplikacja) – nazwa pliku; puste – nagrane w GRANI.
+    pub source: String,
+}
+
+impl RecordingMeta {
+    pub fn of(r: &crate::recording::Recording, group: String) -> Self {
+        RecordingMeta { id: r.id, name: r.name.clone(), group, created: r.start.max(0.0) as u64, stats: r.stats, source: r.source.clone() }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Sort {
     #[default]
@@ -64,6 +84,8 @@ pub struct Library {
     pub routes: Vec<SavedRoute>,
     pub places: Vec<Place>,
     pub views: Vec<SavedView>,
+    /// Nagrane przejścia (GPS w telefonie, wczytane z zegarka).
+    pub recordings: Vec<RecordingMeta>,
     pub sort: Sort,
     next_id: u64,
 }
@@ -105,6 +127,7 @@ impl Library {
             .map(|r| r.id)
             .chain(self.places.iter().map(|p| p.id))
             .chain(self.views.iter().map(|v| v.id))
+            .chain(self.recordings.iter().map(|r| r.id))
             .max()
             .unwrap_or(0);
         self.next_id = self.next_id.max(top) + 1;
@@ -119,6 +142,7 @@ impl Library {
             .map(|r| r.group.clone())
             .chain(self.places.iter().map(|p| p.group.clone()))
             .chain(self.views.iter().map(|v| v.group.clone()))
+            .chain(self.recordings.iter().map(|r| r.group.clone()))
             .filter(|g| !g.trim().is_empty())
             .collect();
         g.sort_by_key(|s| s.to_lowercase());
