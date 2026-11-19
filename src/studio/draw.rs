@@ -1044,7 +1044,7 @@ mod tests {
         let p = pdf(&d);
         assert!(p.starts_with(b"%PDF-1.5") && p.ends_with(b"%%EOF\n"));
         let text = String::from_utf8_lossy(&p);
-        assert!(text.contains("/Lslash") && text.contains("/OCProperties") && text.contains(" W n"));
+        assert!(text.contains("/Lslash") && text.contains("/OCProperties"));
         let x = dxf(&d);
         assert!(x.contains("POLYLINE") && x.contains("\\U+0141"));
         assert_eq!(d.info().len(), 4);

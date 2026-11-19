@@ -232,7 +232,9 @@ pub fn build(g: &Grid, sd: &dyn Fn(f64, f64, f32) -> f64, opts: &ModelOpts, boun
     let s = opts.width_mm as f64 / longest;
     let (cx, cy) = ((bounds[0] + bounds[2]) / 2.0, (bounds[1] + bounds[3]) / 2.0);
     // wartości w węzłach
-    let d: Vec<f64> = (0..nx * ny).map(|k| sd(m.x(k % nx), m.y(k / nx), m.z[k])).collect();
+    // węzeł dokładnie na brzegu liczy się jako zewnętrzny (inaczej punkt przecięcia pokryłby się
+    // z wierzchołkiem węzła i powstałyby zdegenerowane trójkąty)
+    let d: Vec<f64> = (0..nx * ny).map(|k| sd(m.x(k % nx), m.y(k / nx), m.z[k])).map(|v| if v == 0.0 { 1e-7 } else { v }).collect();
     let zmin = (0..nx * ny).filter(|&k| d[k] <= 0.0).map(|k| m.z[k]).fold(f32::INFINITY, f32::min);
     let zmin = if zmin.is_finite() { zmin } else { m.range().0 };
     let (gx0, gx1, gy0, gy1) = (g.x0, g.x1(), g.y0(), g.y1);
