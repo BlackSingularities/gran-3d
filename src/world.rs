@@ -182,17 +182,25 @@ impl World {
     /// Maski pokrycia terenu dla wczytanych sektorów okolicy (po kolei, z przerwą po błędzie).
     fn run_land(&self, ctx: eframe::egui::Context) {
         let mut failed: HashMap<SectorId, Instant> = HashMap::new();
+        let mut water_failed: HashMap<SectorId, Instant> = HashMap::new();
         let mut idle = false;
         loop {
             // bez pracy – rzadkie sprawdzanie; po zapisanym sektorze od razu następny
             thread::sleep(if idle { Duration::from_secs(2) } else { Duration::from_millis(200) });
             idle = true;
             let root = self.heights.store().root().to_path_buf();
-            let next = {
+            let (water, next) = {
                 let s = self.state.0.lock().unwrap();
-                // sektor pod kamerą (pierwszy na liście) od razu, niezależnie od szlaków – woda,
-                // lasy i skały nie czekają minutami na pobranie szlaków; dalsze po wczytaniu szlaków
-                s.wanted
+                // woda z kafli wektorowych (sekundy) dla całej okolicy od razu – nie czeka na szlaki
+                // ani na Overpass, który potrafi odpowiadać minutami albo wcale
+                let water = s
+                    .wanted
+                    .iter()
+                    .find(|id| !crate::landcover::water_exists(&root, **id) && water_failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(60)))
+                    .copied();
+                // pełna maska: sektor pod kamerą (pierwszy na liście) od razu, dalsze po wczytaniu szlaków
+                let next = s
+                    .wanted
                     .iter()
                     .enumerate()
                     .filter(|(k, id)| *k == 0 || (s.loaded.contains_key(id) && !s.partial.contains(id)))
@@ -201,8 +209,24 @@ impl World {
                         !crate::landcover::exists(&root, **id)
                             && failed.get(id).is_none_or(|t| t.elapsed() > Duration::from_secs(90))
                     })
-                    .copied()
+                    .copied();
+                (water, next)
             };
+            if let Some(id) = water {
+                idle = false;
+                match crate::landcover::fetch_water(id).and_then(|img| crate::landcover::save_water(&root, id, &img)) {
+                    Ok(()) => {
+                        log::info!("woda {}/{} zapisana", id.x, id.y);
+                        self.land_version.fetch_add(1, Ordering::Relaxed);
+                        ctx.request_repaint();
+                    }
+                    Err(e) => {
+                        log::warn!("woda {}/{}: {e}", id.x, id.y);
+                        water_failed.insert(id, Instant::now());
+                    }
+                }
+                continue;
+            }
             let Some(id) = next else { continue };
             idle = false;
             self.land_busy.store(true, Ordering::Relaxed);

@@ -2,6 +2,10 @@
 //! sektora: R – woda, G – las z rodzajem drzew (zob. `FOREST_*`), B – skały (255) / zarośla (110).
 //! Zapis: `land\9_x_y_t.png` w folderze danych (starsze maski `9_x_y.png` – bez rodzaju drzew – służą,
 //! dopóki nowa się nie pobierze).
+//!
+//! Woda przychodzi najpierw z kafli wektorowych OpenFreeMap (morza, jeziora, szerokie rzeki – cały
+//! świat, w kilka sekund): maska `9_x_y_w.png` z samą wodą działa, zanim Overpass odda lasy i skały
+//! (potrafi odpowiadać minutami albo wcale). Pełna maska łączy wodę z obu źródeł.
 
 use std::path::{Path, PathBuf};
 
@@ -52,6 +56,16 @@ pub fn path(root: &Path, id: SectorId) -> PathBuf {
     root.join("land").join(format!("{}_{}_{}_t.png", SECTOR_Z, id.x, id.y))
 }
 
+/// Maska z samą wodą (z kafli wektorowych), zanim przyjdzie pełna.
+fn water_path(root: &Path, id: SectorId) -> PathBuf {
+    root.join("land").join(format!("{}_{}_{}_w.png", SECTOR_Z, id.x, id.y))
+}
+
+/// Jest maska z wodą (pełna albo tylko wodna).
+pub fn water_exists(root: &Path, id: SectorId) -> bool {
+    exists(root, id) || water_path(root, id).exists()
+}
+
 /// Maska sprzed rozróżniania rodzajów drzew.
 fn legacy_path(root: &Path, id: SectorId) -> PathBuf {
     root.join("land").join(format!("{}_{}_{}.png", SECTOR_Z, id.x, id.y))
@@ -59,7 +73,11 @@ fn legacy_path(root: &Path, id: SectorId) -> PathBuf {
 
 /// Maska sektora: nowa, a gdy jej jeszcze nie ma – starsza.
 fn open(root: &Path, id: SectorId) -> Option<image::RgbImage> {
-    image::open(path(root, id)).or_else(|_| image::open(legacy_path(root, id))).ok().map(|i| i.to_rgb8())
+    image::open(path(root, id))
+        .or_else(|_| image::open(legacy_path(root, id)))
+        .or_else(|_| image::open(water_path(root, id)))
+        .ok()
+        .map(|i| i.to_rgb8())
 }
 
 pub fn exists(root: &Path, id: SectorId) -> bool {
@@ -125,13 +143,79 @@ fn fill(img: &mut [u8], rings: &[Vec<(f64, f64)>], ch: usize, val: u8) {
     }
 }
 
-/// Pobranie (w ćwiartkach) i wypieczenie maski sektora. Blokujące.
+/// Poziom kafli wektorowych z wodą: 8×8 kafli na sektor (te same co dla dróg; na z12 są też małe stawy).
+const WATER_Z: u8 = 12;
+
+/// Wielokąty wody jednego kafla w pikselach maski sektora.
+type Rings = Vec<Vec<(f64, f64)>>;
+
+/// Woda sektora z kafli wektorowych (warstwa `water`: morza, jeziora, zalewy, szerokie rzeki) –
+/// kanał R maski RGB. Blokujące; kafle pobierane równolegle.
+pub fn fetch_water(id: SectorId) -> Result<Vec<u8>, String> {
+    let url = osm::vector_url()?;
+    let k = 1u32 << (WATER_Z - SECTOR_Z);
+    let tiles: Vec<(u32, u32)> = (0..k * k).map(|i| (id.x * k + i % k, id.y * k + i / k)).collect();
+    use rayon::prelude::*;
+    let parts: Vec<Result<Vec<Rings>, String>> = tiles.par_iter().map(|&(tx, ty)| water_tile(&url, id, k, tx, ty)).collect();
+    let mut img = vec![0u8; (SIZE * SIZE * 3) as usize];
+    for p in parts {
+        for rings in p? {
+            fill(&mut img, &rings, 0, 255);
+        }
+    }
+    Ok(img)
+}
+
+fn water_tile(url: &str, id: SectorId, k: u32, tx: u32, ty: u32) -> Result<Vec<Rings>, String> {
+    use std::io::Read;
+    let u = url.replace("{z}", &WATER_Z.to_string()).replace("{x}", &tx.to_string()).replace("{y}", &ty.to_string());
+    let r = match crate::download::agent().get(&u).timeout(std::time::Duration::from_secs(60)).call() {
+        Ok(r) => r,
+        // kafel bez danych
+        Err(ureq::Error::Status(404, _)) => return Ok(Vec::new()),
+        Err(e) => return Err(e.to_string()),
+    };
+    let mut buf = Vec::new();
+    r.into_reader().take(32 << 20).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    Ok(water_rings(&buf, id, k, tx, ty))
+}
+
+/// Wielokąty warstwy `water` kafla (`tx`, `ty`) przeliczone na piksele maski sektora `id`.
+fn water_rings(tile: &[u8], id: SectorId, k: u32, tx: u32, ty: u32) -> Vec<Rings> {
+    let px = SIZE as f64 / k as f64;
+    let (ox, oy) = ((tx - id.x * k) as f64 * px, (ty - id.y * k) as f64 * px);
+    crate::mvt::polygons(tile, &["water"])
+        .into_iter()
+        .map(|p| p.parts.into_iter().map(|r| r.into_iter().map(|(x, y)| (ox + x * px, oy + y * px)).collect()).collect())
+        .collect()
+}
+
+/// Zapis maski z samą wodą (do czasu pełnej).
+pub fn save_water(root: &Path, id: SectorId, rgb: &[u8]) -> Result<(), String> {
+    write_png(&water_path(root, id), rgb)
+}
+
+fn write_png(p: &Path, rgb: &[u8]) -> Result<(), String> {
+    if let Some(d) = p.parent() {
+        std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    }
+    let img = image::RgbImage::from_raw(SIZE, SIZE, rgb.to_vec()).ok_or(crate::i18n::tr("rozmiar maski"))?;
+    let tmp = p.with_extension("tmp.png");
+    img.save(&tmp).map_err(|e| e.to_string())?;
+    std::fs::rename(tmp, p).map_err(|e| e.to_string())
+}
+
+/// Pobranie (w ćwiartkach) i wypieczenie maski sektora. Blokujące. Woda: z kafli wektorowych
+/// i z Overpass razem.
 pub fn fetch(id: SectorId) -> Result<Vec<u8>, String> {
     let full = id.bbox();
     let s = SIZE as f64;
     let n = (1u64 << SECTOR_Z) as f64;
     let to_px = |lon: f64, lat: f64| ((lon_to_x(lon) * n - id.x as f64) * s, (lat_to_y(lat) * n - id.y as f64) * s);
-    let mut img = vec![0u8; (SIZE * SIZE * 3) as usize];
+    let mut img = fetch_water(id).unwrap_or_else(|e| {
+        log::warn!("woda z kafli {}/{}: {e}", id.x, id.y);
+        vec![0u8; (SIZE * SIZE * 3) as usize]
+    });
     let mut ok = 0;
     for j in 0..2 {
         for i in 0..2 {
@@ -204,16 +288,10 @@ pub fn fetch(id: SectorId) -> Result<Vec<u8>, String> {
 }
 
 pub fn save(root: &Path, id: SectorId, rgb: &[u8]) -> Result<(), String> {
-    let p = path(root, id);
-    if let Some(d) = p.parent() {
-        std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
-    }
-    let img = image::RgbImage::from_raw(SIZE, SIZE, rgb.to_vec()).ok_or(crate::i18n::tr("rozmiar maski"))?;
-    let tmp = p.with_extension("tmp.png");
-    img.save(&tmp).map_err(|e| e.to_string())?;
-    std::fs::rename(tmp, p).map_err(|e| e.to_string())?;
-    // starsza maska tego sektora nie jest już potrzebna
+    write_png(&path(root, id), rgb)?;
+    // starsza i tymczasowa (sama woda) maska tego sektora nie są już potrzebne
     let _ = std::fs::remove_file(legacy_path(root, id));
+    let _ = std::fs::remove_file(water_path(root, id));
     Ok(())
 }
 
@@ -370,6 +448,24 @@ fn s_f() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn water_from_vector_tile_lands_in_red_channel() {
+        let tile = crate::mvt::tests::water_tile();
+        let id = SectorId { x: 284, y: 175 };
+        let k = 1u32 << (WATER_Z - SECTOR_Z);
+        // drugi kafel w drugim rzędzie sektora: przesunięcie o jeden kafel w obu osiach
+        let rings = water_rings(&tile, id, k, id.x * k + 1, id.y * k + 1);
+        let px = (SIZE / k) as usize;
+        let mut img = vec![0u8; (SIZE * SIZE * 3) as usize];
+        for r in &rings {
+            fill(&mut img, r, 0, 255);
+        }
+        let at = |x: usize, y: usize| img[(y * SIZE as usize + x) * 3];
+        assert_eq!(at(px + 10, px + 10), 255, "woda w kaflu");
+        assert_eq!(at(px + px * 3 / 16, px + px * 3 / 16), 0, "dziura (wyspa)");
+        assert_eq!(at(10, 10), 0, "poza kaflem");
+    }
 
     #[test]
     fn fills_square_with_hole() {

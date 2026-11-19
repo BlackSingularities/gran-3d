@@ -29,10 +29,13 @@ pub enum Class {
     Track = 7,
     Rail = 8,
     Tram = 9,
+    /// Ścieżki i chodniki z kafli wektorowych – widać je także wtedy, gdy szlaki z Overpass
+    /// jeszcze nie przyszły (serwery Overpass bywają przeciążone).
+    Path = 10,
 }
 
 impl Class {
-    pub const COUNT: usize = 10;
+    pub const COUNT: usize = 11;
 
     fn from_u8(v: u8) -> Option<Class> {
         Some(match v {
@@ -46,11 +49,12 @@ impl Class {
             7 => Class::Track,
             8 => Class::Rail,
             9 => Class::Tram,
+            10 => Class::Path,
             _ => return None,
         })
     }
 
-    /// Rodzaj z atrybutów kafla (`class`, `subclass`); ścieżki zostają szlakom, promy i kolejki pomijamy.
+    /// Rodzaj z atrybutów kafla (`class`, `subclass`); promy i kolejki pomijamy.
     fn from_tile(class: &str, subclass: &str) -> Option<Class> {
         Some(match class {
             "motorway" => Class::Motorway,
@@ -63,6 +67,7 @@ impl Class {
             "track" => Class::Track,
             "rail" => Class::Rail,
             "transit" if matches!(subclass, "tram" | "light_rail") => Class::Tram,
+            "path" if subclass != "cycleway" => Class::Path,
             _ => return None,
         })
     }
@@ -87,7 +92,8 @@ impl Road {
 }
 
 pub fn path(root: &Path, id: SectorId) -> PathBuf {
-    root.join("roads").join(format!("{}_{}_{}.bin.lz4", SECTOR_Z, id.x, id.y))
+    // „_p”: wersja ze ścieżkami (starsze pliki bez nich pobierają się od nowa)
+    root.join("roads").join(format!("{}_{}_{}_p.bin.lz4", SECTOR_Z, id.x, id.y))
 }
 
 pub fn exists(root: &Path, id: SectorId) -> bool {
@@ -262,7 +268,8 @@ mod tests {
         assert_eq!(Class::from_tile("minor", ""), Some(Class::Street));
         assert_eq!(Class::from_tile("transit", "tram"), Some(Class::Tram));
         assert_eq!(Class::from_tile("transit", "subway"), None);
-        assert_eq!(Class::from_tile("path", ""), None);
+        assert_eq!(Class::from_tile("path", "footway"), Some(Class::Path));
+        assert_eq!(Class::from_tile("path", "cycleway"), None);
         for v in 0..Class::COUNT as u8 {
             assert_eq!(Class::from_u8(v).map(|c| c as u8), Some(v));
         }

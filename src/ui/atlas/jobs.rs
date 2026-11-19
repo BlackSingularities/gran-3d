@@ -732,6 +732,7 @@ fn road_style(class: crate::roads::Class, look: RoadLook) -> ([u8; 3], f32, f32,
             C::Track => ([115, 88, 60], 0.7, 0.9, false),
             C::Rail => ([30, 24, 18], 1.0, 1.7, false),
             C::Tram => ([30, 24, 18], 0.8, 1.1, false),
+            C::Path => ([96, 72, 50], 0.65, 0.8, false),
         };
     }
     if look == RoadLook::Swiss {
@@ -758,6 +759,8 @@ fn road_style(class: crate::roads::Class, look: RoadLook) -> ([u8; 3], f32, f32,
         C::Track => (if paper { [150, 115, 70] } else { [200, 165, 115] }, 0.85, 1.1, false),
         C::Rail => ([70, 70, 78], 1.0, 1.8, false),
         C::Tram => ([170, 100, 190], 0.95, 1.3, false),
+        // ścieżki: cienkie, ceglaste – pod kolorowymi szlakami, a bez nich i tak widać, którędy iść
+        C::Path => (if paper { [176, 74, 52] } else { [240, 150, 120] }, 0.8, 0.9, false),
     }
 }
 
@@ -770,6 +773,7 @@ fn road_range(class: crate::roads::Class) -> f64 {
         C::Tertiary => 45_000.0,
         C::Street | C::Tram => 16_000.0,
         C::Service | C::Track => 7_000.0,
+        C::Path => 6_000.0,
     }
 }
 
@@ -845,7 +849,7 @@ fn road_lines(
     }
     let mut out = casings;
     // dojazdy i drogi gruntowe pod spodem, autostrady wyżej, tory i tramwaje na samym wierzchu
-    for c in [Class::Track, Class::Service, Class::Street, Class::Tertiary, Class::Secondary, Class::Primary, Class::Trunk, Class::Motorway, Class::Rail, Class::Tram] {
+    for c in [Class::Path, Class::Track, Class::Service, Class::Street, Class::Tertiary, Class::Secondary, Class::Primary, Class::Trunk, Class::Motorway, Class::Rail, Class::Tram] {
         out.append(&mut fills[c as usize]);
     }
     out

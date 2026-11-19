@@ -190,8 +190,10 @@ fn tag_map(l: &RawLayer<'_>, tags: &[u64]) -> HashMap<String, Value> {
 
 const POINT: u64 = 1;
 const LINE: u64 = 2;
+const POLYGON: u64 = 3;
 const MOVE_TO: u64 = 1;
 const LINE_TO: u64 = 2;
+const CLOSE_PATH: u64 = 7;
 
 /// Warstwy kafla (pole 3 wiadomości).
 fn layers(tile: &[u8]) -> Vec<RawLayer<'_>> {
@@ -227,11 +229,21 @@ pub fn points(tile: &[u8], wanted: &[&str]) -> Vec<Point> {
 
 /// Linie z wybranych warstw (drogi, tory). Współrzędne mogą wychodzić w zapas poza kafel.
 pub fn lines(tile: &[u8], wanted: &[&str]) -> Vec<Line> {
+    shapes(tile, wanted, LINE)
+}
+
+/// Wielokąty z wybranych warstw (woda): każdy obiekt to zamknięte pierścienie – zewnętrzne i dziury
+/// (wypełniane parzysto-nieparzyście). Współrzędne mogą wychodzić w zapas poza kafel.
+pub fn polygons(tile: &[u8], wanted: &[&str]) -> Vec<Line> {
+    shapes(tile, wanted, POLYGON)
+}
+
+fn shapes(tile: &[u8], wanted: &[&str], want: u64) -> Vec<Line> {
     let mut out = Vec::new();
     for l in layers(tile).iter().filter(|l| wanted.contains(&l.name.as_str())) {
         for feature in &l.features {
             let (tags, kind, geometry) = raw_feature(feature);
-            if kind != LINE {
+            if kind != want {
                 continue;
             }
             // polecenia: (rodzaj | liczba << 3), potem pary przesunięć zapisane zygzakiem
@@ -242,8 +254,13 @@ pub fn lines(tile: &[u8], wanted: &[&str]) -> Vec<Line> {
                 let (cmd, count) = (geometry[i] & 7, (geometry[i] >> 3) as usize);
                 i += 1;
                 if cmd != MOVE_TO && cmd != LINE_TO {
-                    // zamknięcie ścieżki nie ma parametrów; nieznane polecenie kończy obiekt
-                    if cmd == 7 {
+                    // zamknięcie ścieżki (bez parametrów): pierścień wraca do początku
+                    if cmd == CLOSE_PATH {
+                        if let Some(last) = parts.last_mut() {
+                            if let Some(&first) = last.first() {
+                                last.push(first);
+                            }
+                        }
                         continue;
                     }
                     break;
@@ -263,7 +280,7 @@ pub fn lines(tile: &[u8], wanted: &[&str]) -> Vec<Line> {
                     }
                 }
             }
-            parts.retain(|p| p.len() >= 2);
+            parts.retain(|p| p.len() >= if want == POLYGON { 4 } else { 2 });
             if !parts.is_empty() {
                 out.push(Line { layer: l.name.clone(), tags: tag_map(l, &tags), parts });
             }
@@ -273,7 +290,7 @@ pub fn lines(tile: &[u8], wanted: &[&str]) -> Vec<Line> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn var(mut v: u64) -> Vec<u8> {
@@ -358,6 +375,38 @@ mod tests {
         assert_eq!(got[0].parts[0], vec![(0.0, 0.0), (0.5, 0.0), (0.5, 1.0)]);
         assert_eq!(got[0].parts[1].len(), 2);
         assert!(lines(&tile, &["place"]).is_empty(), "punkt nie jest linią");
+    }
+
+    /// Kafel z jednym wielokątem warstwy `water`: kwadrat (0,0)–(2048,2048) z dziurą.
+    pub(crate) fn water_tile() -> Vec<u8> {
+        let ring = |x: i64, y: i64, w: i64| vec![9, zz(x), zz(y), 3 << 3 | 2, zz(w), zz(0), zz(0), zz(w), zz(-w), zz(0), 7];
+        // pierwszy pierścień od (0,0); dziura od (512,512) – przesunięcie od ostatniego punktu (0,2048)
+        let mut g = ring(0, 0, 2048);
+        g.extend(ring(512, -1536, 512));
+        let geom: Vec<u8> = g.iter().flat_map(|v| var(*v)).collect();
+        let mut f = bytes(2, &[0, 0]);
+        f.extend(vint(3, 3));
+        f.extend(bytes(4, &geom));
+        let mut l = bytes(1, b"water");
+        l.extend(bytes(2, &f));
+        l.extend(bytes(3, b"class"));
+        l.extend(bytes(4, &bytes(1, b"lake")));
+        l.extend(vint(5, 4096));
+        bytes(3, &l)
+    }
+
+    #[test]
+    fn reads_polygons_with_holes() {
+        let tile = water_tile();
+        let got = polygons(&tile, &["water"]);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].text("class"), Some("lake"));
+        assert_eq!(got[0].parts.len(), 2, "pierścień zewnętrzny i dziura");
+        let outer = &got[0].parts[0];
+        assert_eq!(outer.first(), outer.last(), "pierścień zamknięty");
+        assert_eq!(outer[1], (0.5, 0.0));
+        assert_eq!(got[0].parts[1][0], (0.125, 0.125));
+        assert!(lines(&tile, &["water"]).is_empty(), "wielokąt nie jest linią");
     }
 
     #[test]

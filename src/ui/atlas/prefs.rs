@@ -132,6 +132,8 @@ pub struct Prefs {
     pub max_dem: usize,
     pub max_img: usize,
     pub label_density: f32,
+    /// Wielkość napisów nazw na mapie (1 – zwykła).
+    pub label_scale: f32,
     pub din: bool,
     pub pace: f64,
     pub band_tol: f32,
@@ -309,6 +311,7 @@ impl Default for Prefs {
             max_dem: md,
             max_img: mi,
             label_density: 1.0,
+            label_scale: 1.0,
             din: false,
             pace: 1.0,
             band_tol: 20.0,

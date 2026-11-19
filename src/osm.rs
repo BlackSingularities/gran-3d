@@ -15,10 +15,12 @@ use crate::download::agent;
 use crate::geo::{BBox, TileId};
 
 pub const SECTOR_Z: u8 = 9;
-const OVERPASS: [&str; 3] = [
+/// Serwery Overpass (kolejno, od wybranego): gdy jeden jest przeciążony, od razu następny.
+const OVERPASS: [&str; 4] = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ];
 const FORMAT: u32 = 3;
 
@@ -329,14 +331,17 @@ pub fn exists(root: &Path, id: SectorId) -> bool {
 
 pub(crate) fn overpass(query: &str, prefer: usize) -> Result<serde_json::Value, String> {
     let mut last = String::new();
+    let mut busy = false;
     for attempt in 0..OVERPASS.len() {
         let url = OVERPASS[(prefer + attempt) % OVERPASS.len()];
-        if attempt > 0 {
-            std::thread::sleep(Duration::from_secs(2 * attempt as u64));
+        // przeciążony serwer (502/503/504/429) odpowiada od razu – bez czekania przechodzimy dalej
+        if attempt > 0 && !busy {
+            std::thread::sleep(Duration::from_secs(2));
         }
+        busy = false;
         let r = agent()
             .post(url)
-            .timeout(Duration::from_secs(200))
+            .timeout(Duration::from_secs(100))
             .set("Content-Type", "application/x-www-form-urlencoded")
             .send_string(&format!("data={}", urlencode(query)));
         match r {
@@ -355,7 +360,10 @@ pub(crate) fn overpass(query: &str, prefer: usize) -> Result<serde_json::Value, 
                     Err(e) => last = tf!("odpowiedź Overpass: {}", e),
                 }
             }
-            Err(ureq::Error::Status(code, _)) => last = tf!("Overpass: kod {}", code),
+            Err(ureq::Error::Status(code, _)) => {
+                busy = matches!(code, 429 | 502 | 503 | 504);
+                last = tf!("Overpass: kod {}", code);
+            }
             Err(e) => last = e.to_string(),
         }
         log::warn!("overpass {url}: {last}");
