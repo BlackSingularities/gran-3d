@@ -41,22 +41,61 @@ const PREVIEW: u32 = 1600;
 pub enum Category {
     Info,
     Warning,
+    /// Szlak zamknięty (sezonowo, po wypadku, remont).
+    Closed,
+    /// Żleb lub stok lawiniasty.
+    Avalanche,
+    /// Łańcuchy, klamry, ekspozycja.
+    Exposed,
     Water,
+    /// Wejście do parku, kasa biletowa, opłaty.
+    Entrance,
+    /// Dojazd: przystanek, parking.
+    Transport,
+    /// Zasięg telefonu, telefon ratunkowy, apteczka.
+    Signal,
+    /// Schron, szałas, miejsce na przeczekanie burzy (dawne „nocleg i schronienie”).
+    Shelter,
     View,
     Photo,
-    /// Także rodzaje usunięte z programu (dawne „nocleg”, „parking”) i nieznane.
+    /// Zakaz (biwakowania, dronów, wejścia).
+    Ban,
+    /// Także rodzaje usunięte z programu (dawny „parking”) i nieznane.
     #[serde(other)]
     Other,
 }
 
 impl Category {
-    pub const ALL: [Category; 6] = [Category::Warning, Category::Info, Category::Water, Category::View, Category::Photo, Category::Other];
+    pub const ALL: [Category; 14] = [
+        Category::Warning,
+        Category::Closed,
+        Category::Avalanche,
+        Category::Exposed,
+        Category::Info,
+        Category::Water,
+        Category::Entrance,
+        Category::Transport,
+        Category::Signal,
+        Category::Shelter,
+        Category::View,
+        Category::Photo,
+        Category::Ban,
+        Category::Other,
+    ];
 
     pub fn label(self) -> &'static str {
         use crate::i18n::tr;
         match self {
             Category::Info => tr("Informacja"),
             Category::Warning => tr("Utrudnienie"),
+            Category::Closed => tr("Szlak zamknięty"),
+            Category::Avalanche => tr("Zagrożenie lawinowe"),
+            Category::Exposed => tr("Łańcuchy i ekspozycja"),
+            Category::Entrance => tr("Wejście i opłaty"),
+            Category::Transport => tr("Dojazd i parking"),
+            Category::Signal => tr("Zasięg i ratunek"),
+            Category::Shelter => tr("Schron"),
+            Category::Ban => tr("Zakaz"),
             Category::Water => tr("Woda"),
             Category::View => tr("Punkt widokowy"),
             Category::Photo => tr("Miejsce na zdjęcie"),
@@ -69,6 +108,14 @@ impl Category {
         match self {
             Category::Info => i::INFO,
             Category::Warning => i::WARNING,
+            Category::Closed => i::BARRICADE,
+            Category::Avalanche => i::SNOWFLAKE,
+            Category::Exposed => i::LINK_SIMPLE,
+            Category::Entrance => i::TICKET,
+            Category::Transport => i::BUS,
+            Category::Signal => i::FIRST_AID,
+            Category::Shelter => i::HOUSE_LINE,
+            Category::Ban => i::PROHIBIT,
             Category::Water => i::DROP,
             Category::View => i::BINOCULARS,
             Category::Photo => i::CAMERA,
@@ -80,6 +127,14 @@ impl Category {
         use eframe::egui::Color32;
         match self {
             Category::Warning => Color32::from_rgb(247, 160, 60),
+            Category::Closed => Color32::from_rgb(236, 84, 72),
+            Category::Avalanche => Color32::from_rgb(170, 200, 255),
+            Category::Exposed => Color32::from_rgb(255, 130, 90),
+            Category::Entrance => Color32::from_rgb(90, 200, 190),
+            Category::Transport => Color32::from_rgb(110, 160, 255),
+            Category::Signal => Color32::from_rgb(120, 220, 120),
+            Category::Shelter => Color32::from_rgb(214, 170, 110),
+            Category::Ban => Color32::from_rgb(200, 70, 90),
             Category::Water => Color32::from_rgb(90, 170, 255),
             Category::View => Color32::from_rgb(110, 214, 140),
             Category::Photo => Color32::from_rgb(240, 120, 200),
@@ -1065,6 +1120,12 @@ mod tests {
     fn parses_server_point() {
         let old: Point = serde_json::from_value(serde_json::json!({ "id": "x", "lon": 1.0, "lat": 2.0, "category": "parking", "title": "Stary" })).unwrap();
         assert_eq!(old.category, Category::Other, "usunięte rodzaje jako „Inne”");
+        for c in Category::ALL {
+            let v = serde_json::to_value(c).unwrap();
+            assert_eq!(serde_json::from_value::<Category>(v).unwrap(), c);
+        }
+        let shelter: Category = serde_json::from_value(serde_json::json!("shelter")).unwrap();
+        assert_eq!(shelter, Category::Shelter, "dawne „nocleg i schronienie” to schron");
         assert!(old.photos.is_empty());
         let v = serde_json::json!({
             "id": "abc", "lon": 20.0, "lat": 49.2, "ele": 1987.5, "category": "water", "title": "Źródło", "up": 5, "down": 2,

@@ -135,7 +135,7 @@ fn draft_form(a: &mut Atlas, ui: &mut egui::Ui) {
     theme::para(ui, if crate::platform::MOBILE { tr("Dotknij mapy albo przeciągnij szpilkę, żeby przesunąć punkt.") } else { tr("Kliknij na mapie albo przeciągnij szpilkę, żeby przesunąć punkt.") });
     ui.add_space(6.0);
     ui.label(theme::kicker(tr("Rodzaj")));
-    let cols = if ui.available_width() > 360.0 { 4 } else { 2 };
+    let cols = if ui.available_width() > 420.0 { 4 } else { 3 };
     theme::tile_grid(ui, cols, |ui, w| {
         for c in Category::ALL {
             if theme::tile(ui, c.icon(), c.label(), d.category == c, w).clicked() {
