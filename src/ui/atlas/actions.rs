@@ -324,6 +324,7 @@ impl Action {
             Action::Tool(Tool::Measure) => k(K::Num3),
             Action::Tool(Tool::Point) => k(K::Num4),
             Action::Tool(Tool::Area) => k(K::Num5),
+            Action::Tool(Tool::Studio) => None,
             Action::Lens(Lens::Band) => k(K::H),
             Action::Lens(Lens::Rel) => k(K::W),
             Action::Lens(Lens::Vis) => k(K::O),

@@ -311,6 +311,8 @@ impl App {
         let used = self.usage.bytes.load(Ordering::Relaxed);
         let known = self.usage.known.load(Ordering::Relaxed);
         let current_limit = self.settings.limit_gb;
+        // okno otwarte z ustawień (konto, polityka, zgłoszenie) leży nad nimi – Escape zamyka tylko je
+        let child_open = self.atlas.account_form.is_some() || self.atlas.privacy_open || self.feedback.is_open();
         let atlas = &mut self.atlas;
         let compact = theme::compact(ctx);
         let margin = if compact { 12 } else { 18 };
@@ -562,7 +564,7 @@ impl App {
         if save {
             let next = self.settings_open.take().unwrap().draft;
             self.apply_settings(next);
-        } else if close || modal.should_close() {
+        } else if close || (modal.should_close() && !child_open) {
             self.settings_open = None;
         }
         if check {
@@ -993,6 +995,7 @@ impl eframe::App for App {
         self.offer_lidar();
         self.atlas.confirm_ui(ctx);
         crate::ui::panels::community_windows(&mut self.atlas, ctx);
+        crate::ui::studio::window(&mut self.atlas, ctx);
         self.ask_ui(ctx);
     }
 }

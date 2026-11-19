@@ -61,6 +61,16 @@ pub fn save_file(title: &str, stem: &str, formats: &[(&str, &str)], bytes: impl 
     Some(std::fs::write(&p, bytes(&ext)).map(|_| p.display().to_string()).map_err(|e| e.to_string()))
 }
 
+/// Ścieżka zapisu z okna „Zapisz jako” (Studio zapisuje kilka plików obok siebie, w tle).
+pub fn save_target(title: &str, stem: &str, formats: &[(&str, &str)]) -> Option<PathBuf> {
+    let first = formats.first().map(|f| f.0).unwrap_or("bin");
+    let mut dlg = rfd::FileDialog::new().set_title(title).set_file_name(format!("{stem}.{first}"));
+    for (e, label) in formats {
+        dlg = dlg.add_filter(*label, &[*e]);
+    }
+    dlg.save_file()
+}
+
 /// Miejsce zapisu zrzutu ekranu (okno „Zapisz jako”).
 pub fn screenshot_target() -> Option<PathBuf> {
     rfd::FileDialog::new()

@@ -8,3 +8,4 @@ pub mod library;
 pub mod conditions;
 pub mod dialog;
 pub mod privacy;
+pub mod studio;

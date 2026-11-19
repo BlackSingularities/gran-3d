@@ -123,6 +123,8 @@ pub fn window(ctx: &egui::Context, open: &mut bool, support: &str) {
     let h = (ctx.screen_rect().height() - 120.0).clamp(240.0, 720.0);
     egui::Window::new(tr(TITLE))
         .id(egui::Id::new("polityka-prywatnosci"))
+        // nad oknem ustawień (Modal), z którego bywa otwierana
+        .order(egui::Order::Tooltip)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

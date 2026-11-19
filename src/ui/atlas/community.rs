@@ -40,6 +40,14 @@ impl Atlas {
                 }
             }
         }
+        // obszar i linia przekroju Studio
+        if self.tool == Tool::Studio {
+            let geo_at = |lon: f64, lat: f64| -> Option<Pos2> {
+                let e = self.heights.sample_cached(lon, lat).unwrap_or(0.0);
+                view.project(self.local(lon, lat, e + 4.0)).map(at)
+            };
+            crate::ui::studio::overlay(&self.studio, p, &geo_at);
+        }
         // szkic nowego punktu
         if let Some(d) = &self.point_draft {
             if let Some(s) = view.project(self.local(d.lon, d.lat, d.ele)) {
