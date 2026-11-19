@@ -316,6 +316,8 @@ pub struct Atlas {
     export_pending: bool,
     /// Szkło interfejsu (prostokąty ekranu i siła): pod nim obraz 3D jest rozmyty.
     pub glass: Vec<(Rect, f32)>,
+    /// Prostokąty interfejsu nad mapą z ostatniej klatki (paski, panele, przyciski) – etykiety ich omijają.
+    ui_rects: Vec<Rect>,
     /// Klikalne obszary narysowanych etykiet (napis z kropką) i indeksy punktów.
     label_hits: Vec<(Rect, usize)>,
     /// Prognozy pogody i komunikaty lawinowe (pobierane w tle).
@@ -487,6 +489,7 @@ impl Atlas {
             hist_now: (Vec::new(), RouteMode::Trails),
             export_pending: false,
             glass: Vec::new(),
+            ui_rects: Vec::new(),
             label_hits: Vec::new(),
             weather: Default::default(),
             avalanche: Default::default(),

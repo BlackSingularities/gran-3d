@@ -22,7 +22,11 @@ impl Atlas {
         // etykiety punktów z rozrzedzaniem i zasłanianiem przez teren
         if self.prefs.labels {
             let ppp = ui.ctx().pixels_per_point();
-            let mut taken: Vec<Rect> = Vec::new();
+            // napisy nie wchodzą pod kompas, przyciski i panele nad mapą (przycisk panelu bocznego,
+            // powiększanie, legenda…) – zajęte miejsca z ostatniej klatki i kompas
+            let mut taken: Vec<Rect> = self.ui_rects.iter().map(|r| r.expand(3.0)).collect();
+            taken.push(compass_rect(self, rect).expand(4.0));
+            let blocked = taken.len();
             let max = (70.0 * self.prefs.label_density) as usize;
             let max_places = (28.0 * self.prefs.label_density) as usize;
             let mut shown = 0;
@@ -143,10 +147,13 @@ impl Atlas {
                 let busy = if self.panorama.is_some() { Rect::from_min_max(lr.min, lr.max + Vec2::new(0.0, 13.0)) } else { lr };
                 // napis, który wchodziłby pod panel boczny, górny pasek albo profil, nie jest pokazywany wcale
                 // (zamiast uciętego)
-                if (side > 0.0 && busy.right() > visible.right() - 2.0) || (top > 0.0 && busy.top() < visible.top() + 2.0) || busy.bottom() > visible.bottom() - 2.0 {
+                // ani ucięty przy krawędzi ekranu
+                if busy.right() > visible.right() - 2.0 || busy.left() < visible.left() + 2.0 || (top > 0.0 && busy.top() < visible.top() + 2.0) || busy.bottom() > visible.bottom() - 2.0 {
                     continue;
                 }
-                if !is_sel && taken.iter().any(|t| t.intersects(busy)) {
+                // zaznaczony punkt zawsze z nazwą, chyba że leży pod przyciskiem albo panelem
+                let clash = |ts: &[Rect]| ts.iter().any(|t| t.intersects(busy));
+                if clash(&taken[..blocked]) || (!is_sel && clash(&taken[blocked..])) {
                     continue;
                 }
                 taken.push(busy);
@@ -280,8 +287,8 @@ impl Atlas {
         pc.multiply_opacity(alpha);
         let r = 30.0;
         // pod górnym paskiem, obok panelu bocznego
-        let c = rect.right_top() + Vec2::new(-51.0 - crate::ui::panels::right_inset(self), 51.0 + self.safe_top + crate::ui::panels::TOP_BAR_H);
-        let compass = Rect::from_center_size(c, Vec2::splat(r * 2.0 + 4.0));
+        let compass = compass_rect(self, rect);
+        let c = compass.center();
         let resp = ui.interact(compass, ui.id().with("kompas"), if alpha > 0.05 { Sense::click_and_drag() } else { Sense::hover() });
         let hot = resp.hovered() || resp.dragged();
         pc.circle_filled(c + Vec2::new(0.0, 2.0), r + 1.0, Color32::from_black_alpha(90));
@@ -398,12 +405,22 @@ impl Atlas {
         let bar_font = FontId::proportional(11.5);
         let bar_color = theme::paper_2();
         // źródła danych przy prawej krawędzi; pozostałe napisy nie wchodzą na siebie
-        let attr_g = p.layout_no_wrap(attribution(self.prefs.style, self.cam.lon, self.cam.lat), bar_font.clone(), bar_color);
-        let attr_left = bar.right() - 12.0 - attr_g.size().x;
+        let full_attr = attribution(self.prefs.style, self.cam.lon, self.cam.lat);
         let info_g = p.layout_no_wrap(info.clone(), bar_font.clone(), bar_color);
         let info_right = bar.left() + 12.0 + info_g.size().x;
+        // na węższym ekranie (tablet) pełne źródła zabierały miejsce stanowi wczytywania – wtedy krótkie,
+        // pełne po najechaniu
+        let long_g = p.layout_no_wrap(full_attr.clone(), bar_font.clone(), bar_color);
+        let attr_g = if long_g.size().x > bar.width() * 0.42 {
+            p.layout_no_wrap(attribution_short(self.prefs.style, self.cam.lon, self.cam.lat), bar_font.clone(), bar_color)
+        } else {
+            long_g
+        };
+        let attr_left = bar.right() - 12.0 - attr_g.size().x;
         if !self.compact {
-            p.galley(Pos2::new(attr_left, bar.center().y - attr_g.size().y / 2.0), attr_g, bar_color);
+            let ar = Rect::from_min_size(Pos2::new(attr_left, bar.center().y - attr_g.size().y / 2.0), attr_g.size());
+            ui.interact(ar, ui.id().with("zrodla-danych"), Sense::hover()).on_hover_text(&full_attr);
+            p.galley(ar.min, attr_g, bar_color);
             p.with_clip_rect(Rect::from_min_max(bar.min, Pos2::new((attr_left - 16.0).max(bar.left()), bar.bottom())))
                 .galley(Pos2::new(bar.left() + 12.0, bar.center().y - info_g.size().y / 2.0), info_g, bar_color);
         }
@@ -503,9 +520,12 @@ impl Atlas {
         // statusy na środku dolnego paska (nad odczytem kursora i atrybucją)
         if !chips.is_empty() && !self.compact {
             // zwykły tekst na pasku, bez tła i obwódki; klik otwiera szczegóły wczytywania
-            let g = p.layout_no_wrap(chips.join("  ·  "), bar_font, bar_color);
-            // na środku paska, a gdy brakuje miejsca – między odczytem kursora a źródłami danych
             let (lo, hi) = (info_right + 16.0, attr_left - 16.0);
+            // za długi – ucięty wielokropkiem, nie w pół litery pod źródłami danych
+            let mut job = egui::text::LayoutJob::simple_singleline(chips.join("  ·  "), bar_font, bar_color);
+            job.wrap = egui::text::TextWrapping::truncate_at_width((hi - lo).max(40.0));
+            let g = p.layout_job(job);
+            // na środku paska, a gdy brakuje miejsca – między odczytem kursora a źródłami danych
             let left = (bar.center().x - g.size().x / 2.0).min(hi - g.size().x).max(lo);
             let r = Rect::from_min_size(Pos2::new(left, bar.center().y - g.size().y / 2.0), g.size());
             let resp = ui.interact(r.expand2(Vec2::new(4.0, 2.0)), ui.id().with("stan-wczytywania"), Sense::click());
@@ -701,6 +721,25 @@ fn halo(ppp: f32) -> [Vec2; 8] {
         Vec2::new(d, -d),
         Vec2::new(-d, -d),
     ]
+}
+
+/// Kompas: pod górnym paskiem, przy prawej krawędzi (obok panelu bocznego).
+fn compass_rect(a: &Atlas, rect: Rect) -> Rect {
+    let c = rect.right_top() + Vec2::new(-51.0 - crate::ui::panels::right_inset(a), 51.0 + a.safe_top + crate::ui::panels::TOP_BAR_H);
+    Rect::from_center_size(c, Vec2::splat(64.0))
+}
+
+/// Krótkie źródła danych (wąski pasek stanu); pełne są w podpowiedzi.
+fn attribution_short(style: Style, lon: f64, lat: f64) -> String {
+    let base = match style {
+        Style::Satellite => "© Esri · Mapterhorn · OpenStreetMap",
+        _ => "© Mapterhorn · AWS · OpenStreetMap",
+    };
+    if crate::lidar::active_at(lon, lat) {
+        format!("{base} · GUGiK · ČÚZK")
+    } else {
+        base.to_string()
+    }
 }
 
 /// Źródła danych na pasku stanu: styl mapy i – w zasięgu włączonego LiDAR – krajowe modele terenu.
