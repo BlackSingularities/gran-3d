@@ -264,11 +264,9 @@ impl App {
         let update = &self.update;
         crate::ui::panels::top_bar(&mut self.atlas, ctx, |atlas, ui| {
             if atlas.compact {
-                if theme::tool_tile(ui, theme::icon::GEAR, crate::i18n::tr("Ustawienia"), false, 52.0).clicked() {
+                // telefon: ustawienia w polu wyszukiwania (pomoc – w arkuszu „Więcej”)
+                if crate::ui::panels::round_icon(ui, theme::icon::GEAR, theme::paper_2(), crate::i18n::tr("Ustawienia")).clicked() {
                     settings = true;
-                }
-                if theme::tool_tile(ui, theme::icon::QUESTION, crate::i18n::tr("Pomoc"), atlas.help, 46.0).clicked() {
-                    atlas.help = !atlas.help;
                 }
             } else {
                 if theme::icon_button(ui, theme::icon::GEAR, false).on_hover_text(crate::i18n::tr("Ustawienia (Ctrl+,)")).clicked() {
@@ -281,7 +279,7 @@ impl App {
             if let Update::Available(rel) = update {
                 // telefon: kafelek z ikoną i numerem wersji jak sąsiednie przyciski (pełny napis się nie mieścił)
                 let clicked = if atlas.compact {
-                    theme::tool_tile(ui, theme::icon::ARROW_CIRCLE_UP, &rel.version, true, 52.0).on_hover_text(tf!("Aktualizacja {}", rel.version)).clicked()
+                    crate::ui::panels::round_icon(ui, theme::icon::ARROW_CIRCLE_UP, theme::OK, &tf!("Aktualizacja {}", rel.version)).clicked()
                 } else {
                     ui.add(theme::primary(&tf!("Aktualizacja {}", rel.version))).clicked()
                 };
@@ -979,6 +977,7 @@ impl eframe::App for App {
                 self.atlas.view_ui(ui, frame);
             });
         crate::ui::panels::nav(&mut self.atlas, ctx);
+        crate::ui::panels::map_buttons(&mut self.atlas, ctx);
         crate::ui::panels::record_hud(&mut self.atlas, ctx);
         crate::ui::panels::legend(&mut self.atlas, ctx);
         crate::ui::panels::profile_panel(&mut self.atlas, ctx);
@@ -1043,6 +1042,8 @@ impl App {
             self.feedback.close();
         } else if self.tour.is_some() {
             self.tour = None;
+        } else if crate::ui::panels::close_more(ctx) {
+            // arkusz „Więcej” na telefonie
         } else if !self.atlas.back(theme::compact(ctx)) {
             crate::platform::move_to_back();
         }
