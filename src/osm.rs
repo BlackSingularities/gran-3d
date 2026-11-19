@@ -329,7 +329,29 @@ pub fn exists(root: &Path, id: SectorId) -> bool {
     id.path(root).exists()
 }
 
+/// Dane okolicy trzymane na serwerze GRANI (Polska, Czechy, Słowacja): te same odpowiedzi Overpass,
+/// pobrane wcześniej przez redzikowski.com (repo Homepage, `server/gran-sectors.mjs`).
+const SECTOR_CACHE: &str = "https://redzikowski.com/api/gran/overpass";
+
+/// Odpowiedź z serwera GRANI, gdy ją ma; `None` – poza obszarem (404), jeszcze w kolejce (202)
+/// albo serwer niedostępny – wtedy pytamy publiczny Overpass jak dotąd.
+fn from_sector_cache(query: &str) -> Option<serde_json::Value> {
+    let body = serde_json::json!({ "query": query }).to_string();
+    let r = agent().post(SECTOR_CACHE).timeout(Duration::from_secs(90)).set("Content-Type", "application/json").send_string(&body).ok()?;
+    if r.status() != 200 {
+        return None;
+    }
+    let mut buf = Vec::new();
+    r.into_reader().take(400 << 20).read_to_end(&mut buf).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&buf).ok()?;
+    v["elements"].is_array().then_some(v)
+}
+
 pub(crate) fn overpass(query: &str, prefer: usize) -> Result<serde_json::Value, String> {
+    if let Some(v) = from_sector_cache(query) {
+        log::debug!("overpass: odpowiedź z serwera GRANI");
+        return Ok(v);
+    }
     let mut last = String::new();
     let mut busy = false;
     for attempt in 0..OVERPASS.len() {
