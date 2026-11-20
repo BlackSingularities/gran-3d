@@ -1576,6 +1576,139 @@ Studio: wycinki 3D, przekroje i mapy wektorowe	Studio: 3D cut-outs, cross-sectio
 Ustawienia i zapis są w oknie Studio. Na mapie wskazujesz obszar wycinka, a na zakładce Przekrój – linię A–B.	Settings and saving are in the Studio window. On the map you mark the cut-out area and, on the Cross-section tab, the A–B line.
 Kliknięcie na mapie: punkt linii przekroju.	Click on the map: a point of the section line.
 Sesja wygasła – zaloguj się ponownie.	Session expired – please log in again.
+Szerokość (W–E)	Width (W–E)
+Wysokość (N–S)	Height (N–S)
+Środek obszaru zostaje na miejscu.	The centre of the area stays in place.
+Promień	Radius
+Tekstura modelu i obrazu	Model and image texture
+Osobne materiały dla lasów, skał, wód, śniegu i budynków	Separate materials for forests, rock, water, snow and buildings
+Zestaw:	Preset:
+Materiał	Material
+Kolor	Colour
+Szorstkość	Roughness
+Powierzchnia terenu	Terrain surface
+Odcień mnożony przez teksturę terenu	Tint multiplied by the terrain texture
+Kolor jednolity	Solid colour
+Ściany boczne	Side walls
+Skała od nachylenia	Rock from slope
+0 – wyłączone	0 – off
+Śnieg powyżej	Snow above
+Materiały trafiają do GLB (PBR: kolor, szorstkość, metaliczność), OBJ/MTL (osobne grupy) i kolorów PLY. STL nie przenosi materiałów.	Materials go into GLB (PBR: colour, roughness, metalness), OBJ/MTL (separate groups) and PLY colours. STL does not carry materials.
+GLB do przeglądarek, Blendera i silników gier (materiały PBR), OBJ z teksturami, STL do druku 3D (szczelna bryła z podstawą), PLY z kolorami wierzchołków.	GLB for viewers, Blender and game engines (PBR materials), OBJ with textures, STL for 3D printing (watertight solid with a base), PLY with vertex colours.
+SVG z warstwami, PDF z warstwami do druku, DXF do programów CAD albo PNG; profil pionowy także jako CSV.	SVG with layers, PDF with layers for print, DXF for CAD or PNG; the vertical profile also as CSV.
+Podtytuł	Subtitle
+np. Mapa turystyczna	e.g. Hiking map
+opcjonalnie	optional
+Orientacja	Orientation
+Margines	Margin
+Krój pisma	Typeface
+Napisy	Labels
+Grubość linii	Line weight
+Rozdzielczość	Resolution
+Główna co	Index every
+warstwice	contours
+Wygładzone krzywe	Smoothed curves
+Opisy warstwic, gęstość	Contour labels, density
+Skały i lodowce	Rock and glaciers
+Drogi i koleje	Roads and railways
+Szczyty i schroniska	Peaks and huts
+Wysokości szczytów	Peak elevations
+Ramka obszaru	Area frame
+Strzałka północy	North arrow
+Każda warstwa także w osobnym pliku SVG	Each layer also as a separate SVG file
+SVG z zagnieżdżonymi warstwami (Inkscape, Illustrator, Affinity), PDF z warstwami do druku, DXF do programów CAD albo PNG w rozdzielczości podkładu.	SVG with nested layers (Inkscape, Illustrator, Affinity), PDF with layers for print, DXF for CAD or PNG at the relief resolution.
+Pominięte	Skipped
+Lista warstw pojawi się po narysowaniu podglądu mapy.	The layer list appears once the map preview has been drawn.
+Widoczna w pliku	Visible in the file
+Zablokowana do edycji (Inkscape)	Locked for editing (Inkscape)
+Kolor warstwy	Layer colour
+krycie	opacity
+linie	lines
+Zapisywana w pliku (odznaczona – pominięta)	Saved in the file (unticked – skipped)
+Kolor stylu	Style colour
+Ukryta warstwa zostaje w pliku (do włączenia w programie graficznym), pominięta – nie trafia do niego wcale.	A hidden layer stays in the file (to switch on in a graphics program); a skipped one is left out entirely.
+Wskaż obszar na mapie	Mark the area on the map
+Punkty obszaru przeciągniesz na mapie; Backspace usuwa ostatni.	Drag the area points on the map; Backspace removes the last one.
+Przeciągnij – obrót · kółko – przybliżenie · dwuklik – widok domyślny	Drag – rotate · wheel – zoom · double-click – default view
+Cały arkusz	Whole sheet
+Siatka terenu ok. {} × {} węzłów (oczko {:.1} m).	Terrain grid about {} × {} nodes (cell {:.1} m).
+{:.2} km² · siatka co {}	{:.2} km² · grid every {}
+{:.0} × {:.0} × {:.0} mm	{:.0} × {:.0} × {:.0} mm
+{} × {} mm · SVG {} kB · {} %	{} × {} mm · SVG {} kB · {} %
+Zapisz obraz terenu…	Save terrain image…
+Pokaż w folderze	Show in folder
+Pokaż wszystkie	Show all
+Przywróć domyślne	Restore defaults
+Bryła	Solid
+WYMIARY	DIMENSIONS
+PAS WZDŁUŻ LINII	STRIP ALONG A LINE
+MATERIAŁY	MATERIALS
+ZAPIS	SAVING
+RYSUNEK	DRAWING
+PROFIL	PROFILE
+STYL	STYLE
+RZEŹBA TERENU	RELIEF
+TREŚĆ MAPY	MAP CONTENT
+RAMKA I OPIS	FRAME AND MARGINALIA
+METALICZNOŚĆ	METALNESS
+Mapa SVG	SVG map
+kształt na mapie	shape on the map
+teren i obiekty	terrain and features
+kolory i światło	colours and light
+bryła i materiały	solid and materials
+profil i płaszczyzny	profile and planes
+arkusz i warstwy	sheet and layers
+Podgląd arkusza jest niedostępny.	The sheet preview is unavailable.
+Materiały…	Materials…
+Nie udało się narysować obrazu.	Could not draw the image.
+Zapisano: {} (i {} plików warstw).	Saved: {} (and {} layer files).
+Według obszaru	By area
+Pionowo	Portrait
+Poziomo	Landscape
+Turystyczny	Hiking
+Topograficzny	Topographic
+Minimalistyczny (szarości)	Minimal (greys)
+Ciemny (plakat)	Dark (poster)
+droga główna	main road
+kolej, wyciąg	railway, lift
+droga gruntowa	dirt road
+jezioro, zbiornik	lake, reservoir
+budynek	building
+szczyt (wysokość m n.p.m.)	peak (elevation, m a.s.l.)
+schronisko	mountain hut
+miejscowość	settlement
+Cieniowanie rzeźby	Hillshade
+Rzeźba terenu	Relief
+Jeziora i zbiorniki	Lakes and reservoirs
+Komunikacja	Transport
+Siatka	Grid
+Znaki punktowe	Point symbols
+Szczyty, schroniska, miejscowości	Peaks, huts, settlements
+Opisy	Labels
+Opisy siatki	Grid labels
+Nazwy szczytów i obiektów	Peak and feature names
+Nazwy miejscowości	Settlement names
+Ramka i opis mapy	Frame and marginalia
+warstwica główna co {} m	index contour every {} m
+warstwica co {} m	contour every {} m
+Opracowanie: {}	Prepared by: {}
+Skala 1:{}	Scale 1:{}
+Łąki i teren otwarty	Meadows and open ground
+Piargi	Scree
+Śnieg i lodowce	Snow and glaciers
+Spód	Bottom
+Jednolity kolor	Solid colour
+Warstwy skalne	Rock strata
+Naturalne	Natural
+Matowa makieta	Matte model
+Biały gips	White plaster
+Ceramika	Ceramic
+Bezszeryfowy (Helvetica, Arial)	Sans serif (Helvetica, Arial)
+Szeryfowy (Georgia, Times)	Serif (Georgia, Times)
+Wąski (Arial Narrow)	Condensed (Arial Narrow)
+Studio	Studio
+Ustawienia i zapis są w oknie Studio. Obszar wycinka wskazujesz na mapie na zakładce Obszar, a linię A–B – na zakładce Przekrój.	Settings and saving are in the Studio window. You mark the cut-out area on the map on the Area tab, and the A–B line on the Cross-section tab.
+Na tej zakładce kliknięcia mapy nie zmieniają obszaru – przejdź do zakładki Obszar, żeby go poprawić.	On this tab, map clicks do not change the area – go to the Area tab to adjust it.
 Nowość	New
 GRAŃ jest już na Androidzie	GRAŃ is now on Android
 Te same mapy 3D, szlaki i trasy w telefonie – a do tego położenie GPS, nagrywanie przejść i mapy offline na drogę. Zeskanuj kod aparatem telefonu: otworzy się strona, z której pobierzesz aplikację.	The same 3D maps, trails and routes on your phone – plus GPS location, hike recording and offline maps for the road. Scan the code with your phone's camera to open the page where you can download the app.

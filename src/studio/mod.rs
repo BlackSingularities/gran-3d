@@ -46,7 +46,10 @@ pub fn allowed(acc: &crate::account::Account) -> bool {
 /// Co robi kliknięcie mapy przy otwartym Studio.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Pick {
+    /// Nic – obszar zmienia się tylko na zakładce Obszar.
     #[default]
+    None,
+    /// Punkty obszaru (zakładka Obszar).
     Area,
     /// Linia A–B przekroju.
     Section,
@@ -72,7 +75,7 @@ impl Tab {
             Tab::Look => crate::i18n::tr("Wygląd"),
             Tab::Model => crate::i18n::tr("Model 3D"),
             Tab::Section => crate::i18n::tr("Przekrój"),
-            Tab::Map => crate::i18n::tr("Mapa"),
+            Tab::Map => crate::i18n::tr("Mapa SVG"),
         }
     }
     pub fn icon(self) -> &'static str {
@@ -84,6 +87,17 @@ impl Tab {
             Tab::Model => icon::CUBE,
             Tab::Section => icon::KNIFE,
             Tab::Map => icon::MAP_TRIFOLD,
+        }
+    }
+    /// Krótki opis pod nazwą zakładki.
+    pub fn hint(self) -> &'static str {
+        match self {
+            Tab::Area => crate::i18n::tr("kształt na mapie"),
+            Tab::Terrain => crate::i18n::tr("teren i obiekty"),
+            Tab::Look => crate::i18n::tr("kolory i światło"),
+            Tab::Model => crate::i18n::tr("bryła i materiały"),
+            Tab::Section => crate::i18n::tr("profil i płaszczyzny"),
+            Tab::Map => crate::i18n::tr("arkusz i warstwy"),
         }
     }
 }
@@ -164,6 +178,26 @@ impl Scene {
     pub fn inside(&self, x: f64, y: f64) -> bool {
         self.sd(x, y, self.grid.sample(x, y)) <= 0.0
     }
+
+    /// Materiały powierzchni bryły: pokrycie z OpenStreetMap, nachylenie, granica śniegu.
+    pub fn materials(&self, m: &mut mesh::Mesh, opts: &ModelOpts) {
+        if !opts.materials {
+            return;
+        }
+        let (w, h) = color::tex_size(&self.grid, 1024);
+        let cover = self.feats.as_ref().map(|f| color::cover_classes(f, &self.grid, w, h));
+        m.assign(
+            &|u, v| match &cover {
+                Some(c) => {
+                    let x = ((u * w as f32) as u32).min(w - 1);
+                    let y = ((v * h as f32) as u32).min(h - 1);
+                    c[(y * w + x) as usize]
+                }
+                None => 0,
+            },
+            opts,
+        );
+    }
 }
 
 /// Oczko siatki dobierane do obszaru: ~1500 węzłów na dłuższy bok, nie gęściej niż 1 m.
@@ -176,6 +210,45 @@ pub fn auto_cell(region: &Region) -> f64 {
 /// Wynik zadania w tle.
 type Slot<T> = Arc<Mutex<Option<Result<T, String>>>>;
 
+/// Który arkusz pokazuje podgląd wektorowy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SheetKind {
+    Map,
+    Section,
+}
+
+/// Wynik podglądu arkusza liczonego w tle.
+pub struct SheetOut {
+    img: Option<image::RgbaImage>,
+    w: f64,
+    h: f64,
+    layers: Vec<draw::LayerInfo>,
+    svg_len: usize,
+}
+
+/// Podgląd arkusza (mapy albo przekroju): obraz prawdziwego pliku SVG, warstwy, wymiary.
+#[derive(Default)]
+pub struct Sheet {
+    /// Klucz ustawień pokazanego obrazu.
+    pub key: u64,
+    pub kind: Option<SheetKind>,
+    pub tex: Option<eframe::egui::TextureHandle>,
+    pub size_mm: (f64, f64),
+    pub layers: Vec<draw::LayerInfo>,
+    pub svg_len: usize,
+    pub error: Option<String>,
+    job: Option<(u64, SheetKind, Slot<SheetOut>)>,
+    /// Powiększenie i przesunięcie podglądu (1 – cały arkusz).
+    pub zoom: f32,
+    pub pan: (f32, f32),
+}
+
+impl Sheet {
+    pub fn busy(&self) -> bool {
+        self.job.is_some()
+    }
+}
+
 pub struct Studio {
     pub open: bool,
     pub pick: Pick,
@@ -186,13 +259,19 @@ pub struct Studio {
     export: Option<(Arc<Progress>, Slot<String>)>,
     pub error: Option<String>,
     pub notice: Option<String>,
+    /// Ostatnio zapisany plik (przycisk „Pokaż w folderze”).
+    pub last_file: Option<PathBuf>,
     pub view: preview::View,
     /// Podgląd: klucz ustawień i gotowa tekstura egui.
     pub preview: Option<(u64, eframe::egui::TextureHandle)>,
     /// Zmniejszona bryła i tekstura do podglądu (klucz ustawień).
     pub preview_data: Option<(u64, Arc<mesh::Mesh>, Arc<image::RgbaImage>)>,
-    /// Płaski podgląd tekstury (zakładki Wygląd i Mapa).
+    /// Płaski podgląd tekstury (zakładka Wygląd).
     pub flat: Option<(u64, eframe::egui::TextureHandle)>,
+    /// Podgląd arkusza mapy albo przekroju.
+    pub sheet: Sheet,
+    /// Tekstura warstw skalnych na ściany modelu.
+    strata: Arc<image::RgbaImage>,
 }
 
 impl Default for Studio {
@@ -209,12 +288,15 @@ fn key_of(v: &impl Serialize, extra: u64) -> u64 {
     h.finish()
 }
 
+/// Rysunek liczony w tle (podgląd albo zapis); argument – górna granica dpi podkładu.
+type Maker = Box<dyn FnOnce(Option<u32>) -> Result<draw::Drawing, String> + Send>;
+
 impl Studio {
     pub fn load() -> Self {
         let o: Opts = std::fs::read(opts_file()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
         Self {
             open: false,
-            pick: Pick::Area,
+            pick: Pick::None,
             saved: o.clone(),
             o,
             scene: None,
@@ -222,10 +304,13 @@ impl Studio {
             export: None,
             error: None,
             notice: None,
+            last_file: None,
             view: preview::View::default(),
             preview: None,
             preview_data: None,
             flat: None,
+            sheet: Sheet { zoom: 1.0, ..Default::default() },
+            strata: Arc::new(mesh::strata_texture()),
         }
     }
 
@@ -240,9 +325,10 @@ impl Studio {
         }
     }
 
-    /// Kliknięcie mapy przy narzędziu Studio.
+    /// Kliknięcie mapy przy narzędziu Studio (obszar tylko na zakładce Obszar).
     pub fn click(&mut self, lon: f64, lat: f64) {
         match self.pick {
+            Pick::None => {}
             Pick::Area => self.o.area.add(lon, lat),
             Pick::Section => {
                 let l = &mut self.o.section.line;
@@ -257,6 +343,7 @@ impl Studio {
     /// Usuwa ostatni punkt (Backspace).
     pub fn drop_last(&mut self) {
         match self.pick {
+            Pick::None => {}
             Pick::Area => {
                 self.o.area.pts.pop();
             }
@@ -269,6 +356,7 @@ impl Studio {
     /// Punkty do przeciągania na mapie: obszar albo linia przekroju.
     pub fn handles(&self) -> &[(f64, f64)] {
         match self.pick {
+            Pick::None => &[],
             Pick::Area => &self.o.area.pts,
             Pick::Section => &self.o.section.line,
         }
@@ -276,6 +364,7 @@ impl Studio {
 
     pub fn move_handle(&mut self, i: usize, lon: f64, lat: f64) {
         let v = match self.pick {
+            Pick::None => return,
             Pick::Area => &mut self.o.area.pts,
             Pick::Section => &mut self.o.section.line,
         };
@@ -385,6 +474,7 @@ impl Studio {
                     self.preview = None;
                     self.preview_data = None;
                     self.flat = None;
+                    self.sheet.key = 0;
                     self.notice = Some(if osm_missing {
                         crate::i18n::tr("Teren gotowy. Obiekty OpenStreetMap są chwilowo niedostępne – spróbuj ponownie później.").into()
                     } else {
@@ -409,6 +499,35 @@ impl Studio {
         } else if self.export.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         }
+        // podgląd arkusza
+        let done = self.sheet.job.as_ref().and_then(|(k, kind, s)| s.lock().unwrap().take().map(|r| (*k, *kind, r)));
+        if let Some((key, kind, r)) = done {
+            self.sheet.job = None;
+            self.sheet.key = key;
+            self.sheet.kind = Some(kind);
+            match r {
+                Ok(out) => {
+                    self.sheet.error = None;
+                    self.sheet.size_mm = (out.w, out.h);
+                    self.sheet.layers = out.layers;
+                    self.sheet.svg_len = out.svg_len;
+                    match out.img {
+                        Some(img) => {
+                            let ci = eframe::egui::ColorImage::from_rgba_premultiplied([img.width() as usize, img.height() as usize], img.as_raw());
+                            self.sheet.tex = Some(ctx.load_texture("studio-sheet", ci, eframe::egui::TextureOptions::LINEAR));
+                        }
+                        None => self.sheet.error = Some(crate::i18n::tr("Podgląd arkusza jest niedostępny.").into()),
+                    }
+                }
+                Err(e) => {
+                    self.sheet.error = Some(e);
+                    self.sheet.layers.clear();
+                }
+            }
+            ctx.request_repaint();
+        } else if self.sheet.job.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(120));
+        }
     }
 
     /// Klucz podglądu 3D (zmienia się z ustawieniami wyglądu i bryły).
@@ -422,7 +541,7 @@ impl Studio {
         key_of(&(&self.o.look, &self.o.area.above, 7u8), id)
     }
 
-    /// Dane podglądu 3D (zmniejszona bryła i tekstura) – liczone, gdy zmieniły się ustawienia.
+    /// Dane podglądu 3D (zmniejszona bryła z materiałami i tekstura) – liczone, gdy zmieniły się ustawienia.
     pub fn preview_mesh(&mut self) -> Option<(Arc<mesh::Mesh>, Arc<image::RgbaImage>)> {
         let sc = self.scene.clone()?;
         let key = self.preview_key();
@@ -432,12 +551,19 @@ impl Studio {
             }
         }
         let b = sc.region.bounds();
-        let opts = ModelOpts { cells: 150, ..self.o.model.clone() };
-        let m = Arc::new(mesh::build(&sc.grid, &|x, y, z| sc.sd(x, y, z), &opts, b));
+        let opts = ModelOpts { cells: 160, ..self.o.model.clone() };
+        let mut m = mesh::build(&sc.grid, &|x, y, z| sc.sd(x, y, z), &opts, b);
+        sc.materials(&mut m, &opts);
+        let m = Arc::new(m);
         let (w, h) = color::tex_size(&sc.grid, 768);
         let t = Arc::new(color::texture(&sc.grid, sc.feats.as_ref(), &self.o.look, w, h));
         self.preview_data = Some((key, m.clone(), t.clone()));
         Some((m, t))
+    }
+
+    /// Tekstura warstw skalnych (gdy ściany mają taki wygląd).
+    pub fn strata(&self) -> Option<&image::RgbaImage> {
+        (self.o.model.walls == mesh::Walls::Strata).then_some(self.strata.as_ref())
     }
 
     fn start_export(&mut self, label: &str, job: impl FnOnce(&Progress) -> Result<String, String> + Send + 'static) {
@@ -465,21 +591,25 @@ impl Studio {
     pub fn export_model(&mut self) {
         let Some(sc) = self.scene.clone() else { return };
         let formats = [
+            ("glb", "glTF (GLB) – materiały PBR i tekstury"),
+            ("obj", "OBJ + MTL + tekstury PNG"),
             ("stl", "STL – druk 3D"),
-            ("obj", "OBJ + MTL + tekstura PNG"),
-            ("glb", "glTF (GLB) z teksturą"),
             ("ply", "PLY z kolorami"),
         ];
         let Some(path) = crate::platform::save_target(crate::i18n::tr("Zapisz model 3D"), &self.stem(), &formats) else { return };
+        self.last_file = Some(path.clone());
         let (model, look, tex_px) = (self.o.model.clone(), self.o.look.clone(), self.o.tex_px);
+        let strata = self.strata().cloned();
         self.start_export(crate::i18n::tr("Budowanie modelu…"), move |p| {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("stl").to_ascii_lowercase();
             let b = sc.region.bounds();
-            let m = mesh::build(&sc.grid, &|x, y, z| sc.sd(x, y, z), &model, b);
+            let mut m = mesh::build(&sc.grid, &|x, y, z| sc.sd(x, y, z), &model, b);
             if m.top.is_empty() {
                 return Err(crate::i18n::tr("Wycinek jest pusty – sprawdź obszar i próg wysokości.").into());
             }
-            p.set(0.4, crate::i18n::tr("Tekstura…"));
+            p.set(0.3, crate::i18n::tr("Materiały…"));
+            sc.materials(&mut m, &model);
+            p.set(0.45, crate::i18n::tr("Tekstura…"));
             let tex = || {
                 let (w, h) = color::tex_size(&sc.grid, tex_px);
                 color::texture(&sc.grid, sc.feats.as_ref(), &look, w, h)
@@ -487,16 +617,20 @@ impl Studio {
             let credits = sc.credits().join("; ");
             p.set(0.7, crate::i18n::tr("Zapisywanie…"));
             let write = |path: &Path, bytes: &[u8]| std::fs::write(path, bytes).map_err(|e| tf!("Nie udało się zapisać {}: {}", path.display(), e));
+            let strata_png = strata.as_ref().map(mesh::png);
             match ext.as_str() {
                 "obj" => {
                     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("model").to_string();
-                    let (obj, mtl) = m.obj(&stem, &credits, look.base);
+                    let (obj, mtl) = m.obj(&stem, &credits, &model, strata_png.is_some());
                     write(path.as_path(), obj.as_bytes())?;
                     write(path.with_extension("mtl").as_path(), mtl.as_bytes())?;
                     write(path.with_extension("png").as_path(), &mesh::png(&tex()))?;
+                    if let Some(sp) = &strata_png {
+                        write(path.with_file_name(format!("{stem}_sciany.png")).as_path(), sp)?;
+                    }
                 }
-                "glb" => write(path.as_path(), &m.glb(&mesh::png(&tex()), look.base, &credits))?,
-                "ply" => write(path.as_path(), &m.ply(&tex(), look.base))?,
+                "glb" => write(path.as_path(), &m.glb(&mesh::png(&tex()), strata_png.as_deref(), &model, &credits))?,
+                "ply" => write(path.as_path(), &m.ply(&tex(), &model, strata.as_ref()))?,
                 _ => write(path.as_path(), &m.stl(&credits))?,
             }
             let s = m.size();
@@ -509,6 +643,7 @@ impl Studio {
         let Some(sc) = self.scene.clone() else { return };
         let title = if heightmap { crate::i18n::tr("Zapisz mapę wysokości") } else { crate::i18n::tr("Zapisz obraz terenu") };
         let Some(path) = crate::platform::save_target(title, &self.stem(), &[("png", "PNG")]) else { return };
+        self.last_file = Some(path.clone());
         let (look, tex_px) = (self.o.look.clone(), self.o.tex_px);
         self.start_export(crate::i18n::tr("Zapisywanie…"), move |_| {
             if heightmap {
@@ -519,28 +654,6 @@ impl Studio {
                 let (w, h) = color::tex_size(&sc.grid, tex_px);
                 std::fs::write(&path, mesh::png(&color::texture(&sc.grid, sc.feats.as_ref(), &look, w, h))).map_err(|e| e.to_string())?;
             }
-            Ok(tf!("Zapisano: {}", path.display()))
-        });
-    }
-
-    /// Zapis rysunku w formacie wybranym w oknie (SVG, PDF, DXF).
-    fn save_drawing(&mut self, title: &str, make: impl FnOnce() -> Result<draw::Drawing, String> + Send + 'static, extra: Option<(&'static str, &'static str)>) {
-        let mut formats = vec![("svg", "SVG – grafika wektorowa"), ("pdf", "PDF – do druku"), ("dxf", "DXF – CAD")];
-        if let Some(e) = extra {
-            formats.push(e);
-        }
-        let Some(path) = crate::platform::save_target(title, &self.stem(), &formats) else { return };
-        let _ = extra;
-        self.start_export(crate::i18n::tr("Rysowanie…"), move |p| {
-            let d = make()?;
-            p.set(0.8, crate::i18n::tr("Zapisywanie…"));
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("svg").to_ascii_lowercase();
-            let bytes = match ext.as_str() {
-                "pdf" => draw::pdf(&d),
-                "dxf" => draw::dxf(&d).into_bytes(),
-                _ => draw::svg(&d).into_bytes(),
-            };
-            std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
             Ok(tf!("Zapisano: {}", path.display()))
         });
     }
@@ -559,62 +672,154 @@ impl Studio {
         (ok(a) && ok(b)).then_some((a, b))
     }
 
-    pub fn export_section(&mut self) {
-        let Some(sc) = self.scene.clone() else { return };
-        let o = self.o.section.clone();
-        let line = self.section_line();
-        if o.plane != Plane::Horizontal && line.is_none() {
-            self.error = Some(crate::i18n::tr("Wskaż na mapie linię A–B przekroju wewnątrz przygotowanego obszaru.").into());
-            return;
+    fn section_title(&self) -> String {
+        if self.o.map.title.trim().is_empty() {
+            crate::i18n::tr("Przekrój terenu").to_string()
+        } else {
+            tf!("{} – przekrój", self.o.map.title.trim())
         }
-        let title = if self.o.map.title.trim().is_empty() { crate::i18n::tr("Przekrój terenu").to_string() } else { tf!("{} – przekrój", self.o.map.title.trim()) };
-        if o.plane == Plane::Vertical {
-            // pionowy: także CSV z profilem
-            let Some((a, b)) = line else { return };
-            let formats = [("svg", "SVG – grafika wektorowa"), ("pdf", "PDF – do druku"), ("dxf", "DXF – CAD"), ("csv", "CSV – profil")];
-            let Some(path) = crate::platform::save_target(crate::i18n::tr("Zapisz przekrój"), &self.stem(), &formats) else { return };
-            self.start_export(crate::i18n::tr("Rysowanie…"), move |_| {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("svg").to_ascii_lowercase();
-                let bytes = if ext == "csv" {
-                    section::profile_csv(&sc.grid, &sc.frame, a, b).into_bytes()
-                } else {
-                    let d = section::vertical(&sc.grid, sc.feats.as_ref(), a, b, &o, &title, &sc.credits());
-                    match ext.as_str() {
-                        "pdf" => draw::pdf(&d),
-                        "dxf" => draw::dxf(&d).into_bytes(),
-                        _ => draw::svg(&d).into_bytes(),
-                    }
-                };
-                std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-                Ok(tf!("Zapisano: {}", path.display()))
-            });
-            return;
-        }
-        let (a, b) = line.unwrap_or(((0.0, 0.0), (1.0, 0.0)));
-        self.save_drawing(
-            crate::i18n::tr("Zapisz przekrój"),
-            move || {
-                let lines = section::plane_lines(&sc.grid, a, b, &o, &|x, y| sc.region.sd(x, y) <= 0.0);
-                if lines.is_empty() {
-                    return Err(crate::i18n::tr("Płaszczyzna nie przecina terenu w tym obszarze – zmień wysokość albo kąt.").into());
-                }
-                let outline = if o.plane == Plane::Horizontal { Some(sc.region.outline(180)) } else { None };
-                Ok(section::plane_drawing(&lines, &o, &title, &sc.credits(), outline.as_deref()))
-            },
-            None,
-        );
     }
 
-    pub fn export_map(&mut self) {
-        let Some(sc) = self.scene.clone() else { return };
-        let (look, o) = (self.o.look.clone(), self.o.map.clone());
-        self.save_drawing(crate::i18n::tr("Zapisz mapę"), move || Ok(mapdraw::map(&sc.grid, sc.feats.as_ref(), &sc.frame, &sc.region, &look, &o, &sc.credits())), None);
+    /// Przepis na rysunek arkusza (mapy albo przekroju) z bieżących ustawień.
+    fn maker(&self, kind: SheetKind) -> Result<Maker, String> {
+        let sc = self.scene.clone().ok_or_else(|| crate::i18n::tr("Najpierw przygotuj dane obszaru (zakładka Dane).").to_string())?;
+        match kind {
+            SheetKind::Map => {
+                let (look, o) = (self.o.look.clone(), self.o.map.clone());
+                let m: Maker = Box::new(move |dpi| Ok(mapdraw::map(&sc.grid, sc.feats.as_ref(), &sc.frame, &sc.region, &look, &o, &sc.credits(), dpi)));
+                Ok(m)
+            }
+            SheetKind::Section => {
+                let o = self.o.section.clone();
+                let line = self.section_line();
+                let title = self.section_title();
+                if o.plane != Plane::Horizontal && line.is_none() {
+                    return Err(crate::i18n::tr("Wskaż na mapie linię A–B przekroju wewnątrz przygotowanego obszaru.").into());
+                }
+                let m: Maker = Box::new(move |_| {
+                    if o.plane == Plane::Vertical {
+                        let (a, b) = line.unwrap_or(((0.0, 0.0), (1.0, 0.0)));
+                        return Ok(section::vertical(&sc.grid, sc.feats.as_ref(), a, b, &o, &title, &sc.credits()));
+                    }
+                    let (a, b) = line.unwrap_or(((0.0, 0.0), (1.0, 0.0)));
+                    let lines = section::plane_lines(&sc.grid, a, b, &o, &|x, y| sc.region.sd(x, y) <= 0.0);
+                    if lines.is_empty() {
+                        return Err(crate::i18n::tr("Płaszczyzna nie przecina terenu w tym obszarze – zmień wysokość albo kąt.").into());
+                    }
+                    let outline = if o.plane == Plane::Horizontal { Some(sc.region.outline(180)) } else { None };
+                    Ok(section::plane_drawing(&lines, &o, &title, &sc.credits(), outline.as_deref()))
+                });
+                Ok(m)
+            }
+        }
+    }
+
+    /// Klucz podglądu arkusza: ustawienia, które zmieniają rysunek, i rozdzielczość obrazu.
+    fn sheet_key(&self, kind: SheetKind, px: u32) -> u64 {
+        let id = self.scene.as_ref().map(|s| Arc::as_ptr(s) as u64).unwrap_or(0);
+        match kind {
+            SheetKind::Map => key_of(&(1u8, &self.o.map, &self.o.look, px), id),
+            SheetKind::Section => key_of(&(2u8, &self.o.section, &self.o.map.title, px), id),
+        }
+    }
+
+    /// Zamawia podgląd arkusza o dłuższym boku `px` (liczony w tle; stary obraz zostaje do czasu nowego).
+    pub fn sheet_request(&mut self, kind: SheetKind, px: u32, ctx: &eframe::egui::Context) {
+        let key = self.sheet_key(kind, px);
+        if self.sheet.key == key {
+            return;
+        }
+        if let Some((k, _, _)) = &self.sheet.job {
+            // trwa liczenie – nowe ustawienia zostaną policzone po nim
+            let _ = k;
+            return;
+        }
+        let maker = match self.maker(kind) {
+            Ok(m) => m,
+            Err(e) => {
+                self.sheet.key = key;
+                self.sheet.kind = Some(kind);
+                self.sheet.error = Some(e);
+                self.sheet.tex = None;
+                self.sheet.layers.clear();
+                return;
+            }
+        };
+        let slot: Slot<SheetOut> = Arc::default();
+        let s = slot.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let r = maker(Some(110)).map(|d| {
+                let svg = draw::svg(&d);
+                SheetOut { img: draw::raster(&svg, px), w: d.w, h: d.h, layers: d.info(), svg_len: svg.len() }
+            });
+            *s.lock().unwrap() = Some(r);
+            ctx.request_repaint();
+        });
+        self.sheet.job = Some((key, kind, slot));
+    }
+
+    /// Zapis arkusza w formacie wybranym w oknie (SVG, PDF, DXF, PNG; przekrój pionowy także CSV).
+    pub fn export_sheet(&mut self, kind: SheetKind) {
+        let maker = match self.maker(kind) {
+            Ok(m) => m,
+            Err(e) => {
+                self.error = Some(e);
+                return;
+            }
+        };
+        let mut formats = vec![("svg", "SVG – grafika wektorowa z warstwami"), ("pdf", "PDF – do druku, z warstwami"), ("dxf", "DXF – CAD"), ("png", "PNG – obraz")];
+        let vertical = kind == SheetKind::Section && self.o.section.plane == Plane::Vertical;
+        if vertical {
+            formats.push(("csv", "CSV – profil"));
+        }
+        let title = if kind == SheetKind::Map { crate::i18n::tr("Zapisz mapę") } else { crate::i18n::tr("Zapisz przekrój") };
+        let Some(path) = crate::platform::save_target(title, &self.stem(), &formats) else { return };
+        self.last_file = Some(path.clone());
+        let split = kind == SheetKind::Map && self.o.map.split_layers;
+        let dpi = self.o.map.dpi;
+        let csv = match (vertical, self.scene.clone(), self.section_line()) {
+            (true, Some(sc), Some((a, b))) => Some((sc, a, b)),
+            _ => None,
+        };
+        self.start_export(crate::i18n::tr("Rysowanie…"), move |p| {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("svg").to_ascii_lowercase();
+            if ext == "csv" {
+                let Some((sc, a, b)) = csv else { return Err(crate::i18n::tr("Wskaż na mapie linię A–B przekroju wewnątrz przygotowanego obszaru.").into()) };
+                std::fs::write(&path, section::profile_csv(&sc.grid, &sc.frame, a, b)).map_err(|e| e.to_string())?;
+                return Ok(tf!("Zapisano: {}", path.display()));
+            }
+            let d = maker(None)?;
+            p.set(0.7, crate::i18n::tr("Zapisywanie…"));
+            let bytes = match ext.as_str() {
+                "pdf" => draw::pdf(&d),
+                "dxf" => draw::dxf(&d).into_bytes(),
+                "png" => {
+                    let px = ((d.w.max(d.h) / 25.4 * dpi as f64) as u32).clamp(256, 16_000);
+                    let img = draw::raster(&draw::svg(&d), px).ok_or_else(|| crate::i18n::tr("Nie udało się narysować obrazu.").to_string())?;
+                    mesh::png(&img)
+                }
+                _ => draw::svg(&d).into_bytes(),
+            };
+            std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+            let mut extra = 0;
+            if split && ext == "svg" {
+                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("mapa").to_string();
+                for l in d.layers.iter().filter(|l| !l.items.is_empty()) {
+                    let file = path.with_file_name(format!("{stem}-{}.svg", l.id));
+                    std::fs::write(&file, draw::svg(&d.only(l.id))).map_err(|e| e.to_string())?;
+                    extra += 1;
+                }
+            }
+            Ok(if extra > 0 { tf!("Zapisano: {} (i {} plików warstw).", path.display(), extra) } else { tf!("Zapisano: {}", path.display()) })
+        });
     }
 
     pub fn export_contours(&mut self) {
         let Some(sc) = self.scene.clone() else { return };
         let step = self.o.map.step;
         let Some(path) = crate::platform::save_target(crate::i18n::tr("Zapisz warstwice"), &format!("{}-warstwice", self.stem()), &[("geojson", "GeoJSON")]) else { return };
+        self.last_file = Some(path.clone());
         self.start_export(crate::i18n::tr("Warstwice…"), move |_| {
             std::fs::write(&path, mapdraw::contours_geojson(&sc.grid, &sc.frame, &sc.region, step)).map_err(|e| e.to_string())?;
             Ok(tf!("Zapisano: {}", path.display()))

@@ -353,6 +353,12 @@ pub fn fill_rings(mask: &mut [u8], w: u32, h: u32, rings: &[Vec<(f64, f64)>], tm
     }
 }
 
+/// Maska klas pokrycia (wartości jak w [`super::mesh::mat_of_cover`]) w rozmiarze `w`×`h` dla siatki `g`.
+pub fn cover_classes(f: &Features, g: &Grid, w: u32, h: u32) -> Vec<u8> {
+    let tm = TexMap::for_grid(g, w, h);
+    cover_mask(f, &tm, w, h, &Look { buildings: true, ..Look::default() })
+}
+
 fn cover_mask(f: &Features, tm: &TexMap, w: u32, h: u32, look: &Look) -> Vec<u8> {
     let mut m = vec![0u8; (w * h) as usize];
     for p in &f.polys {
