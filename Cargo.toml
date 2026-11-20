@@ -1,6 +1,6 @@
 [package]
 name = "gran"
-version = "4.1.4"
+version = "4.1.5"
 edition = "2021"
 rust-version = "1.88"
 description = "GRAŃ — atlas szlaków górskich 3D dla Windows i Androida"
@@ -46,6 +46,8 @@ env_logger = { version = "0.11", default-features = false, features = ["humantim
 # Studio: GeoTIFF Copernicus DEM i kompresja strumieni PDF
 tiff = "0.11"
 flate2 = "1"
+# kod QR strony pobierania wersji na Androida (baner na komputerze)
+qrcodegen = "1.8"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd = "0.15"

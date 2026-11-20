@@ -40,6 +40,12 @@ pub struct Settings {
     /// Obejrzana wersja ekranu powitalnego (autor, wsparcie, zgłoszenia).
     #[serde(default)]
     pub welcome: u32,
+    /// Ile razy pokazano baner „GRAŃ na Androidzie” (komputer).
+    #[serde(default)]
+    pub android_banner: u8,
+    /// Baner „GRAŃ na Androidzie” wyłączony („Nie pokazuj ponownie”).
+    #[serde(default)]
+    pub android_banner_off: bool,
 }
 
 fn res_level() -> u8 {
@@ -92,6 +98,8 @@ impl Default for Settings {
             tour_done: false,
             gles: false,
             welcome: 0,
+            android_banner: 0,
+            android_banner_off: false,
         }
     }
 }

@@ -170,6 +170,10 @@ impl App {
         if let Some(n) = std::env::var("GRAN_TOUR").ok().and_then(|n| n.parse::<usize>().ok()) {
             app.tour = Some(n);
         }
+        // komputer: baner z kodem QR wersji na Androida przy kilku pierwszych uruchomieniach
+        if std::env::var_os("GRAN_CAPTURE").is_none() {
+            crate::ui::phone::start(app.settings.android_banner, app.settings.android_banner_off);
+        }
         if app.settings.auto_update && std::env::var_os("GRAN_CAPTURE").is_none() {
             app.check_updates(false);
         }
@@ -544,6 +548,15 @@ impl App {
                             ui.label(RichText::new("kontakt@redzikowski.com").small().color(theme::paper_3()));
                             if ui.add(theme::primary(&theme::ic(theme::icon::COFFEE, "Postaw kawę"))).clicked() {
                                 crate::platform::open_url(&"https://buycoffee.to/adamredzikowski");
+                            }
+                            if !crate::platform::MOBILE {
+                                ui.add_space(12.0);
+                                ui.label(theme::kicker(crate::i18n::tr("GRAŃ na telefonie")));
+                                theme::para(ui, crate::i18n::tr("Wersja na Androida: zeskanuj kod QR telefonem albo otwórz stronę pobierania."));
+                                if ui.button(theme::ic(theme::icon::QR_CODE, "Pokaż kod QR")).clicked() {
+                                    crate::ui::phone::open();
+                                    close = true;
+                                }
                             }
                             ui.add_space(12.0);
                             ui.label(theme::kicker(crate::i18n::tr("Źródła danych")));
@@ -992,6 +1005,7 @@ impl eframe::App for App {
         self.moving_overlay(ctx);
         self.feedback.show(ctx);
         self.tour_ui(ctx);
+        self.phone_banner(ctx);
         self.offer_lidar();
         self.atlas.confirm_ui(ctx);
         crate::ui::panels::community_windows(&mut self.atlas, ctx);
@@ -1048,6 +1062,15 @@ impl App {
             self.tour = None;
         } else if !self.atlas.back(theme::compact(ctx)) {
             crate::platform::move_to_back();
+        }
+    }
+
+    /// Baner „GRAŃ na Androidzie” z kodem QR (komputer), gdy nie ma innych okien.
+    fn phone_banner(&mut self, ctx: &egui::Context) {
+        let blocked = self.tour.is_some() || self.settings_open.is_some() || self.moving.is_some() || self.ask.is_some() || self.capture.is_some() || self.feedback.is_open() || self.atlas.confirm.is_some();
+        let s = &mut self.settings;
+        if crate::ui::phone::show(ctx, &mut s.android_banner, &mut s.android_banner_off, blocked) {
+            let _ = s.save();
         }
     }
 
