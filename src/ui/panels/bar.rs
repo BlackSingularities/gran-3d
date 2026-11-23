@@ -356,9 +356,13 @@ pub(super) fn tools(a: &mut Atlas, ui: &mut egui::Ui) {
             a.run(Action::Tool(t), &ctx);
         }
     }
-    // Studio – tylko konta z dostępem, tylko komputer
-    if crate::studio::allowed(a.points.account()) && theme::icon_button(ui, Tool::Studio.behavior().icon(), a.tool == Tool::Studio).on_hover_text(Tool::Studio.behavior().hint()).clicked() {
-        a.run(Action::Tool(Tool::Studio), &ctx);
+    // Studio – tylko komputer; konta z dostępem otwierają narzędzie, pozostali okno z informacją
+    if crate::studio::allowed(a.points.account()) {
+        if theme::icon_button(ui, Tool::Studio.behavior().icon(), a.tool == Tool::Studio).on_hover_text(Tool::Studio.behavior().hint()).clicked() {
+            a.run(Action::Tool(Tool::Studio), &ctx);
+        }
+    } else if crate::studio::SUPPORTED && theme::icon_button(ui, Tool::Studio.behavior().icon(), a.studio_intro).on_hover_text(crate::i18n::tr("GRAŃ Studio: modele 3D do druku, mapy wektorowe i przekroje – jak uzyskać dostęp")).clicked() {
+        a.studio_intro = !a.studio_intro;
     }
     ui.separator();
     for l in Lens::ALL {

@@ -1718,3 +1718,24 @@ Zeskanuj telefonem	Scan with your phone
 GRAŃ na telefonie	GRAŃ on your phone
 Wersja na Androida: zeskanuj kod QR telefonem albo otwórz stronę pobierania.	Android version: scan the QR code with your phone or open the download page.
 Pokaż kod QR	Show QR code
+GRAŃ Studio: modele 3D do druku, mapy wektorowe i przekroje – jak uzyskać dostęp	GRAŃ Studio: 3D models for printing, vector maps and cross-sections – how to get access
+Modele 3D terenu do druku, mapy wektorowe i przekroje z dowolnego miejsca – dostęp na prośbę.	3D terrain models for printing, vector maps and cross-sections of any place – access on request.
+Więcej o Studio	More about Studio
+Rozszerzenie programu na komputer z Windows	An extension of the program for Windows computers
+Własne mapy i modele terenu z dowolnego miejsca	Your own maps and terrain models of any place
+GRAŃ Studio przygotowuje gotowe materiały z wybranego wycinka terenu – do druku, do programów graficznych i CAD albo do drukarki 3D. Obszar wskazujesz na mapie, a Studio pobiera dokładny teren i obiekty i od razu pokazuje podgląd.	GRAŃ Studio prepares ready-made material from a chosen piece of terrain – for printing, for graphics and CAD software or for a 3D printer. You mark the area on the map, and Studio downloads detailed terrain and features and shows a live preview.
+Modele 3D terenu do druku i programów 3D (STL, OBJ, GLB, PLY) – z materiałami: pokrycie terenu, nachylenie, śnieg	3D terrain models for printing and 3D software (STL, OBJ, GLB, PLY) – with materials: land cover, slope, snow
+Mapy wektorowe z warstwicami, cieniowaniem rzeźby, szlakami, wodą i nazwami (SVG, PDF, DXF) – każda warstwa osobno	Vector maps with contours, hillshading, trails, water and names (SVG, PDF, DXF) – every layer separate
+Przekroje terenu wzdłuż dowolnej linii	Terrain cross-sections along any line
+Obrazy PNG, mapy wysokości 16-bit i warstwice GeoJSON	PNG images, 16-bit heightmaps and GeoJSON contours
+Dokładny teren z danych urzędowych (GUGiK, ČÚZK), dla reszty świata Copernicus GLO-30	Detailed terrain from official data (GUGiK, ČÚZK), Copernicus GLO-30 for the rest of the world
+Przykład: mapa z warstwicami co 20 m, cieniowaniem i szlakiem oraz przekrój grani (Tatry, Hala Gąsienicowa).	Example: a map with 20 m contours, hillshading and a trail, plus a ridge cross-section (Tatras, Hala Gąsienicowa).
+Jak uzyskać dostęp	How to get access
+Studio udostępniam na prośbę – dostęp nadaję do konta GRANI. Jeśli chcesz z niego korzystać, napisz do mnie, do czego go potrzebujesz. Po nadaniu dostępu przycisk Studio pojawi się na górnym pasku.	I make Studio available on request – access is granted to a GRAŃ account. If you would like to use it, write to me and tell me what you need it for. Once access is granted, the Studio button appears on the top bar.
+Najpierw załóż konto GRANI albo zaloguj się – w wiadomości podam wtedy adres Twojego konta.	Create a GRAŃ account or sign in first – the message will then include your account address.
+Napisz w sprawie dostępu	Ask for access
+albo e-mail:	or e-mail:
+Dzień dobry, chciałbym/chciałabym korzystać z GRAŃ Studio.	Hello, I would like to use GRAŃ Studio.
+Konto GRANI: {}	GRAŃ account: {}
+Do czego chcę używać Studio:	What I want to use Studio for:
+Na komputerze z Windows GRAŃ ma też Studio: z dowolnego wycinka terenu przygotowuje modele 3D do druku (STL, OBJ, GLB), mapy wektorowe z warstwicami i cieniowaniem (SVG, PDF, DXF), przekroje i mapy wysokości. Studio udostępniam na prośbę – jeśli chcesz z niego korzystać, napisz do mnie. Przycisk Studio na górnym pasku pokazuje przykładową mapę i sposób kontaktu.	On Windows computers GRAŃ also has Studio: from any piece of terrain it prepares 3D models for printing (STL, OBJ, GLB), vector maps with contours and hillshading (SVG, PDF, DXF), cross-sections and heightmaps. I make Studio available on request – if you would like to use it, write to me. The Studio button on the top bar shows a sample map and how to get in touch.
