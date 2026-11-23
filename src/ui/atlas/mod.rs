@@ -361,6 +361,11 @@ pub struct Atlas {
     pub area_draft: Option<AreaDraft>,
     /// Studio (konta z dostępem, komputer): obszar, ustawienia, przygotowane dane i eksporty.
     pub studio: crate::studio::Studio,
+    /// Okno z informacją o Studio dla kont bez dostępu (Windows), jego przykładowa mapa
+    /// i prośba o otwarcie formularza kontaktu (obsługuje ją `app.rs`).
+    pub studio_intro: bool,
+    pub studio_sample: Option<egui::TextureHandle>,
+    pub studio_contact: bool,
     /// Pytanie czekające na odpowiedź (usuwanie z biblioteki itp.).
     pub confirm: Option<Confirm>,
     /// Dotyk: trwa gest dwoma palcami (do podniesienia wszystkich palców przesuwanie jednym jest wstrzymane).
@@ -526,6 +531,9 @@ impl Atlas {
             offline: crate::offline::Offline::new(heights_store),
             area_draft: None,
             studio: crate::studio::Studio::load(),
+            studio_intro: false,
+            studio_sample: None,
+            studio_contact: false,
             confirm: None,
             pinch: false,
             touch_last: None,

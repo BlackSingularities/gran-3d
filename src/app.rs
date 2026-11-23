@@ -558,6 +558,15 @@ impl App {
                                     close = true;
                                 }
                             }
+                            if crate::studio::SUPPORTED && !crate::studio::allowed(atlas.points.account()) {
+                                ui.add_space(12.0);
+                                ui.label(theme::kicker(crate::i18n::tr("GRAŃ Studio")));
+                                theme::para(ui, crate::i18n::tr("Modele 3D terenu do druku, mapy wektorowe i przekroje z dowolnego miejsca – dostęp na prośbę."));
+                                if ui.button(theme::ic(theme::icon::CUBE, "Więcej o Studio")).clicked() {
+                                    atlas.studio_intro = true;
+                                    close = true;
+                                }
+                            }
                             ui.add_space(12.0);
                             ui.label(theme::kicker(crate::i18n::tr("Źródła danych")));
                             theme::para(ui, crate::i18n::tr("Teren: Mapterhorn z modeli DMR 5.0 ÚGKK SR (CC BY 4.0), NMT GUGiK i DMR 4G ČÚZK (CC BY 4.0), zapasowo Terrarium/AWS Open Data. Zdjęcia: Esri World Imagery (© Esri, Maxar, Earthstar Geographics), opcjonalne ortofoto: GUGiK, ČÚZK, ÚGKK SR, basemap.at, swisstopo (SWISSIMAGE), Provincia autonoma di Bolzano. Komunikat turystyczny: TPN. Nazwy: OpenFreeMap, OpenMapTiles. Szlaki i punkty: © OpenStreetMap (ODbL). Wyszukiwanie: Nominatim."));
@@ -1010,6 +1019,13 @@ impl eframe::App for App {
         self.atlas.confirm_ui(ctx);
         crate::ui::panels::community_windows(&mut self.atlas, ctx);
         crate::ui::studio::window(&mut self.atlas, ctx);
+        crate::ui::studio::intro(&mut self.atlas, ctx);
+        if std::mem::take(&mut self.atlas.studio_contact) {
+            let acc = self.atlas.points.account();
+            let msg = crate::ui::studio::contact_message(acc);
+            let email = if acc.logged_in() { acc.email() } else { String::new() };
+            self.feedback.open_with(true, &msg, &email);
+        }
         self.ask_ui(ctx);
     }
 }

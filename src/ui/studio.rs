@@ -1284,3 +1284,127 @@ fn densify(pts: &[(f64, f64)], n: usize) -> Vec<(f64, f64)> {
     out.push(*pts.last().unwrap());
     out
 }
+
+/* ── informacja o Studio dla kont bez dostępu ─────────────────────────────────── */
+
+/// Przykładowa mapa z przekrojem (Tatry, prawdziwy teren) – tylko w programie na Windows.
+#[cfg(windows)]
+const SAMPLE: &[u8] = include_bytes!("../../assets/studio-sample.png");
+#[cfg(not(windows))]
+const SAMPLE: &[u8] = &[];
+
+/// Wiadomość wstawiana do formularza zgłoszenia po kliknięciu „Napisz w sprawie dostępu”.
+pub fn contact_message(acc: &crate::account::Account) -> String {
+    let mut m = tr("Dzień dobry, chciałbym/chciałabym korzystać z GRAŃ Studio.").to_string();
+    if acc.logged_in() {
+        m.push('\n');
+        m.push_str(&tf!("Konto GRANI: {}", acc.email()));
+    }
+    m.push_str("\n\n");
+    m.push_str(&tr("Do czego chcę używać Studio:"));
+    m.push('\n');
+    m
+}
+
+/// Okno „GRAŃ Studio” dla osób bez dostępu (Windows): co potrafi Studio, przykładowa mapa
+/// i kontakt w sprawie nadania dostępu. Otwierane przyciskiem na pasku i z Ustawień → O programie.
+pub fn intro(a: &mut Atlas, ctx: &egui::Context) {
+    if !a.studio_intro {
+        return;
+    }
+    if !crate::studio::SUPPORTED || crate::studio::allowed(a.points.account()) {
+        a.studio_intro = false;
+        return;
+    }
+    if a.studio_sample.is_none() && !SAMPLE.is_empty() {
+        if let Ok(img) = image::load_from_memory_with_format(SAMPLE, image::ImageFormat::Png) {
+            let img = img.to_rgba8();
+            let ci = egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw());
+            a.studio_sample = Some(ctx.load_texture("studio-przyklad", ci, egui::TextureOptions::LINEAR));
+        }
+    }
+    let mut open = true;
+    let mut contact = false;
+    let mut account = None;
+    let screen = ctx.screen_rect();
+    let w = theme::fit(ctx, 720.0);
+    let logged_in = a.points.account().logged_in();
+    let support = Some(a.points.account().support()).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "kontakt@redzikowski.com".to_string());
+    egui::Window::new(format!("{}  {}", theme::icon::CUBE, tr("GRAŃ Studio")))
+        .id(egui::Id::new("gran-studio-info"))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+        .fixed_size(Vec2::new(w, (screen.height() - 120.0).clamp(320.0, 860.0)))
+        .frame(egui::Frame::window(&ctx.style()).fill(theme::POPUP_FILL))
+        .show(ctx, |ui| {
+            egui::ScrollArea::vertical().id_salt("studio-info").auto_shrink([false, false]).show(ui, |ui| {
+                ui.set_width(w - 24.0);
+                ui.label(theme::kicker("Rozszerzenie programu na komputer z Windows"));
+                ui.add_space(2.0);
+                ui.add(egui::Label::new(egui::RichText::new(tr("Własne mapy i modele terenu z dowolnego miejsca")).size(19.0).strong()).wrap());
+                ui.add_space(6.0);
+                para(ui, &tr("GRAŃ Studio przygotowuje gotowe materiały z wybranego wycinka terenu – do druku, do programów graficznych i CAD albo do drukarki 3D. Obszar wskazujesz na mapie, a Studio pobiera dokładny teren i obiekty i od razu pokazuje podgląd."));
+                ui.add_space(8.0);
+                for (icon, text) in [
+                    (theme::icon::CUBE, "Modele 3D terenu do druku i programów 3D (STL, OBJ, GLB, PLY) – z materiałami: pokrycie terenu, nachylenie, śnieg"),
+                    (theme::icon::MAP_TRIFOLD, "Mapy wektorowe z warstwicami, cieniowaniem rzeźby, szlakami, wodą i nazwami (SVG, PDF, DXF) – każda warstwa osobno"),
+                    (theme::icon::CHART_LINE, "Przekroje terenu wzdłuż dowolnej linii"),
+                    (theme::icon::IMAGE, "Obrazy PNG, mapy wysokości 16-bit i warstwice GeoJSON"),
+                    (theme::icon::MOUNTAINS, "Dokładny teren z danych urzędowych (GUGiK, ČÚZK), dla reszty świata Copernicus GLO-30"),
+                ] {
+                    ui.horizontal_top(|ui| {
+                        ui.label(egui::RichText::new(icon).color(theme::BRASS));
+                        ui.add(egui::Label::new(egui::RichText::new(tr(text)).color(theme::paper_2())).wrap());
+                    });
+                }
+                if let Some(tex) = &a.studio_sample {
+                    ui.add_space(10.0);
+                    let iw = ui.available_width();
+                    let size = tex.size_vec2() * (iw / tex.size_vec2().x);
+                    ui.add(egui::Image::new((tex.id(), size)).corner_radius(8.0));
+                    ui.add_space(2.0);
+                    note(ui, &tr("Przykład: mapa z warstwicami co 20 m, cieniowaniem i szlakiem oraz przekrój grani (Tatry, Hala Gąsienicowa)."));
+                }
+                ui.add_space(12.0);
+                ui.label(theme::kicker("Jak uzyskać dostęp"));
+                ui.add_space(2.0);
+                para(ui, &tr("Studio udostępniam na prośbę – dostęp nadaję do konta GRANI. Jeśli chcesz z niego korzystać, napisz do mnie, do czego go potrzebujesz. Po nadaniu dostępu przycisk Studio pojawi się na górnym pasku."));
+                if !logged_in {
+                    ui.add_space(4.0);
+                    note(ui, &tr("Najpierw załóż konto GRANI albo zaloguj się – w wiadomości podam wtedy adres Twojego konta."));
+                }
+                ui.add_space(10.0);
+                ui.horizontal_wrapped(|ui| {
+                    if ui.add(theme::primary(&theme::ic(theme::icon::PAPER_PLANE_RIGHT, "Napisz w sprawie dostępu"))).clicked() {
+                        contact = true;
+                    }
+                    if !logged_in {
+                        if ui.add(egui::Button::new(theme::ic(theme::icon::USER_PLUS, "Załóż konto")).min_size(Vec2::new(0.0, 34.0))).clicked() {
+                            account = Some(crate::ui::atlas::AccountMode::Register);
+                        }
+                        if ui.add(egui::Button::new(theme::ic(theme::icon::SIGN_IN, "Zaloguj się")).min_size(Vec2::new(0.0, 34.0))).clicked() {
+                            account = Some(crate::ui::atlas::AccountMode::Login);
+                        }
+                    }
+                });
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    note(ui, &tr("albo e-mail:"));
+                    if ui.link(egui::RichText::new(&support).small()).clicked() {
+                        crate::platform::open_url(&format!("mailto:{support}?subject=GRA%C5%83%20Studio"));
+                    }
+                });
+            });
+        });
+    if !open || ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+        a.studio_intro = false;
+    }
+    if contact {
+        a.studio_contact = true;
+    }
+    if let Some(mode) = account {
+        crate::ui::panels::open_account(a, mode);
+    }
+}

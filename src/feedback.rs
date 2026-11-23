@@ -235,6 +235,16 @@ impl FeedbackUi {
         self.job = None;
     }
 
+    /// Formularz z gotowym rodzajem i początkiem wiadomości (np. prośba o dostęp do funkcji).
+    pub fn open_with(&mut self, feature: bool, message: &str, email: &str) {
+        self.open();
+        self.feature = feature;
+        self.message = message.to_string();
+        if self.email.trim().is_empty() {
+            self.email = email.to_string();
+        }
+    }
+
     pub fn is_open(&self) -> bool {
         !matches!(self.mode, Mode::Closed)
     }
