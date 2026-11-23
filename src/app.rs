@@ -98,10 +98,13 @@ pub struct App {
 
 /// Wersja ekranu powitalnego: większa – pokaż go raz także osobom, które przewodnik już widziały.
 /// 2 – położenie GPS, nagrywanie przejść i zegarki (dotychczasowi użytkownicy widzą od razu ten krok).
-const WELCOME: u32 = 2;
+/// 3 – GRAŃ Studio (Windows; kto widział wersję 2, zaczyna od kroku o Studio).
+const WELCOME: u32 = 3;
 
 /// Krok przewodnika o położeniu, nagrywaniu i zegarkach.
 const TOUR_GPS_STEP: usize = 6;
+/// Krok przewodnika o GRAŃ Studio (tylko Windows, tylko konta bez dostępu).
+const TOUR_STUDIO_STEP: usize = 7;
 
 /// Klucz ustawień widoku; nowy układ zaczyna od nowych domyślnych.
 const PREFS_KEY: &str = "atlas2";
@@ -164,7 +167,12 @@ impl App {
         // przewodnik dla nowych, a powitanie (autor, wsparcie, zgłoszenia) raz także dla dotychczasowych
         let unseen = !app.settings.tour_done || app.settings.welcome < WELCOME;
         // kto przewodnik już widział, zaczyna od nowości (położenie, nagrywanie, zegarki)
-        let first = if app.settings.tour_done { TOUR_GPS_STEP } else { 0 };
+        // (kto widział wersję 2, zaczyna od kroku o Studio; bez niego to już ostatni krok – wsparcie)
+        let first = match (app.settings.tour_done, app.settings.welcome) {
+            (false, _) => 0,
+            (true, 2) => TOUR_STUDIO_STEP,
+            _ => TOUR_GPS_STEP,
+        };
         app.tour = if unseen && std::env::var_os("GRAN_CAPTURE").is_none() { Some(first) } else { None };
         // zrzuty do dokumentacji: przewodnik na wybranym kroku (GRAN_TOUR=0…)
         if let Some(n) = std::env::var("GRAN_TOUR").ok().and_then(|n| n.parse::<usize>().ok()) {
@@ -786,7 +794,7 @@ impl App {
             return;
         }
         let mobile = crate::platform::MOBILE;
-        let steps: [(&str, &str, &str); 8] = [
+        let mut steps: Vec<(&str, &str, &str)> = vec![
             (theme::icon::MOUNTAINS, "Witaj w GRANI", "Trójwymiarowy atlas gór z prawdziwym modelem terenu, znakowanymi szlakami i trasami z wariantami – na Windows i Androida. W kilku krokach pokażę, jak z niego korzystać."),
             if mobile {
                 (theme::icon::HAND_GRABBING, "Poruszanie mapą", "Jeden palec – przesuwanie. Dwa palce: rozsuwanie przybliża, obrót palców obraca mapę, przesuwanie w górę i w dół zmienia nachylenie. Przytrzymaj palec na miejscu, żeby je zaznaczyć i zobaczyć szczegóły.")
@@ -812,8 +820,15 @@ impl App {
             },
             (theme::icon::HEART, "Wsparcie i kontakt", "GRAŃ tworzę sam, po godzinach, i udostępniam za darmo. Jeśli program Ci się przydaje, możesz postawić mi kawę. Błąd albo pomysł na nową funkcję zgłosisz z ustawień (O programie → Zgłoś błąd lub sugestię) – zgłoszenie trafia prosto do mnie. Przewodnik obejrzysz ponownie z ustawień."),
         ];
+        // komputer bez dostępu do Studio: krok o Studio przed wsparciem
+        let studio_step = crate::studio::SUPPORTED && !crate::studio::allowed(self.atlas.points.account());
+        if studio_step {
+            steps.insert(TOUR_STUDIO_STEP, (theme::icon::CUBE, "GRAŃ Studio", "Na komputerze z Windows GRAŃ ma też Studio: z dowolnego wycinka terenu przygotowuje modele 3D do druku (STL, OBJ, GLB), mapy wektorowe z warstwicami i cieniowaniem (SVG, PDF, DXF), przekroje i mapy wysokości. Studio udostępniam na prośbę – jeśli chcesz z niego korzystać, napisz do mnie. Przycisk Studio na górnym pasku pokazuje przykładową mapę i sposób kontaktu."));
+        }
         let step = step.min(steps.len() - 1);
         let last = step + 1 == steps.len();
+        let is_studio = studio_step && step == TOUR_STUDIO_STEP;
+        let mut studio_more = false;
         let (glyph, title, body) = steps[step];
         let mut next = Some(step);
         let mut feedback = false;
@@ -837,6 +852,12 @@ impl App {
             });
             ui.add_space(12.0);
             ui.add(egui::Label::new(RichText::new(tr(body)).size(15.0).color(theme::paper_2())).wrap());
+            if is_studio {
+                ui.add_space(12.0);
+                if ui.add(egui::Button::new(theme::ic(theme::icon::CUBE, "Więcej o Studio")).min_size(egui::vec2(0.0, 34.0))).clicked() {
+                    studio_more = true;
+                }
+            }
             // autor (powitanie) i wsparcie (koniec)
             if step == 0 || last {
                 ui.add_space(12.0);
@@ -883,6 +904,10 @@ impl App {
                 });
             });
         });
+        if studio_more {
+            next = None;
+            self.atlas.studio_intro = true;
+        }
         self.tour = next;
         if feedback {
             self.feedback.open();
